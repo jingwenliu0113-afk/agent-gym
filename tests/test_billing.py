@@ -232,10 +232,10 @@ def test_sweep_budget_requires_a_priced_model(tmp_path: Path) -> None:
     sources = select_sources(run_dir)
     client = OracleFakeClient(week1_pool("eval"))
     with pytest.raises(ValueError):
-        run_sweeps(sources, client, plan=SweepPlan(3, 2, 2, 0.3), run_dir=tmp_path / "s", max_cost_usd=1.0,
+        run_sweeps(sources, client, plan=SweepPlan(3, 2, 2, 0.3), criterion="wilson95", run_dir=tmp_path / "s", max_cost_usd=1.0,
                    clock=ZERO, agent_config=unpriced)
     assert client.requests == []
-    summary = run_sweeps(sources, client, plan=SweepPlan(3, 2, 2, 0.3), run_dir=tmp_path / "t", clock=ZERO,
+    summary = run_sweeps(sources, client, plan=SweepPlan(3, 2, 2, 0.3), criterion="wilson95", run_dir=tmp_path / "t", clock=ZERO,
                          agent_config=unpriced, replicates=20)
     assert summary.unknown_cost_calls == summary.model_calls > 0
 

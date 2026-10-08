@@ -11,6 +11,7 @@ import time
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
+from statistics import NormalDist
 from typing import Callable, Mapping
 
 from agents.policy import Policy
@@ -22,6 +23,11 @@ from replay.trajectory import Trajectory
 from tasks.schema import Task
 
 ROLLOUT_OUTCOMES: tuple[str, ...] = ("success", "failure", "refusal", "agent_error", "aborted")
+
+# 驟降判定（decision 015）：wilson95 = decision 010（兩點的 95% Wilson CI 不重疊）；bonferroni95 = decision 011 的選項 A
+# （Wilson CI 以 z = Φ⁻¹(1 − 0.025 / m) 計算，m = 相鄰已估計點的對數）。正式實驗使用哪一個屬於使用者決策；預設維持 decision 010。
+CLIFF_CRITERIA: tuple[str, ...] = ("wilson95", "bonferroni95")
+DEFAULT_CLIFF_CRITERION = "wilson95"
 
 
 @dataclass(frozen=True)
@@ -85,7 +91,8 @@ class SweepResult:
     refined_intervals: tuple[tuple[int, int], ...]  # 所有 refine 輪次標記過的區間（decision 013 §2），去重、依 a 遞增
     largest_drop: float  # 相鄰已估計 checkpoint 的最大 p̂(k) − p̂(k')；少於兩點時 0.0
     largest_drop_k: int | None  # 最大下降的前一點 k
-    is_cliff: bool  # largest_drop >= drop_threshold 且兩點 Wilson CI 不重疊
+    is_cliff: bool  # largest_drop >= drop_threshold 且兩點的 Wilson CI（依 criterion）不重疊
+    criterion: str = DEFAULT_CLIFF_CRITERION  # CLIFF_CRITERIA 之一（decision 015）
 
 
 def valid_checkpoints(trajectory: Trajectory) -> list[int]:
@@ -163,12 +170,18 @@ def _meets_threshold(drop: Fraction, drop_threshold: float) -> bool:
     return drop >= Fraction(repr(float(drop_threshold)))
 
 
-def detect_cliff(estimates: tuple[CheckpointEstimate, ...], drop_threshold: float) -> tuple[float, int | None, bool]:
+def detect_cliff(
+    estimates: tuple[CheckpointEstimate, ...], drop_threshold: float, *, criterion: str = DEFAULT_CLIFF_CRITERION
+) -> tuple[float, int | None, bool]:
     """回傳 (largest_drop, largest_drop_k, is_cliff)；見 SweepResult 欄位說明。同大小時取 k 較小者。
-    estimates 必須依 k 嚴格遞增，否則 ValueError。
+    estimates 必須依 k 嚴格遞增、criterion 必須在 CLIFF_CRITERIA 中，否則 ValueError。
+    is_cliff：wilson95 → 兩點的 ci_low > ci_high（95% Wilson）；bonferroni95 → 以 z = Φ⁻¹(1 − 0.025 / m)（m = len(estimates) − 1）
+    重算兩點的 Wilson 區間後 low > high。兩點時兩者相同。
     下降以精確有理數 successes / n 計算、比較（同大小與 ``>= drop_threshold`` 都不受浮點捨入影響，見 _meets_threshold）；
     largest_drop 回傳該精確值最接近的 float。
     """
+    if criterion not in CLIFF_CRITERIA:
+        raise ValueError(f"criterion must be one of {CLIFF_CRITERIA}")
     ks = [estimate.k for estimate in estimates]
     if any(b <= a for a, b in zip(ks, ks[1:])):
         raise ValueError("estimates must be sorted by strictly increasing k")
@@ -182,7 +195,12 @@ def detect_cliff(estimates: tuple[CheckpointEstimate, ...], drop_threshold: floa
             best_index = index
     best_drop = drops[best_index]
     before, after = estimates[best_index], estimates[best_index + 1]
-    is_cliff = _meets_threshold(best_drop, drop_threshold) and before.ci_low > after.ci_high
+    if criterion == "wilson95":
+        separated = before.ci_low > after.ci_high
+    else:
+        z = NormalDist().inv_cdf(1 - 0.025 / (len(estimates) - 1))
+        separated = wilson_interval(before.successes, before.n, z)[0] > wilson_interval(after.successes, after.n, z)[1]
+    is_cliff = _meets_threshold(best_drop, drop_threshold) and separated
     return float(best_drop), before.k, is_cliff
 
 
@@ -264,6 +282,7 @@ def sweep(
     plan: SweepPlan,
     log_path: str | Path,
     clock: Clock = time.perf_counter,
+    criterion: str = DEFAULT_CLIFF_CRITERION,
 ) -> SweepResult:
     """對 source 執行 coarse → refine 掃描。
 
@@ -274,9 +293,12 @@ def sweep(
       其他（agent_output）→ "agent_error"。harness 例外往外拋。
     - 排程與 refine 一律由 ``run_protocol(last, plan, ...)`` 決定（coarse → 反覆 refine，decision 013 §2）。
     - run_logged 的事前檢查錯誤（例如 manifest 已有相同的嘗試）原樣往外拋。
+    - 驟降判定依 criterion（CLIFF_CRITERIA，decision 015），在執行任何 rollout 之前檢查（不合法 → ValueError）。
     """
     if not isinstance(plan, SweepPlan):
         raise ValueError("plan must be a SweepPlan")
+    if criterion not in CLIFF_CRITERIA:
+        raise ValueError(f"criterion must be one of {CLIFF_CRITERIA}")
     last = valid_checkpoints(source)[-1]
     task = Task.from_dict(source.task)
     config_id = source.agent.config_id
@@ -312,7 +334,7 @@ def sweep(
 
     protocol = run_protocol(last, plan, run_one)
     estimates = tuple(estimate_checkpoint(k, list(protocol.outcomes[k])) for k in sorted(protocol.outcomes))
-    largest_drop, largest_drop_k, is_cliff = detect_cliff(estimates, plan.drop_threshold)
+    largest_drop, largest_drop_k, is_cliff = detect_cliff(estimates, plan.drop_threshold, criterion=criterion)
     return SweepResult(
         task_id=task.task_id,
         source_trajectory_id=source_id,
@@ -323,5 +345,6 @@ def sweep(
         largest_drop=largest_drop,
         largest_drop_k=largest_drop_k,
         is_cliff=is_cliff,
+        criterion=criterion,
     )
 

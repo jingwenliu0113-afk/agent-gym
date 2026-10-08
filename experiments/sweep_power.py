@@ -12,8 +12,6 @@ import json
 import math
 import random
 from dataclasses import asdict, dataclass
-from fractions import Fraction
-from statistics import NormalDist
 from typing import Sequence
 
 from replay.localization import (
@@ -23,8 +21,9 @@ from replay.localization import (
     detect_cliff,
     estimate_checkpoint,
     run_protocol,
+    CLIFF_CRITERIA,
+    DEFAULT_CLIFF_CRITERION,
 )
-from replay.stats import wilson_interval
 
 REPS = 400
 SEED = 0
@@ -143,34 +142,16 @@ def candidate_plans() -> tuple[SweepPlan, ...]:
     )
 
 
-CRITERIA = ("decision-010", "bonferroni-exploratory")
-
-
-def bonferroni_cliff(estimates: tuple[CheckpointEstimate, ...], drop_threshold: float) -> tuple[float, int | None, bool]:
-    """**探索用、未採用**（decision 011）的 cliff 判定：Δ* 與 k* 同 detect_cliff；cliff ⇔ Δ* >= 門檻（精確比較）且兩點的 Wilson CI
-    在 Bonferroni 校正的 z = Φ⁻¹(1 − 0.025 / m) 下不重疊（m = 相鄰已估計點的對數）。只有兩個點時與 detect_cliff 相同。"""
-    largest_drop, largest_drop_k, _ = detect_cliff(estimates, drop_threshold)
-    if largest_drop_k is None:
-        return largest_drop, None, False
-    index = [e.k for e in estimates].index(largest_drop_k)
-    before, after = estimates[index], estimates[index + 1]
-    z = NormalDist().inv_cdf(1 - 0.025 / (len(estimates) - 1))
-    low, _ = wilson_interval(before.successes, before.n, z)
-    _, high = wilson_interval(after.successes, after.n, z)
-    drop = Fraction(before.successes, before.n) - Fraction(after.successes, after.n)
-    return largest_drop, largest_drop_k, drop >= Fraction(repr(float(drop_threshold))) and low > high
-
-
 def simulate_sweep(
-    curve: Sequence[float], plan: SweepPlan, rng: random.Random, *, criterion: str = "decision-010"
+    curve: Sequence[float], plan: SweepPlan, rng: random.Random, *, criterion: str = DEFAULT_CLIFF_CRITERION
 ) -> SimulatedSweep:
     """以 sweep() 使用的同一個 ``run_protocol``（coarse → 反覆 refine，decision 013）排程；rollout i 於 checkpoint k 的結果為
     ``rng.random() < curve[k]``，依排程順序抽取。之後以同一組 estimate_checkpoint / detect_cliff 判定。last = len(curve) − 1。
-    criterion = "bonferroni-exploratory" 時改用 bonferroni_cliff（只供 decision 011 的探索；排程相同）。
+    criterion：驟降判定（replay.localization.CLIFF_CRITERIA，decision 015），只影響判定、不影響排程。
     """
     _check_curve(curve)
-    if criterion not in CRITERIA:
-        raise ValueError(f"criterion must be one of {CRITERIA}")
+    if criterion not in CLIFF_CRITERIA:
+        raise ValueError(f"criterion must be one of {CLIFF_CRITERIA}")
 
     def rollout(k: int, i: int) -> RolloutOutcome:
         label = "success" if rng.random() < curve[k] else "failure"
@@ -178,8 +159,7 @@ def simulate_sweep(
 
     protocol = run_protocol(len(curve) - 1, plan, rollout)
     estimates = tuple(estimate_checkpoint(k, list(protocol.outcomes[k])) for k in sorted(protocol.outcomes))
-    judge = detect_cliff if criterion == "decision-010" else bonferroni_cliff
-    largest_drop, largest_drop_k, is_cliff = judge(estimates, plan.drop_threshold)
+    largest_drop, largest_drop_k, is_cliff = detect_cliff(estimates, plan.drop_threshold, criterion=criterion)
     return SimulatedSweep(
         estimates=estimates,
         refined_intervals=protocol.refined_intervals,
@@ -191,7 +171,7 @@ def simulate_sweep(
 
 
 def power(
-    scenario: Scenario, plan: SweepPlan, *, reps: int = REPS, seed: int = SEED, criterion: str = "decision-010"
+    scenario: Scenario, plan: SweepPlan, *, reps: int = REPS, seed: int = SEED, criterion: str = DEFAULT_CLIFF_CRITERION
 ) -> PowerRow:
     """以 ``random.Random(f"{seed}|{scenario.name}|{plan}")`` 重複 reps 次 simulate_sweep（reps 為 int >= 1，否則 ValueError）。"""
     if type(reps) is not int or reps < 1:
@@ -262,11 +242,11 @@ def main() -> None:  # pragma: no cover - 由 CLI 執行
     print("\n## Pre-registered grid, decision 010 criterion (decision 011 §3–4)\n")
     print("\n".join(_summary_rows(rows, candidate_plans())))
     exploratory = [
-        power(scenario, plan, criterion="bonferroni-exploratory")
+        power(scenario, plan, criterion="bonferroni95")
         for plan in candidate_plans() + EXPLORATION_PLANS
         for scenario in scenarios
     ]
-    print("\n## Exploration only (not adopted): Bonferroni criterion, grid + n_fine 48 / 64\n")
+    print("\n## Option A (decision 011 exploration, selectable since decision 015): bonferroni95, grid + n_fine 48 / 64\n")
     print("\n".join(_summary_rows(exploratory, candidate_plans() + EXPLORATION_PLANS)))
     best = select_plan(exploratory)
     print(f"\nexploration select_plan: {None if best is None else asdict(best)}")

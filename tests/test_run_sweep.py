@@ -121,7 +121,7 @@ def test_dry_run_sweeps_every_source(eval_run: Path, tmp_path: Path) -> None:
     sources = select_sources(eval_run)
     run_dir = tmp_path / "sweep"
     client = OracleFakeClient(week1_pool("eval"))
-    summary = run_sweeps(sources, client, plan=SMALL_PLAN, run_dir=run_dir, clock=ZERO, replicates=200)
+    summary = run_sweeps(sources, client, plan=SMALL_PLAN, criterion="wilson95", run_dir=run_dir, clock=ZERO, replicates=200)
     assert isinstance(summary, SweepRunSummary)
     assert summary.sources == tuple(EVAL_IDS) and summary.completed == tuple(EVAL_IDS)
     assert summary.missing_sources == () and summary.stopped_by_budget is False
@@ -151,7 +151,7 @@ def test_dry_run_sweeps_every_source(eval_run: Path, tmp_path: Path) -> None:
 def test_missing_sources_are_reported_and_excluded(eval_run: Path, tmp_path: Path) -> None:
     sources = dict(select_sources(eval_run))
     sources[EVAL_IDS[0]] = None
-    summary = run_sweeps(sources, OracleFakeClient(week1_pool("eval")), plan=SMALL_PLAN, run_dir=tmp_path / "s",
+    summary = run_sweeps(sources, OracleFakeClient(week1_pool("eval")), plan=SMALL_PLAN, criterion="wilson95", run_dir=tmp_path / "s",
                          clock=ZERO, replicates=50)
     assert summary.missing_sources == (EVAL_IDS[0],)
     assert EVAL_IDS[0] not in summary.completed and EVAL_IDS[0] not in summary.results
@@ -164,7 +164,7 @@ def test_bootstrap_is_none_when_a_family_has_no_completed_sweep(eval_run: Path, 
     for inst in week1_pool("eval"):
         if inst.task.family == family:
             sources[inst.task.task_id] = None
-    summary = run_sweeps(sources, OracleFakeClient(week1_pool("eval")), plan=SMALL_PLAN, run_dir=tmp_path / "s",
+    summary = run_sweeps(sources, OracleFakeClient(week1_pool("eval")), plan=SMALL_PLAN, criterion="wilson95", run_dir=tmp_path / "s",
                          clock=ZERO, replicates=50)
     assert summary.cliff_rate is None and summary.mean_largest_drop is None
     assert len(summary.completed) == 12
@@ -173,7 +173,7 @@ def test_bootstrap_is_none_when_a_family_has_no_completed_sweep(eval_run: Path, 
 def test_budget_stops_before_the_next_attempt(eval_run: Path, tmp_path: Path) -> None:
     sources = select_sources(eval_run)
     run_dir = tmp_path / "s"
-    summary = run_sweeps(sources, OracleFakeClient(week1_pool("eval")), plan=SMALL_PLAN, run_dir=run_dir,
+    summary = run_sweeps(sources, OracleFakeClient(week1_pool("eval")), plan=SMALL_PLAN, criterion="wilson95", run_dir=run_dir,
                          max_cost_usd=CALL_COST / 2, clock=ZERO, replicates=50)
     assert summary.stopped_by_budget is True
     assert summary.completed == () and summary.results == {}
@@ -196,7 +196,7 @@ def test_source_from_another_agent_is_rejected(eval_run: Path, tmp_path: Path) -
     sources[inst.task.task_id] = foreign
     client = OracleFakeClient(week1_pool("eval"))
     with pytest.raises(ValueError):
-        run_sweeps(sources, client, plan=SMALL_PLAN, run_dir=tmp_path / "s", clock=ZERO)
+        run_sweeps(sources, client, plan=SMALL_PLAN, criterion="wilson95", run_dir=tmp_path / "s", clock=ZERO)
     assert client.requests == []
 
 
@@ -206,7 +206,7 @@ def test_source_from_another_agent_is_rejected(eval_run: Path, tmp_path: Path) -
 )
 def test_bad_arguments_are_rejected_without_running(change: str, eval_run: Path, tmp_path: Path) -> None:
     sources: Any = select_sources(eval_run)
-    kwargs: dict[str, Any] = {"plan": SMALL_PLAN, "run_dir": tmp_path / "s", "clock": ZERO}
+    kwargs: dict[str, Any] = {"plan": SMALL_PLAN, "criterion": "wilson95", "run_dir": tmp_path / "s", "clock": ZERO}
     if change == "plan":
         kwargs["plan"] = (3, 2, 2, 0.3)
     elif change == "empty":
@@ -240,6 +240,7 @@ def test_parse_plan() -> None:
 def test_summary_fields_are_stable() -> None:
     assert [f.name for f in dataclasses.fields(SweepRunSummary)] == [
         "plan",
+        "criterion",
         "config_id",
         "sources",
         "missing_sources",
@@ -253,3 +254,24 @@ def test_summary_fields_are_stable() -> None:
         "unknown_cost_calls",
         "stopped_by_budget",
     ]
+
+
+# ---------------------------------------------------------------- 驟降判定（decision 015）
+
+
+def test_criterion_is_required_and_recorded(eval_run: Path, tmp_path: Path) -> None:
+    sources = select_sources(eval_run)
+    with pytest.raises(TypeError):
+        run_sweeps(sources, OracleFakeClient(week1_pool("eval")), plan=SMALL_PLAN, run_dir=tmp_path / "a", clock=ZERO)  # type: ignore[call-arg]
+    summary = run_sweeps(sources, OracleFakeClient(week1_pool("eval")), plan=SMALL_PLAN, criterion="bonferroni95",
+                         run_dir=tmp_path / "b", clock=ZERO, replicates=20)
+    assert summary.criterion == "bonferroni95"
+    assert all(result.criterion == "bonferroni95" for result in summary.results.values())
+    assert json.loads((tmp_path / "b" / "summary.json").read_text(encoding="utf-8"))["criterion"] == "bonferroni95"
+
+
+def test_unknown_criterion_is_rejected_without_running(eval_run: Path, tmp_path: Path) -> None:
+    client = OracleFakeClient(week1_pool("eval"))
+    with pytest.raises(ValueError):
+        run_sweeps(select_sources(eval_run), client, plan=SMALL_PLAN, criterion="other", run_dir=tmp_path / "s", clock=ZERO)
+    assert client.requests == []

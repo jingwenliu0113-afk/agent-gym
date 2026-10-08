@@ -76,7 +76,7 @@ coarse_stride ∈ {1, 2, 3} × n_coarse ∈ {4, 6, 8, 10} × n_fine ∈ {16, 24,
 | (2, 10, 32, 0.3) | 0.833 | 0.138 | 199.6 |
 | (1, 10, 32, 0.3) | 0.858 | 0.168 | 216.1 |
 
-### 探索（未採用，只供使用者決定時參考；`criterion="bonferroni-exploratory"`）
+### 探索（未採用，只供使用者決定時參考；decision 015 後為正式可選的 `criterion="bonferroni95"`）
 
 把 cliff 判定的 CI 改為 **Bonferroni 校正**（z = Φ⁻¹(1 − 0.025 / m)，m = 相鄰已估計點的對數；其餘規則與排程相同），同樣的情境、reps、seed：
 
@@ -93,6 +93,5 @@ coarse_stride ∈ {1, 2, 3} × n_coarse ∈ {4, 6, 8, 10} × n_fine ∈ {16, 24,
 | C | 維持判定 + (2, 8, 24, 0.3)，偵測率約 0.64、誤判約 0.15 | 0.64 / 0.15 | $99 – $1,510 |
 
 建議 A：Gate 判定（decision 012）依賴「cliff vs gradual」的區分，gradual 被誤判為 cliff 會直接誤導是否進 Advanced；
-A 是唯一兩個門檻都達到的設定。選定後必須另立 decision log，把判定正式實作到 `replay.localization`（目前只存在於模擬程式）並測試，
-再以正式實作重跑本模擬確認。成本的高估情境假設每次 call 4000 個 output tokens、turn 數為 oracle 的 2 倍且不計 prompt caching，
+A 是唯一兩個門檻都達到的設定。判定已在 decision 015 正式實作為可選項（`--criterion bonferroni95`），以正式實作重算的數字與上表相同；選定後只需另立 decision log 記錄選擇。成本的高估情境假設每次 call 4000 個 output tokens、turn 數為 oracle 的 2 倍且不計 prompt caching，
 dev sanity 之後會以實測值重估。

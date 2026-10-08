@@ -206,3 +206,52 @@ def test_bad_last_is_rejected(last: object) -> None:
 def test_bad_plan_is_rejected() -> None:
     with pytest.raises(ValueError):
         run_protocol(3, (2, 8, 24, 0.3), _scripted(lambda k, i: True))  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------- 驟降判定可選擇（decision 015）
+
+
+def test_cliff_criteria_constant() -> None:
+    from replay.localization import CLIFF_CRITERIA, DEFAULT_CLIFF_CRITERION
+
+    assert CLIFF_CRITERIA == ("wilson95", "bonferroni95")
+    assert DEFAULT_CLIFF_CRITERION == "wilson95"
+
+
+def test_default_criterion_is_decision_010() -> None:
+    estimates = (_estimate(0, 20, 24),) + tuple(_estimate(k, 8, 24) for k in range(1, 6))
+    assert detect_cliff(estimates, 0.3) == detect_cliff(estimates, 0.3, criterion="wilson95")
+
+
+def test_bonferroni_equals_wilson_for_two_points() -> None:
+    for a, b in ((20, 8), (24, 0), (16, 8), (12, 12), (11, 5)):
+        pair = (_estimate(0, a, 24), _estimate(1, b, 24))
+        assert detect_cliff(pair, 0.3, criterion="bonferroni95") == detect_cliff(pair, 0.3)
+
+
+def test_bonferroni_is_stricter_with_more_pairs() -> None:
+    estimates = (_estimate(0, 20, 24),) + tuple(_estimate(k, 8, 24) for k in range(1, 6))
+    drop, k, cliff = detect_cliff(estimates, 0.3)
+    assert (k, cliff) == (0, True)
+    assert detect_cliff(estimates, 0.3, criterion="bonferroni95") == (drop, 0, False)
+
+
+def test_bonferroni_uses_the_corrected_quantile() -> None:
+    """m = 相鄰已估計點的對數；z = Φ⁻¹(1 − 0.025 / m)。以 Wilson 區間直接重算判定。"""
+    from statistics import NormalDist
+
+    from replay.stats import wilson_interval
+
+    for successes in range(14, 25):
+        estimates = (_estimate(0, successes, 24), _estimate(1, 4, 24), _estimate(2, 4, 24), _estimate(3, 4, 24))
+        z = NormalDist().inv_cdf(1 - 0.025 / 3)
+        expected = (
+            Fraction(successes, 24) - Fraction(4, 24) >= Fraction(3, 10)
+            and wilson_interval(successes, 24, z)[0] > wilson_interval(4, 24, z)[1]
+        )
+        assert detect_cliff(estimates, 0.3, criterion="bonferroni95")[2] == expected, successes
+
+
+def test_unknown_criterion_is_rejected() -> None:
+    with pytest.raises(ValueError):
+        detect_cliff((_estimate(0, 1, 2), _estimate(1, 0, 2)), 0.3, criterion="other")

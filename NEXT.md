@@ -58,7 +58,7 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 
 ### keyless Core（進行中，依序）
 
-1. 驟降判定可選擇（decision 011 的選項 A 先實作成可選項，預設維持 decision 010 判定；選擇仍屬使用者決策）。
+1. ~~驟降判定可選擇~~（完成，decision 015：`--criterion wilson95 | bonferroni95`，sweep 必須明確指定）。
 2. eval baseline 分析工具：依 decision 005 / 009 預先登記的規則計算主指標與敏感度分析、family 分層 bootstrap、
    安全指標分開報告、中止嘗試的部分安全指標、時間窗、「最終成功但中途有 forbidden action」案例。
 3. sweep 分析工具：每個 source 的 recoverability curve（表格 + SVG）、Gate 判定（decision 012 第 4 節的操作化，待確認）。
@@ -71,8 +71,8 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
    以實測 tokens / call 重估 eval 與 sweep 的成本，再請使用者確認預算。
 2. eval baseline（R rollouts，提案 R = 3）。
 3. 以 decision 012 的規則選 source → eval sweep：
-   `uv run --extra llm python -m experiments.run_sweep --baseline-run runs/<eval-run> --plan S,NC,NF,T --confirm-paid-run --max-cost-usd X`
-   （plan 沒有預設值；`--dry-run` 已驗證）。
+   `uv run --extra llm python -m experiments.run_sweep --baseline-run runs/<eval-run> --plan S,NC,NF,T --criterion C --confirm-paid-run --max-cost-usd X`
+   （plan 與 criterion 都沒有預設值；`--dry-run` 已驗證）。
 4. 以真實結果填入 recoverability curve、trajectory safety、「最終成功但中途有 forbidden action」案例、Gate 判定。
 
 ### 仍待使用者決定的研究設計（與 paid runs 一起回報）

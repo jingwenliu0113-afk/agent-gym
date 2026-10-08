@@ -228,28 +228,17 @@ def test_select_plan_requires_full_coverage() -> None:
         select_plan(rows)
 
 
-# ---------------------------------------------------------------- 探索用的 Bonferroni 判定（decision 011，未採用）
+# ---------------------------------------------------------------- 判定選項（decision 015）
 
 
-def _est(k: int, successes: int, n: int) -> CheckpointEstimate:
-    outcomes = [RolloutOutcome(k, i, "success" if i < successes else "failure", "final_answer", False, 1) for i in range(n)]
-    return estimate_checkpoint(k, outcomes)
-
-
-def test_bonferroni_matches_detect_cliff_for_two_points() -> None:
-    from experiments.sweep_power import bonferroni_cliff
-
-    for a, b in ((20, 8), (24, 0), (16, 8), (12, 12)):
-        pair = (_est(0, a, 24), _est(1, b, 24))
-        assert bonferroni_cliff(pair, 0.3) == detect_cliff(pair, 0.3)
-
-
-def test_bonferroni_is_stricter_with_more_points() -> None:
-    from experiments.sweep_power import bonferroni_cliff
-
-    estimates = (_est(0, 20, 24),) + tuple(_est(k, 8, 24) for k in range(1, 6))
-    assert detect_cliff(estimates, 0.3)[2] is True
-    assert bonferroni_cliff(estimates, 0.3) == (detect_cliff(estimates, 0.3)[0], 0, False)
+def test_simulate_sweep_uses_the_selected_criterion() -> None:
+    plan = SweepPlan(1, 8, 24, 0.3)
+    curve = (0.95,) + (0.5,) * 6
+    for criterion in ("wilson95", "bonferroni95"):
+        result = simulate_sweep(curve, plan, random.Random(5), criterion=criterion)
+        assert (result.largest_drop, result.largest_drop_k, result.is_cliff) == detect_cliff(
+            result.estimates, plan.drop_threshold, criterion=criterion
+        )
 
 
 def test_simulate_sweep_rejects_unknown_criterion() -> None:

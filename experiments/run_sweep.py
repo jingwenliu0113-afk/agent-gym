@@ -2,13 +2,14 @@
 
 用法::
 
-    uv run python -m experiments.run_sweep --baseline-run runs/<eval-run> --plan STRIDE,N_COARSE,N_FINE,THRESHOLD --dry-run
+    uv run python -m experiments.run_sweep --baseline-run runs/<eval-run> --plan STRIDE,N_COARSE,N_FINE,THRESHOLD \
+        --criterion {wilson95,bonferroni95} --dry-run
         不連網：OracleFakeClient 從 checkpoint 續跑（只驗證 harness，曲線沒有研究意義）。
     uv run --extra llm python -m experiments.run_sweep --baseline-run runs/<eval-run> --plan ... \\
         --confirm-paid-run --max-cost-usd X
         真正呼叫 Anthropic API；只能在使用者確認 SweepPlan 與預算之後執行。credential 由 SDK 自行解析，本腳本不讀取任何 key。
 
-SweepPlan 沒有預設值：必須明確給定（decision 011 的選擇屬於使用者決策）。
+SweepPlan 與驟降判定（--criterion）都沒有預設值：必須明確給定（decision 011 / 015 的選擇屬於使用者決策）。
 輸出（gitignored）：``runs/<name>/`` 下 ``manifest.jsonl``、``sweeps/<task_id>.json``（每個 source 的 SweepResult）、``summary.json``。
 """
 
@@ -33,7 +34,7 @@ from experiments.run_baseline import (
     budget_reached,
     check_budget_args,
 )
-from replay.localization import SweepPlan, SweepResult, sweep
+from replay.localization import CLIFF_CRITERIA, SweepPlan, SweepResult, sweep
 from replay.runner import Clock
 from replay.stats import BootstrapResult, stratified_task_bootstrap
 from replay.trajectory import Trajectory, TrajectoryError, load_strict_json
@@ -99,6 +100,7 @@ def select_sources(baseline_run_dir: str | Path) -> dict[str, Trajectory | None]
 @dataclass(frozen=True)
 class SweepRunSummary:
     plan: SweepPlan
+    criterion: str  # 驟降判定（replay.localization.CLIFF_CRITERIA，decision 015）
     config_id: str
     sources: tuple[str, ...]  # 依處理順序的 task_id（含缺漏者）
     missing_sources: tuple[str, ...]  # source 為 None 的 task
@@ -118,6 +120,7 @@ class SweepRunSummary:
         return {
             "format": SWEEP_SUMMARY_FORMAT,
             "plan": asdict(self.plan),
+            "criterion": self.criterion,
             "config_id": self.config_id,
             "sources": list(self.sources),
             "missing_sources": list(self.missing_sources),
@@ -147,6 +150,7 @@ def run_sweeps(
     client: Any,
     *,
     plan: SweepPlan,
+    criterion: str,
     run_dir: str | Path,
     max_cost_usd: float | None = None,
     clock: Clock = time.perf_counter,
@@ -155,7 +159,8 @@ def run_sweeps(
 ) -> SweepRunSummary:
     """依 sources 的順序對每個非 None 的 source 執行 ``replay.localization.sweep``（共用一個 manifest）。
 
-    - 事前檢查（ValueError，不執行）：plan 為 SweepPlan；sources 非空；每個非 None 的 source 的 agent.config_id 必須等於
+    - criterion（驟降判定，CLIFF_CRITERIA 之一）沒有預設值：與 plan 一樣必須明確給定（decision 011 / 015 的選擇屬於使用者決策）。
+    - 事前檢查（ValueError，不執行）：plan 為 SweepPlan；criterion 在 CLIFF_CRITERIA 中；sources 非空；每個非 None 的 source 的 agent.config_id 必須等於
       agent_config（預設 baseline）的 config_id；``check_budget_args``；run_dir 不存在或為空。
     - policy_factory(k, i, attempt)：``budget_reached(ledger, max_cost_usd)`` → raise BudgetExceeded；否則
       ``CostMeter(AnthropicPolicy(client, agent_config), ledger)``（ledger 跨所有 source 共用）。
@@ -167,6 +172,8 @@ def run_sweeps(
     """
     if not isinstance(plan, SweepPlan):
         raise ValueError("plan must be a SweepPlan")
+    if criterion not in CLIFF_CRITERIA:
+        raise ValueError(f"criterion must be one of {CLIFF_CRITERIA}")
     if not isinstance(sources, Mapping) or len(sources) == 0:
         raise ValueError("sources must be a non-empty mapping")
     config = baseline_agent_config() if agent_config is None else copy.deepcopy(agent_config)
@@ -200,7 +207,7 @@ def run_sweeps(
         if source is None:
             continue
         try:
-            result = sweep(source, policy_factory, plan=plan, log_path=log_path, clock=clock)
+            result = sweep(source, policy_factory, plan=plan, log_path=log_path, clock=clock, criterion=criterion)
         except BudgetExceeded:
             stopped = True
             break
@@ -221,6 +228,7 @@ def run_sweeps(
         )
     summary = SweepRunSummary(
         plan=plan,
+        criterion=criterion,
         config_id=config.config_id,
         sources=tuple(sources),
         missing_sources=tuple(task_id for task_id, source in sources.items() if source is None),
@@ -264,6 +272,7 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - CLI
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--baseline-run", required=True, help="eval baseline 的 runs/<name> 目錄")
     parser.add_argument("--plan", required=True, help="STRIDE,N_COARSE,N_FINE,THRESHOLD（必須明確給定）")
+    parser.add_argument("--criterion", required=True, choices=CLIFF_CRITERIA, help="驟降判定（必須明確給定，decision 015）")
     parser.add_argument("--run-name", default=None)
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dry-run", action="store_true")
@@ -281,7 +290,9 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - CLI
             parser.error("--confirm-paid-run requires --max-cost-usd")
         client = make_anthropic_client()
         name = args.run_name or "sweep"
-    summary = run_sweeps(sources, client, plan=plan, run_dir=Path("runs") / name, max_cost_usd=args.max_cost_usd)
+    summary = run_sweeps(
+        sources, client, plan=plan, criterion=args.criterion, run_dir=Path("runs") / name, max_cost_usd=args.max_cost_usd
+    )
     for task_id in summary.sources:
         result = summary.results.get(task_id)
         if result is None:

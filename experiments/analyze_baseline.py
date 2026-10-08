@@ -836,8 +836,10 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - CLI
     parser.add_argument("run_dirs", nargs="+")
     parser.add_argument("--out", required=True)
     args = parser.parse_args(argv)
-    analysis = analyze_runs(args.run_dirs)
     out = Path(args.out)
+    if out.exists() and (not out.is_dir() or any(out.iterdir())):
+        parser.error(f"{out} already exists and is not empty; give a new --out (decision 022)")
+    analysis = analyze_runs(args.run_dirs)
     out.mkdir(parents=True, exist_ok=True)
     (out / "analysis.json").write_text(canonical_json(analysis.to_dict()) + "\n", encoding="utf-8")
     (out / "analysis.md").write_text(render_markdown(analysis), encoding="utf-8")

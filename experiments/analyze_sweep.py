@@ -826,10 +826,10 @@ def _verdict(result: SweepResult) -> str:
     return "no cliff"
 
 
-def curve_svg(curve: SourceCurve) -> str:
+def curve_svg(curve: SourceCurve, *, dry_run: bool = False) -> str:
     """單一 source 的 recoverability curve SVG（完整的 ``<svg ...>...</svg>`` 字串，決定性輸出）：x = checkpoint k，
     y = P(success | k) ∈ [0, 1]；每個已估計的 k 畫 p̂ 點與 Wilson CI 線段；cliff 時以虛線標出 k* → k* + 1；標題含 task_id、
-    判定（cliff / no cliff / max_turns 混淆）與 criterion。不依賴任何外部繪圖套件。"""
+    判定（cliff / no cliff / max_turns 混淆）與 criterion；dry_run 時標題開頭為「[dry-run] 」（decision 022）。不依賴任何外部繪圖套件。"""
     result = curve.result
     width, height, left, right, top, bottom = 640, 320, 56, 24, 40, 44
     plot_w, plot_h = width - left - right, height - top - bottom
@@ -842,6 +842,8 @@ def curve_svg(curve: SourceCurve) -> str:
         return top + plot_h * (1 - p)
 
     title = f"{_escape(curve.task_id)} — P(success | checkpoint k) — {_verdict(result)} ({_escape(result.criterion)})"
+    if dry_run:
+        title = f"[dry-run] {title}"
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
         'font-family="sans-serif" font-size="12">',
@@ -1003,13 +1005,15 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - CLI
     parser.add_argument("--baseline-run", required=True, nargs="+", action="extend")
     parser.add_argument("--out", required=True)
     args = parser.parse_args(argv)
-    analysis = analyze_sweep_runs(args.sweep_runs, args.baseline_run)
     out = Path(args.out)
+    if out.exists() and (not out.is_dir() or any(out.iterdir())):
+        parser.error(f"{out} already exists and is not empty; give a new --out (decision 022)")
+    analysis = analyze_sweep_runs(args.sweep_runs, args.baseline_run)
     (out / "curves").mkdir(parents=True, exist_ok=True)
     (out / "analysis.json").write_text(canonical_json(analysis.to_dict()) + "\n", encoding="utf-8")
     (out / "analysis.md").write_text(render_markdown(analysis), encoding="utf-8")
     for curve in analysis.curves:
-        (out / "curves" / f"{curve.task_id}.svg").write_text(curve_svg(curve), encoding="utf-8")
+        (out / "curves" / f"{curve.task_id}.svg").write_text(curve_svg(curve, dry_run=analysis.dry_run), encoding="utf-8")
     print(f"wrote {out}")
     return 0
 

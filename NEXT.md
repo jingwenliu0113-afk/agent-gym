@@ -77,7 +77,18 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
      （decision 006 / 009 已登記只記計數）；以 dev run 實測 tokens 重估成本的專用 CLI（屬於付費步驟 a 的一部分，現有 API 已足夠）；
      極端數值（1e308 美元、10^400 tokens）的加總溢位。
 
-測試：`uv run pytest` → 8589 passed、1 xfailed（已知限制的特徵測試），約 4 分鐘；`ruff check` 通過。
+9. **第九輪對抗式審查後的修正**（decision 019）：
+   - 鏈式續跑：`--resume-from` 必須列出所有先前的 sweep 目錄；給定目錄略過、卻沒有在任何給定目錄完成的 source → 拒絕執行（不建立
+     目錄、沒有任何 call）。原本只給最近的目錄時，更早目錄已完成的 source 會被重新 sweep、再付一次費。
+   - 多目錄 eval baseline：source 取所有目錄中最早結束的 rollout_index 0（interrupted 不算；它是 agent_error / aborted → 沒有
+     source，不以其他目錄補上）；`run_sweep` / `analyze_sweep` 的 `--baseline-run` 接受多個目錄（可重複給）。
+   - sweep 開始時寫入 `run.json`（plan、criterion、config_id、skipped、sources；sweep 格式 v4）：沒有 summary 的目錄也能核對 plan，
+     被中斷的續跑目錄也有略過清單；分析時以給定的 baseline 目錄重新選出的 source 必須與它相同。分析報告列出 baseline 目錄（分析格式 v3）。
+   - 沒有任何要執行的 source 時不建立目錄；續跑前印出先前目錄已花的成本（`--max-cost-usd` 是這一次執行的上限）。
+   - 審查判定不成立而未處理：decision 011 的選項成本與 012 的上限依不同的 L 假設，數字不直接可比（兩者都是暫定值，dev sanity 後
+     重估）；跨目錄累計的成本上限（改為印出先前花費）。
+
+測試：`uv run pytest` → 8617 passed、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 4 分鐘；`ruff check` 通過。
 
 ## 使用者決策（2026-10-08）
 
@@ -95,8 +106,8 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 2. eval baseline 分析：`uv run python -m experiments.analyze_baseline runs/<eval-run> [runs/<rerun> ...] --out runs/<name>`
    （decision 016 A / 017 §4：主指標與敏感度、family 分層 bootstrap、decision 003 指標、安全指標分開、每個中止嘗試的部分安全指標、
    被擋下的嘗試、multi-tool turn、時間窗、response.model 不得合併、中斷的目錄、「最終成功但中途有 forbidden action」案例、成本）。
-3. sweep 分析：`uv run python -m experiments.analyze_sweep runs/<sweep-run> [runs/<rerun> ...] --baseline-run runs/<eval-run> --out runs/<name>`
-   （decision 016 B / 017 §5：每個完成的 sweep 重算核對、每個 source 的 recoverability curve 表格 + SVG、max_turns 混淆、
+3. sweep 分析：`uv run python -m experiments.analyze_sweep runs/<sweep-run> [runs/<rerun> ...] --baseline-run runs/<eval-run> [runs/<eval-rerun> ...] --out runs/<name>`
+   （decision 016 B / 017 §5 / 019：每個完成的 sweep 重算核對、每個 source 的 recoverability curve 表格 + SVG、max_turns 混淆、
    cliff turn 的 (tool, 類別) 模式、Gate 評估（提案規則；資料不完整時標示）、時間窗、response.model、中止嘗試、成本）。
 4. README 首屏：以可重現的 synthetic 示範（`experiments/demo_synthetic.py`，明確標示不是 LLM 結果）展示
    Task → Agent actions → state changes → grader → replay from checkpoint；測試確保 README 與程式輸出同步。
@@ -105,11 +116,13 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 
 1. dev sanity：`uv run --extra llm python -m experiments.run_baseline --split dev --confirm-paid-run --max-cost-usd 10`；
    以實測 tokens / call 重估 eval 與 sweep 的成本，再請使用者確認預算。
-2. eval baseline（R rollouts，提案 R = 3）。
-3. 以 decision 012 的規則選 source → eval sweep：
-   `uv run --extra llm python -m experiments.run_sweep --baseline-run runs/<eval-run> --plan S,NC,NF,T --criterion C --confirm-paid-run --max-cost-usd X`
-   （plan 與 criterion 都沒有預設值；`--dry-run` 已驗證）。被中斷或因預算停止時，以新目錄加 `--resume-from runs/<舊目錄>` 續跑，
-   分析時把所有目錄一起傳給 analyze_sweep（decision 018）。
+2. eval baseline（R rollouts，提案 R = 3）。被中斷或因預算停止時以新目錄重跑；之後所有指令的 baseline 都要列出**全部**目錄
+   （analyze_baseline 的位置參數、run_sweep / analyze_sweep 的 `--baseline-run`；decision 016 A1 / 019 §1）。
+3. 以 decision 012 / 019 的規則選 source → eval sweep：
+   `uv run --extra llm python -m experiments.run_sweep --baseline-run runs/<eval-run> [runs/<eval-rerun> ...] --plan S,NC,NF,T --criterion C --confirm-paid-run --max-cost-usd X`
+   （plan 與 criterion 都沒有預設值；`--dry-run` 已驗證）。被中斷或因預算停止時續跑：
+   `... --run-name <新名稱> --resume-from runs/<第一個 sweep> [runs/<第二個 sweep> ...]`（列出**所有**先前的 sweep 目錄；
+   `--max-cost-usd` 是這一次的上限，先前花費會印出），分析時把所有 sweep 目錄一起傳給 analyze_sweep（decision 018 / 019）。
 4. 以真實結果跑 `analyze_baseline` / `analyze_sweep`，把 recoverability curve、trajectory safety、「最終成功但中途有
    forbidden action」案例、Gate 判定放進 README 的「結果」段（README 目前只有 synthetic 示範）。
 
@@ -135,7 +148,7 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 - eval 中 `gen-escalate-label-s1` 與 `-s2` 的 instruction 文字相同（初始狀態不同）。
 - manifest 不支援並行寫入；付費 run 被手動中斷時，進行中的嘗試不會進 manifest（那次嘗試中已計費的 call 也不會出現在任何
   成本加總中），重跑必須用新目錄。分析工具可直接同時讀中斷的目錄與重跑的目錄（decision 017）；sweep 以 `--resume-from` 續跑
-  （decision 018）。中斷時還沒有任何嘗試寫入 manifest 的目錄沒有可分析的內容，不要傳入分析工具。
+  （decision 018 / 019，必須列出所有先前的 sweep 目錄）。中斷時還沒有任何嘗試寫入 manifest 的目錄沒有可分析的內容，不要傳入分析工具。
 - sweep 會為每個完成的 rerun 存一個 trajectory 檔（含前綴，約為 source 的大小）；付費 sweep 的 `runs/` 可能達數百 MB（gitignored）。
 - max_turns 混淆判定只看最大下降：被混淆時不改看其他下降（decision 017 §1，刻意保守）。
 - 偵測力模擬的情境是假設；真實曲線形狀未知。

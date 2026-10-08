@@ -88,14 +88,14 @@ Task → Agent actions → state changes → grader → replay from checkpoint
 | Failure localization | `replay/localization.py`、`replay/stats.py` | coarse → 反覆 refine 的 checkpoint sweep、Wilson CI、family 分層 task-level bootstrap、驟降判定 |
 | 實驗腳本 | `experiments/` | baseline / sweep 的執行（dry-run、成本上限、manifest）、成本估算、偵測力模擬、預先登記的分析 |
 
-所有實驗設計與格式變更都記在 [docs/decisions/](docs/decisions/)（001–017），包含預先登記的統計協定（005）、baseline 設定（009）、
-failure localization 協定（010 / 013）、偵測力模擬（011）、付費 run 協定（012）與分析規則（016 / 017）。
+所有實驗設計與格式變更都記在 [docs/decisions/](docs/decisions/)（001–019），包含預先登記的統計協定（005）、baseline 設定（009）、
+failure localization 協定（010 / 013）、偵測力模擬（011）、付費 run 協定（012）、分析規則（016 / 017）與中斷後續跑的規則（018 / 019）。
 
 ## 怎麼跑
 
 ```bash
-uv sync
-uv run pytest                                                  # 全部測試（約 1 分鐘）
+uv sync --extra llm                                            # llm extra 讓 SDK 契約測試也會執行（只用 `uv sync` 時這些測試會 skip）
+uv run pytest                                                  # 全部測試（約 3–4 分鐘）
 uv run python -m experiments.demo_synthetic --out docs/demo    # 上面的 synthetic 示範
 uv run python -m experiments.run_baseline --split dev --dry-run  # 不連網：以 oracle 假 client 走完整條 baseline 流程
 uv run python -m experiments.cost_estimate                     # 付費 run 的成本估算（不連網）

@@ -70,6 +70,7 @@ class RolloutRecord:
     # 每一個 aborted 嘗試（含之後重試成功者）：(attempt, partial_steps, partial_forbidden_action_count,
     # partial_forbidden_attempt_count)，None 原樣保留；依 attempt 遞增（decision 016 A5 / 017 §4.4）
     aborted_attempts: tuple[tuple[int, int | None, int | None, int | None], ...] = ()
+    utc_time: str = ""  # 最後一次嘗試的 manifest utc_time（原字串；decision 019 §1 依此決定最早結束的 rollout 0）
 
 
 MERGE_FIELDS = ("generator_version", "grader_version", "schema_version", "config_id", "max_turns")
@@ -121,8 +122,7 @@ def load_runs(run_dirs: Sequence[str | Path]) -> LoadedRuns:
     identities = [directory_identity(directory) for directory in directories]
     if len(set(identities)) != len(identities):
         raise ValueError("the same run directory was given more than once")
-    names = [directory.name for directory in directories]
-    labels = tuple(name if names.count(name) == 1 else str(directory) for name, directory in zip(names, directories))
+    labels = run_labels(directories)
     tasks = _eval_tasks()
     records: list[RolloutRecord] = []
     all_rows: list[AttemptRecord] = []
@@ -164,6 +164,12 @@ def load_runs(run_dirs: Sequence[str | Path]) -> LoadedRuns:
     if merge_key is None:
         raise ValueError("no attempts in the manifests")
     return LoadedRuns(tuple(records), merge_key, tuple(all_rows), labels, tuple(interrupted_runs), trajectories)
+
+
+def run_labels(directories: Sequence[Path]) -> tuple[str, ...]:
+    """每個目錄的標籤：目錄名稱；名稱重複時改用傳入的路徑字串。"""
+    names = [directory.name for directory in directories]
+    return tuple(name if names.count(name) == 1 else str(directory) for name, directory in zip(names, directories))
 
 
 def directory_identity(directory: Path) -> tuple[int, int]:
@@ -367,6 +373,7 @@ def _record(
         unknown_cost_calls=sum(row.unknown_cost_calls for row in attempts),
         response_models=measured.get("response_models", ()),
         utc_date=utc_date(last.utc_time),
+        utc_time=last.utc_time,
         outcome_correct=measured.get("outcome_correct"),
         tool_errors=measured.get("tool_errors"),
         steps=measured.get("steps"),

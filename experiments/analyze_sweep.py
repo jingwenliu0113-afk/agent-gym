@@ -3,8 +3,10 @@
 
 用法::
 
-    uv run python -m experiments.analyze_sweep runs/<sweep-run> [runs/<rerun> ...] --baseline-run runs/<eval-run> \\
-        --out runs/<analysis-name>
+    uv run python -m experiments.analyze_sweep runs/<sweep-run> [runs/<rerun> ...] \\
+        --baseline-run runs/<eval-run> [runs/<eval-rerun> ...] --out runs/<analysis-name>
+
+--baseline-run 必須與 run_sweep 時相同（eval baseline 的所有目錄；decision 019 §1）。
 
 輸出（gitignored）：``<out>/analysis.json``、``<out>/analysis.md``、``<out>/curves/<task_id>.svg``。
 """
@@ -20,8 +22,15 @@ from typing import Any, Sequence
 
 from agents.baseline import MAX_EPISODE_ATTEMPTS
 from env.hashing import canonical_json
-from experiments.analyze_baseline import directory_identity
-from experiments.run_sweep import SWEEP_SUMMARY_FORMAT, SweepRunSummary, select_sources
+from experiments.analyze_baseline import directory_identity, run_labels
+from experiments.run_sweep import (
+    RUN_FILE,
+    SWEEP_SUMMARY_FORMAT,
+    SweepRunSummary,
+    baseline_directories,
+    run_description,
+    select_sources,
+)
 from replay.aborts import AttemptRecord, read_manifest, utc_date
 from replay.localization import (
     CLIFF_CRITERIA,
@@ -40,7 +49,7 @@ from replay.checkpoint import make_checkpoint
 from replay.trajectory import Trajectory, TrajectoryError, load_strict_json
 from tasks.generator import week1_pool
 
-SWEEP_ANALYSIS_FORMAT = "agent-gym/sweep-analysis/v2"  # v2：decision 017 §5
+SWEEP_ANALYSIS_FORMAT = "agent-gym/sweep-analysis/v3"  # v2：decision 017 §5；v3：baseline_runs（019 §4）
 STEP_CATEGORIES: tuple[str, ...] = (
     "forbidden_attempt",
     "unnecessary_mutation",
@@ -244,6 +253,7 @@ class WindowEstimate:
 class SweepAnalysis:
     plan: SweepPlan
     criterion: str
+    baseline_runs: tuple[str, ...]  # eval baseline 目錄的標籤（source 依 decision 019 §1 從這些目錄選取）
     runs: tuple[str, ...]  # 每個 sweep 目錄的標籤（目錄名稱；名稱重複時為傳入的路徑字串）
     interrupted_runs: tuple[str, ...]  # 沒有 summary.json 的目錄
     stopped_by_budget: tuple[str, ...]  # summary 標示因預算停止的目錄
@@ -251,7 +261,7 @@ class SweepAnalysis:
     missing_sources: tuple[str, ...]  # 沒有 source 的 eval task（decision 012 §3）
     not_completed: tuple[str, ...]  # 有 source 但沒有任何目錄完成 sweep
     partial_sweeps: tuple[dict[str, Any], ...]  # 有 rollout 但沒有完成的 sweep：run、task_id、rollouts（不同 (k, i) 數）
-    resumed: tuple[dict[str, Any], ...]  # summary 有 skipped 的目錄：run、skipped（decision 018 §1）
+    resumed: tuple[dict[str, Any], ...]  # run.json 有 skipped 的目錄（含中斷者）：run、skipped（decision 018 §1 / 019 §2）
     max_turns_confounded: tuple[str, ...]  # 下降合格但 max_turns 比例上升 → 不是 cliff（decision 006 / 017 §1）
     cliff_rate: BootstrapResult | None  # family 分層 bootstrap；任一 eval family 沒有完成的 sweep 或 pooling_blocked → None
     mean_largest_drop: BootstrapResult | None
@@ -290,10 +300,10 @@ def _bootstrap(data: Any) -> BootstrapResult | None:
 
 
 def analyze_sweep_run(
-    sweep_run_dir: str | Path, baseline_run_dir: str | Path, *, replicates: int = 10000
+    sweep_run_dir: str | Path, baseline_run_dirs: str | Path | Sequence[str | Path], *, replicates: int = 10000
 ) -> SweepAnalysis:
-    """``analyze_sweep_runs([sweep_run_dir], baseline_run_dir, replicates=replicates)``。"""
-    return analyze_sweep_runs([sweep_run_dir], baseline_run_dir, replicates=replicates)
+    """``analyze_sweep_runs([sweep_run_dir], baseline_run_dirs, replicates=replicates)``。"""
+    return analyze_sweep_runs([sweep_run_dir], baseline_run_dirs, replicates=replicates)
 
 
 @dataclass(frozen=True)
@@ -310,16 +320,19 @@ class _Rollout:
 
 def analyze_sweep_runs(
     sweep_run_dirs: Sequence[str | Path],
-    baseline_run_dir: str | Path,
+    baseline_run_dirs: str | Path | Sequence[str | Path],
     *,
     replicates: int = 10000,
     plan: SweepPlan | None = None,
     criterion: str | None = None,
 ) -> SweepAnalysis:
-    """decision 016 B、017 §5 與 018。任何不一致 → ValueError。
+    """decision 016 B、017 §5、018 與 019。任何不一致 → ValueError。
 
-    - source = ``run_sweep.select_sources(baseline_run_dir)``（全部 eval task）。每個 sweep 目錄必須存在且有 manifest；目錄以
-      device + inode 識別，不得重複，也不得是 baseline 目錄（decision 018 §4）。
+    - source = ``run_sweep.select_sources(baseline_run_dirs)``（全部 eval task；eval baseline 的所有目錄，decision 019 §1）。
+      每個 sweep 目錄必須存在且有 manifest；目錄以 device + inode 識別，不得重複，也不得是任何 baseline 目錄（decision 018 §4）。
+    - 每個目錄都必須有 ``run.json``（decision 019 §2）：key 與 format 正確；plan、criterion、config_id 合法；skipped 是有 source 的
+      task（pool 順序）；sources 必須等於以這次的 baseline 目錄選出的 source。plan / criterion 與 skipped 取自 run.json（沒有 summary
+      的目錄也一樣）；summary 的 plan、criterion、skipped 必須與 run.json 相同。
     - 每個目錄：每列都是某個 source 的 checkpoint rollout（task 與 source_trajectory_id 相符），所有目錄所有列的 (generator_version,
       grader_version, schema_version, config_id, max_turns) 相同，且 config_id 與 source 相同。每個 (task, k, rollout_index) 的嘗試
       為 1..n 連續、只有 infrastructure 中止會重試、k 在 source 的合法範圍、checkpoint_id 等於 ``make_checkpoint(source, k)``
@@ -335,12 +348,12 @@ def analyze_sweep_runs(
     if isinstance(sweep_run_dirs, (str, Path)) or len(sweep_run_dirs) == 0:
         raise ValueError("sweep_run_dirs must be a non-empty sequence of sweep run directories")
     directories = [Path(d) for d in sweep_run_dirs]
+    baselines = baseline_directories(baseline_run_dirs)
     identities = [directory_identity(d) for d in directories]
-    if len(set(identities)) != len(identities) or directory_identity(Path(baseline_run_dir)) in identities:
-        raise ValueError("each sweep directory must be given once and must differ from the baseline run")
-    names = [d.name for d in directories]
-    labels = tuple(name if names.count(name) == 1 else str(d) for name, d in zip(names, directories))
-    sources = select_sources(baseline_run_dir)
+    if len(set(identities)) != len(identities) or {directory_identity(d) for d in baselines} & set(identities):
+        raise ValueError("each sweep directory must be given once and must differ from the baseline runs")
+    labels = run_labels(directories)
+    sources = select_sources(baselines)
     pool_families = {instance.task.task_id: instance.task.family for instance in week1_pool("eval")}
     pool_order = list(pool_families)
     source_ids = {source.trajectory_id: task_id for task_id, source in sources.items() if source is not None}
@@ -373,20 +386,22 @@ def analyze_sweep_runs(
                 raise ValueError(f"{directory}: a manifest row used a different agent config")
         all_rows.extend((label, row) for row in rows)
         results = _read_sweep_files(directory)
+        run_plan, run_criterion, skipped = _check_run_file(directory, sources, config_ids)
+        settings.add(canonical_json([asdict(run_plan), run_criterion]))
+        if skipped:
+            resumed.append({"run": label, "skipped": skipped})
         summary = _read_sweep_summary(directory)
         stopped_by_budget = False
-        skipped: tuple[str, ...] = ()
         if summary is None:
             interrupted_runs.append(label)
         else:
-            dir_plan, dir_criterion, stopped_by_budget, skipped = _check_summary(
+            dir_plan, dir_criterion, stopped_by_budget, summary_skipped = _check_summary(
                 directory, summary, results, sources, pool_families, config_ids
             )
-            settings.add(canonical_json([asdict(dir_plan), dir_criterion]))
+            if (dir_plan, dir_criterion, summary_skipped) != (run_plan, run_criterion, skipped):
+                raise ValueError(f"{directory}: summary.json disagrees with {RUN_FILE}")
             if stopped_by_budget:
                 stopped.append(label)
-            if skipped:
-                resumed.append({"run": label, "skipped": skipped})
         groups: dict[tuple[str, Any, int], list[AttemptRecord]] = {}
         for row in rows:
             groups.setdefault((row.task_id, row.checkpoint_turn, row.rollout_index), []).append(row)
@@ -476,6 +491,7 @@ def analyze_sweep_runs(
     return SweepAnalysis(
         plan=plan,
         criterion=criterion,
+        baseline_runs=run_labels(baselines),
         runs=labels,
         interrupted_runs=tuple(interrupted_runs),
         stopped_by_budget=tuple(stopped),
@@ -554,9 +570,36 @@ def _read_sweep_summary(directory: Path) -> dict[str, Any] | None:
     return summary
 
 
+def _check_run_file(
+    directory: Path, sources: dict[str, Trajectory | None], config_ids: set[str]
+) -> tuple[SweepPlan, str, tuple[str, ...]]:
+    """decision 019 §2：``run.json`` 逐欄驗證，sources 必須等於這次選出的 source；回傳 (plan, criterion, skipped)。"""
+    path = directory / RUN_FILE
+    data = _read_json(path) if path.exists() else None
+    if not isinstance(data, dict) or data.get("format") != SWEEP_SUMMARY_FORMAT:
+        raise ValueError(f"{directory} has no {RUN_FILE} of format {SWEEP_SUMMARY_FORMAT}; not a sweep run")
+    expected_keys = {"format", "plan", "criterion", "config_id", "skipped", "sources"}
+    if set(data) != expected_keys:
+        raise ValueError(f"{directory}: {RUN_FILE} must have exactly the keys {sorted(expected_keys)}")
+    plan = _build(SweepPlan, _fields(data["plan"], SweepPlan, "plan"))
+    criterion = data["criterion"]
+    if criterion not in CLIFF_CRITERIA:
+        raise ValueError(f"{directory}: {RUN_FILE} criterion must be one of {CLIFF_CRITERIA}")
+    config_id = data["config_id"]
+    if not isinstance(config_id, str) or config_id not in config_ids:
+        raise ValueError(f"{directory}: {RUN_FILE} config_id differs from the sources' agent config")
+    skipped = _str_list(data["skipped"], f"{RUN_FILE} skipped")
+    if skipped != [task_id for task_id, source in sources.items() if task_id in set(skipped) and source is not None]:
+        raise ValueError(f"{directory}: {RUN_FILE} skipped must list tasks with a source, in pool order")
+    expected = run_description(plan=plan, criterion=criterion, config_id=config_id, skipped=skipped, sources=sources)
+    if data["sources"] != expected["sources"]:
+        raise ValueError(f"{directory}: {RUN_FILE} lists different sources than the given baseline runs select (decision 019 §1)")
+    return plan, criterion, tuple(skipped)
+
+
 def _str_list(value: Any, what: str) -> list[str]:
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value) or len(set(value)) != len(value):
-        raise ValueError(f"summary.{what} must be a list of distinct strings")
+        raise ValueError(f"{what} must be a list of distinct strings")
     return value
 
 
@@ -578,10 +621,10 @@ def _check_summary(
         raise ValueError(f"{directory}: summary.criterion must be one of {CLIFF_CRITERIA}")
     if not isinstance(summary["config_id"], str) or summary["config_id"] not in config_ids:
         raise ValueError(f"{directory}: summary.config_id differs from the sources' agent config")
-    listed = _str_list(summary["sources"], "sources")
-    missing = _str_list(summary["missing_sources"], "missing_sources")
-    skipped = _str_list(summary["skipped"], "skipped")
-    done = _str_list(summary["completed"], "completed")
+    listed = _str_list(summary["sources"], "summary.sources")
+    missing = _str_list(summary["missing_sources"], "summary.missing_sources")
+    skipped = _str_list(summary["skipped"], "summary.skipped")
+    done = _str_list(summary["completed"], "summary.completed")
     if listed != list(pool_families):
         raise ValueError(f"{directory}: summary.sources must be every eval task in pool order")
     if missing != [task_id for task_id in listed if sources[task_id] is None]:
@@ -817,6 +860,7 @@ def render_markdown(analysis: SweepAnalysis) -> str:
         "",
         f"- plan：stride {p.coarse_stride}、n_coarse {p.n_coarse}、n_fine {p.n_fine}、drop_threshold {p.drop_threshold}；"
         f"驟降判定 criterion：{a.criterion}",
+        f"- eval baseline 目錄（source 依 decision 019 §1 選取）：{', '.join(a.baseline_runs)}",
         f"- sweep 目錄：{', '.join(a.runs)}；中斷（沒有 summary）：{', '.join(a.interrupted_runs) or '—'}；"
         f"因預算停止：{', '.join(a.stopped_by_budget) or '—'}",
         f"- 缺漏的 source：{', '.join(a.missing_sources) or '—'}；未完成的 sweep：{', '.join(a.not_completed) or '—'}",
@@ -914,7 +958,7 @@ def render_markdown(analysis: SweepAnalysis) -> str:
 def main(argv: list[str] | None = None) -> int:  # pragma: no cover - CLI
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("sweep_runs", nargs="+")
-    parser.add_argument("--baseline-run", required=True)
+    parser.add_argument("--baseline-run", required=True, nargs="+", action="extend")
     parser.add_argument("--out", required=True)
     args = parser.parse_args(argv)
     analysis = analyze_sweep_runs(args.sweep_runs, args.baseline_run)

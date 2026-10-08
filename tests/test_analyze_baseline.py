@@ -507,8 +507,14 @@ def test_load_rollouts_reads_every_rollout_of_the_mixed_run(runs: Runs) -> None:
         for task_id in EVAL_IDS
     ]
     assert [(r.task_id, r.rollout_index) for r in records] == [(e.task_id, e.rollout_index) for e in expected]
+    last: dict[tuple[str, int], Any] = {}
+    for row in read_manifest(runs.mixed / "manifest.jsonl"):
+        key = (row.task_id, row.rollout_index)
+        if key not in last or row.attempt > last[key].attempt:
+            last[key] = row
     for got, want in zip(records, expected):
-        assert _zero_cost(got) == _zero_cost(want), (want.task_id, want.rollout_index)
+        assert got.utc_time == last[(got.task_id, got.rollout_index)].utc_time  # 最後一次嘗試的原字串（decision 019 §1）
+        assert _zero_cost(dataclasses.replace(got, utc_time="")) == _zero_cost(want), (want.task_id, want.rollout_index)
         assert got.cost_usd == pytest.approx(want.cost_usd), (want.task_id, want.rollout_index)
 
 

@@ -2,18 +2,22 @@
 
 用法::
 
-    uv run python -m experiments.run_sweep --baseline-run runs/<eval-run> --plan STRIDE,N_COARSE,N_FINE,THRESHOLD \
-        --criterion {wilson95,bonferroni95} --dry-run
+    uv run python -m experiments.run_sweep --baseline-run runs/<eval-run> [runs/<eval-rerun> ...] \
+        --plan STRIDE,N_COARSE,N_FINE,THRESHOLD --criterion {wilson95,bonferroni95} --dry-run
         不連網：OracleFakeClient 從 checkpoint 續跑（只驗證 harness，曲線沒有研究意義）。
     uv run --extra llm python -m experiments.run_sweep --baseline-run runs/<eval-run> --plan ... \\
         --confirm-paid-run --max-cost-usd X
         真正呼叫 Anthropic API；只能在使用者確認 SweepPlan 與預算之後執行。credential 由 SDK 自行解析，本腳本不讀取任何 key。
-    ... --resume-from runs/<interrupted-sweep> [runs/<another> ...]
-        中斷或因預算停止後續跑（decision 018 §1）：以 analyze_sweep 的完整核對讀這些目錄，plan 與 criterion 必須相同；
-        已完成的 source 不再執行（不重複付費）。之後以 analyze_sweep 同時分析所有目錄。
+    ... --run-name <new-name> --resume-from runs/<first-sweep> [runs/<second-sweep> ...]
+        中斷或因預算停止後續跑（decision 018 §1 / 019 §3）：必須列出**所有**先前的 sweep 目錄。以 analyze_sweep 的完整核對讀這些
+        目錄，plan 與 criterion 必須相同；已完成的 source 不再執行（不重複付費）。之後以 analyze_sweep 同時分析所有目錄。
+        --max-cost-usd 是這一次執行的上限（先前目錄已花的金額會印出）。
+
+--baseline-run 要列出 eval baseline 的**所有**目錄（中斷後重跑的也算；與 analyze_baseline 相同），source 依 decision 019 §1 選取。
 
 SweepPlan 與驟降判定（--criterion）都沒有預設值：必須明確給定（decision 011 / 015 的選擇屬於使用者決策）。
-輸出（gitignored）：``runs/<name>/`` 下 ``manifest.jsonl``、``sweeps/<task_id>.json``（每個 source 的 SweepResult）、
+輸出（gitignored）：``runs/<name>/`` 下 ``run.json``（開始時寫入的設定與略過清單，decision 019 §2）、``manifest.jsonl``、
+``sweeps/<task_id>.json``（每個 source 的 SweepResult）、
 ``rollouts/<task_id>/k<k>-r<i>.json``（每個完成的 rerun trajectory，decision 017 §2）、``summary.json``。
 """
 
@@ -25,12 +29,13 @@ import sys
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Collection, Mapping
+from typing import Any, Collection, Mapping, Sequence
 
 from agents.baseline import AnthropicPolicy, baseline_agent_config, make_anthropic_client
 from agents.policy import AgentConfig
 from env.hashing import canonical_json
-from experiments.analyze_baseline import load_runs
+from experiments.analyze_baseline import RolloutRecord, load_runs
+from replay.aborts import utc_instant
 from experiments.run_baseline import (
     CostMeter,
     Ledger,
@@ -46,31 +51,69 @@ from tasks.generator import week1_pool
 
 COMPLETED_OUTCOMES = ("success", "failure", "refusal")
 
-SWEEP_SUMMARY_FORMAT = "agent-gym/sweep-run/v3"  # v2：max_turns_confounded、rollout 存檔（017）；v3：skipped（018）
+# v2：max_turns_confounded、rollout 存檔（017）；v3：skipped（018）；v4：run.json（019）。run.json 與 summary.json 共用此 format
+SWEEP_SUMMARY_FORMAT = "agent-gym/sweep-run/v4"
+RUN_FILE = "run.json"
 
 
 class BudgetExceeded(RuntimeError):
     """已花費達到上限：在下一次嘗試開始之前（policy 建立時）拋出，因此不會留下該次嘗試的 manifest 紀錄。"""
 
 
-def select_sources(baseline_run_dir: str | Path) -> dict[str, Trajectory | None]:
-    """decision 012 §3 / 017 §3：以 ``experiments.analyze_baseline.load_runs`` 讀一個 eval baseline 目錄（summary、manifest、
-    trajectory 交叉核對；沒有 summary 的中斷目錄由 manifest 重建），回傳**全部** eval task（依 eval pool 的順序）→
-    rollout_index 0 完成（success / failure / refusal）的 trajectory（已 verify）；沒有 rollout 0、或 rollout 0 未完成
-    （agent_error / aborted / interrupted）→ None。任何檔案不一致 → ValueError。
+def baseline_directories(baseline_run_dirs: str | Path | Sequence[str | Path]) -> list[Path]:
+    """一個目錄（str / Path）或目錄的序列 → Path 的 list；空序列 → ValueError。"""
+    if isinstance(baseline_run_dirs, (str, Path)):
+        return [Path(baseline_run_dirs)]
+    directories = [Path(directory) for directory in baseline_run_dirs]
+    if not directories:
+        raise ValueError("at least one eval baseline directory is required")
+    return directories
+
+
+def select_sources(baseline_run_dirs: str | Path | Sequence[str | Path]) -> dict[str, Trajectory | None]:
+    """decision 012 §3 / 017 §3 / 019 §1：以 ``experiments.analyze_baseline.load_runs`` 讀 eval baseline 的**所有**目錄（summary、
+    manifest、trajectory 交叉核對；沒有 summary 的中斷目錄由 manifest 重建），回傳**全部** eval task（依 eval pool 的順序）→ source。
+
+    - 每個 task 的 rollout_index 0 = 所有目錄中最早結束者（最後一次嘗試的 manifest utc_time，換算成 UTC）；interrupted（沒有結束）
+      不算；時間完全相同 → ValueError。
+    - 它完成（success / failure / refusal）→ 它的 trajectory（已 verify）；agent_error / aborted，或沒有任何結束的 rollout 0 → None
+      （不得以其他 rollout 補上，其他目錄的 rollout 0 也一樣）。
+    - 任何檔案不一致 → ValueError。
     """
-    loaded = load_runs([baseline_run_dir])
-    label = loaded.labels[0]
-    records = {(record.task_id, record.rollout_index): record for record in loaded.records}
+    loaded = load_runs(baseline_directories(baseline_run_dirs))
+    first: dict[str, RolloutRecord] = {}
+    for record in loaded.records:
+        if record.rollout_index != 0 or record.outcome == "interrupted":
+            continue
+        current = first.get(record.task_id)
+        if current is not None and utc_instant(current.utc_time) == utc_instant(record.utc_time):
+            raise ValueError(f"two rollout_index 0 runs of {record.task_id} ended at the same time; the source is ambiguous")
+        if current is None or utc_instant(record.utc_time) < utc_instant(current.utc_time):
+            first[record.task_id] = record
     sources: dict[str, Trajectory | None] = {}
     for instance in week1_pool("eval"):
         task_id = instance.task.task_id
-        record = records.get((task_id, 0))
+        record = first.get(task_id)
         if record is None or record.outcome not in COMPLETED_OUTCOMES:
             sources[task_id] = None
         else:
-            sources[task_id] = loaded.trajectories[(label, task_id, 0)]
+            sources[task_id] = loaded.trajectories[(record.run, task_id, 0)]
     return sources
+
+
+def run_description(
+    *, plan: SweepPlan, criterion: str, config_id: str, skipped: Sequence[str], sources: Mapping[str, Trajectory | None]
+) -> dict[str, Any]:
+    """``run.json`` 的內容（decision 019 §2）：format、plan（欄位 dict）、criterion、config_id、skipped（list）、
+    sources（task_id → source 的 trajectory_id，沒有 source 為 None）。"""
+    return {
+        "format": SWEEP_SUMMARY_FORMAT,
+        "plan": asdict(plan),
+        "criterion": criterion,
+        "config_id": config_id,
+        "skipped": list(skipped),
+        "sources": {task_id: None if source is None else source.trajectory_id for task_id, source in sources.items()},
+    }
 
 
 @dataclass(frozen=True)
@@ -140,8 +183,10 @@ def run_sweeps(
 
     - criterion（驟降判定，CLIFF_CRITERIA 之一）沒有預設值：與 plan 一樣必須明確給定（decision 011 / 015 的選擇屬於使用者決策）。
     - 事前檢查（ValueError，不執行）：plan 為 SweepPlan；criterion 在 CLIFF_CRITERIA 中；sources 的 key 剛好是全部 eval task
-      （``select_sources`` 的形狀，decision 018 §1）；skip 是 task_id 的集合（不是 str），每個都有 source；每個非 None 的 source
-      的 agent.config_id 必須等於 agent_config（預設 baseline）的 config_id；``check_budget_args``；run_dir 不存在或為空。
+      （``select_sources`` 的形狀，decision 018 §1）；skip 是 task_id 的集合（不是 str），每個都有 source；至少有一個要執行的
+      source（decision 019 §3）；每個非 None 的 source 的 agent.config_id 必須等於 agent_config（預設 baseline）的 config_id；
+      ``check_budget_args``；run_dir 不存在或為空。
+    - 第一次嘗試之前寫入 ``run.json``（``run_description``，decision 019 §2）。
     - policy_factory(k, i, attempt)：``budget_reached(ledger, max_cost_usd)`` → raise BudgetExceeded；否則
       ``CostMeter(AnthropicPolicy(client, agent_config), ledger)``（ledger 跨所有 source 共用）。
     - BudgetExceeded → 停止（stopped_by_budget = True）：該 source 的部分 sweep 不計入 completed（rollouts 仍在 manifest 中），
@@ -164,6 +209,8 @@ def run_sweeps(
     skipped = set(skip)
     if any(task_id not in sources or sources[task_id] is None for task_id in skipped):
         raise ValueError("skip may only name eval tasks that have a source")
+    if all(source is None or task_id in skipped for task_id, source in sources.items()):
+        raise ValueError("nothing to run: every eval task is skipped or has no source")
     config = baseline_agent_config() if agent_config is None else copy.deepcopy(agent_config)
     check_budget_args(max_cost_usd, config)
     for task_id, source in sources.items():
@@ -180,6 +227,10 @@ def run_sweeps(
 
     sweeps_dir = run_dir / "sweeps"
     sweeps_dir.mkdir(parents=True, exist_ok=True)
+    description = run_description(
+        plan=plan, criterion=criterion, config_id=config.config_id, skipped=[t for t in pool if t in skipped], sources=sources
+    )
+    (run_dir / RUN_FILE).write_bytes((canonical_json(description) + "\n").encode("utf-8"))
     log_path = run_dir / "manifest.jsonl"
     ledger = Ledger()
 
@@ -259,7 +310,10 @@ def parse_plan(text: str) -> SweepPlan:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--baseline-run", required=True, help="eval baseline 的 runs/<name> 目錄")
+    parser.add_argument(
+        "--baseline-run", required=True, nargs="+", action="extend",
+        help="eval baseline 的所有 runs/<name> 目錄（可給多個、可重複；decision 019 §1）",
+    )
     parser.add_argument("--plan", required=True, help="STRIDE,N_COARSE,N_FINE,THRESHOLD（必須明確給定）")
     parser.add_argument("--criterion", required=True, choices=CLIFF_CRITERIA, help="驟降判定（必須明確給定，decision 015）")
     parser.add_argument("--run-name", default=None)
@@ -267,7 +321,9 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--confirm-paid-run", action="store_true")
     parser.add_argument("--max-cost-usd", type=float, default=None)
-    parser.add_argument("--resume-from", nargs="+", default=None, help="已中斷 / 因預算停止的 sweep 目錄（decision 018 §1）")
+    parser.add_argument(
+        "--resume-from", nargs="+", default=None, help="所有先前（中斷 / 因預算停止）的 sweep 目錄（decision 018 §1 / 019 §3）"
+    )
     args = parser.parse_args(argv)
 
     plan = parse_plan(args.plan)
@@ -278,7 +334,21 @@ def main(argv: list[str] | None = None) -> int:
 
         previous = analyze_sweep_runs(args.resume_from, args.baseline_run, replicates=1, plan=plan, criterion=args.criterion)
         skip = tuple(curve.task_id for curve in previous.curves)
+        uncovered = sorted({t for entry in previous.resumed for t in entry["skipped"]} - set(skip))
+        if uncovered:
+            parser.error(
+                f"{', '.join(uncovered)} were skipped by a --resume-from directory but completed in none of them; "
+                "pass every earlier sweep directory to --resume-from (decision 019 §3)"
+            )
         print(f"resuming: {len(skip)} sources already completed in {', '.join(previous.runs)}", file=sys.stderr)
+        print(
+            f"previously spent ${previous.cost_usd:.4f} (unknown-cost calls {previous.unknown_cost_calls}) in "
+            f"{', '.join(previous.runs)}; --max-cost-usd applies to this run only",
+            file=sys.stderr,
+        )
+        if all(source is None or task_id in skip for task_id, source in sources.items()):
+            print("nothing left to run: analyze the existing directories with experiments.analyze_sweep", file=sys.stderr)
+            return 0
     if args.dry_run:
         client: Any = OracleFakeClient(week1_pool("eval"))
         name = args.run_name or "dry-run-sweep"

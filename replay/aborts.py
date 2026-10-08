@@ -133,6 +133,11 @@ def _is_finite(value: int | float) -> bool:
 def utc_date(utc_time: str) -> str:
     """manifest utc_time 的 UTC 日期（YYYY-MM-DD；decision 016 A8 的時間窗）。utc_time 必須是帶時區的 ISO 8601
     （沒有時區時日期會隨分析主機的時區改變）且可轉成 UTC；否則 ValueError。"""
+    return utc_instant(utc_time).date().isoformat()
+
+
+def utc_instant(utc_time: str) -> datetime:
+    """manifest utc_time 換算成 UTC 的 datetime（帶時區，可互相比較；decision 019 §1）。條件與 ``utc_date`` 相同，否則 ValueError。"""
     if not isinstance(utc_time, str):
         raise ValueError("utc_time must be a str")
     try:
@@ -142,7 +147,7 @@ def utc_date(utc_time: str) -> str:
     if stamp.tzinfo is None or stamp.utcoffset() is None:
         raise ValueError(f"utc_time {utc_time!r} has no time zone")
     try:
-        return stamp.astimezone(timezone.utc).date().isoformat()
+        return stamp.astimezone(timezone.utc)
     except OverflowError as exc:
         raise ValueError(f"utc_time {utc_time!r} cannot be converted to UTC") from exc
 _STR_FIELDS = ("task_id", "generator_version", "config_id", "grader_version", "schema_version", "outcome", "utc_time")

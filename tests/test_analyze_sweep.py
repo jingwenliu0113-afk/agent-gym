@@ -1009,8 +1009,8 @@ def test_render_markdown_lists_sources_not_completed(budget_runs: _Runs, cache: 
 # max_turns 混淆、response.model、時間窗、中止嘗試
 
 
-def test_analysis_format_is_v3() -> None:
-    assert SWEEP_ANALYSIS_FORMAT == "agent-gym/sweep-analysis/v3"  # v3：baseline_runs（decision 019 §4）
+def test_analysis_format_is_v4() -> None:
+    assert SWEEP_ANALYSIS_FORMAT == "agent-gym/sweep-analysis/v4"  # v3：baseline_runs（decision 019 §4）；v4：dry_run（021）
     assert [f.name for f in dataclasses.fields(WindowEstimate)] == ["date", "n_sources", "n_rollouts", "success_rate"]
 
 

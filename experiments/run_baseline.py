@@ -11,7 +11,8 @@
         真正呼叫 Anthropic API。只能在使用者確認模型與成本之後執行；credential 由 SDK 自行從環境變數解析，
         本腳本不讀取、不檢查、不記錄任何 key。
 
-輸出目錄（gitignored）：``runs/<run_name>/`` 下 ``manifest.jsonl``、``trajectories/<task_id>-r<i>.json``、``summary.json``。
+輸出目錄（gitignored）：``runs/<run_name>/`` 下 ``run.json``（開始時寫入：split、rollouts、config_id、dry_run；decision 021 §1）、
+``manifest.jsonl``、``trajectories/<task_id>-r<i>.json``、``summary.json``。--dry-run 的輸出標記為 dry_run，永遠不能與付費輸出合併。
 """
 
 from __future__ import annotations
@@ -34,7 +35,8 @@ from replay.localization import classify_rollout
 from replay.runner import Clock, run_episode
 from tasks.generator import GeneratedInstance, week1_pool
 
-SUMMARY_FORMAT = "agent-gym/baseline-run/v1"
+SUMMARY_FORMAT = "agent-gym/baseline-run/v2"  # v2：run.json（decision 021 §1）；run.json 與 summary.json 共用
+RUN_FILE = "run.json"
 
 
 @dataclass
@@ -139,11 +141,14 @@ def run_split(
     max_cost_usd: float | None = None,
     clock: Clock = time.perf_counter,
     agent_config: AgentConfig | None = None,
+    dry_run: bool = False,
 ) -> RunSummary:
     """在 ``week1_pool(split)``（"dev" / "eval"）上執行 baseline。
 
     - 事前檢查（ValueError，不執行）：split ∈ {"dev", "eval"}；rollouts 為 int >= 1；``check_budget_args``（有上限時模型必須在
-      PRICING）；run_dir 不存在或為空目錄（不覆寫既有 run，避免重複計費與混淆）。
+      PRICING）；run_dir 不存在或為空目錄（不覆寫既有 run，避免重複計費與混淆）；dry_run 為 bool。
+    - 第一次嘗試之前寫入 ``run_dir/run.json``：format、split、rollouts、config_id、dry_run（decision 021 §1；CLI 的 --dry-run 為
+      True，直接以 Python 呼叫時預設 False）。
     - 排程：rollout_index 外層、task 內層（同一輪所有 task 跑完才進下一輪；降低時間效應）。
     - 每個 episode 開始前：``budget_reached(ledger, max_cost_usd)`` → 停止排程，stopped_by_budget = True。
     - 每個 episode：``run_with_retries(lambda p: run_episode(task, p, max_turns=BASELINE_MAX_TURNS, clock=clock),
@@ -157,6 +162,8 @@ def run_split(
         raise ValueError("split must be 'dev' or 'eval'")
     if type(rollouts) is not int or rollouts < 1:
         raise ValueError("rollouts must be an int >= 1")
+    if not isinstance(dry_run, bool):
+        raise ValueError("dry_run must be a bool")
     config = baseline_agent_config() if agent_config is None else copy.deepcopy(agent_config)
     check_budget_args(max_cost_usd, config)
     run_dir = Path(run_dir)
@@ -167,6 +174,8 @@ def run_split(
     instances = week1_pool(split)
     trajectories_dir = run_dir / "trajectories"
     trajectories_dir.mkdir(parents=True, exist_ok=True)
+    description = {"format": SUMMARY_FORMAT, "split": split, "rollouts": rollouts, "config_id": config.config_id, "dry_run": dry_run}
+    (run_dir / RUN_FILE).write_bytes((canonical_json(description) + "\n").encode("utf-8"))
     log_path = run_dir / "manifest.jsonl"
     ledger = Ledger()
     results: list[EpisodeResult] = []
@@ -368,7 +377,9 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - CLI
         client = make_anthropic_client()
         name = args.run_name or f"baseline-{args.split}"
         budget = args.max_cost_usd
-    summary = run_split(args.split, client, run_dir=Path("runs") / name, rollouts=args.rollouts, max_cost_usd=budget)
+    summary = run_split(
+        args.split, client, run_dir=Path("runs") / name, rollouts=args.rollouts, max_cost_usd=budget, dry_run=args.dry_run
+    )
     for result in summary.results:
         print(
             f"{result.task_id} r{result.rollout_index}: {result.outcome} (attempts {result.attempts}, "

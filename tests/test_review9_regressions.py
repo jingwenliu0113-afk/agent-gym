@@ -128,6 +128,7 @@ def test_run_json_is_written_before_the_first_attempt(baselines: dict[str, Path]
     assert not (run_dir / "manifest.jsonl").exists()
     data = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
     assert len(data.pop("run_id")) == 32 and data.pop("resumed_from") == []  # decision 020 §2
+    assert data.pop("dry_run") is False  # decision 021 §1：直接以 Python 呼叫時預設 False
     assert data == {
         "format": SWEEP_SUMMARY_FORMAT,
         "plan": asdict(PLAN),
@@ -140,8 +141,8 @@ def test_run_json_is_written_before_the_first_attempt(baselines: dict[str, Path]
 
 
 def test_format_versions() -> None:
-    assert SWEEP_SUMMARY_FORMAT == "agent-gym/sweep-run/v5"  # v4：run.json（decision 019 §2）；v5：run_id / resumed_from（020）
-    assert SWEEP_ANALYSIS_FORMAT == "agent-gym/sweep-analysis/v3"  # v3：baseline_runs（019 §4）
+    assert SWEEP_SUMMARY_FORMAT == "agent-gym/sweep-run/v6"  # v4：run.json（019 §2）；v5：run_id / resumed_from（020）；v6：dry_run（021）
+    assert SWEEP_ANALYSIS_FORMAT == "agent-gym/sweep-analysis/v4"  # v3：baseline_runs（019 §4）；v4：dry_run（021）
 
 
 @pytest.fixture(scope="module")
@@ -197,14 +198,15 @@ def test_an_interrupted_directory_takes_its_plan_from_run_json(baselines: dict[s
     first = tmp_path / "runs" / "first"
     with pytest.raises(KeyboardInterrupt):
         run_sweeps(sources, _InterruptAfter(OracleFakeClient(POOL), 5), plan=SweepPlan(2, 2, 2, 0.3), criterion="bonferroni95",
-                   run_dir=first, clock=ZERO)
+                   run_dir=first, clock=ZERO, dry_run=True)  # 與下面的 --dry-run 同一種模式（decision 021 §1）
     assert read_manifest(first / "manifest.jsonl") and not list((first / "sweeps").glob("*.json"))
     with pytest.raises(ValueError):
         main(["--baseline-run", str(baselines["b"]), "--plan", PLAN_TEXT, "--criterion", "wilson95", "--dry-run",
               "--run-name", "second", "--resume-from", str(first)])
     assert not (tmp_path / "runs" / "second").exists()
     other = tmp_path / "runs" / "other"
-    run_sweeps(sources, OracleFakeClient(POOL), plan=PLAN, criterion="wilson95", run_dir=other, clock=ZERO, replicates=20)
+    run_sweeps(sources, OracleFakeClient(POOL), plan=PLAN, criterion="wilson95", run_dir=other, clock=ZERO, replicates=20,
+               dry_run=True)
     with pytest.raises(ValueError):
         analyze_sweep_runs([first, other], [baselines["b"]], replicates=20)
 
@@ -267,8 +269,8 @@ def test_chained_resume_must_name_every_earlier_directory(baselines: dict[str, P
     assert not (_manifest_tasks(runs / "e3") & set(done))  # e1 完成的不重複付費
     analysis = analyze_sweep_runs([runs / "e1", runs / "e2", runs / "e3"], base, replicates=20)
     assert len(analysis.curves) == 15 and analysis.not_completed == ()
-    partial = analyze_sweep_runs([runs / "e2", runs / "e3"], base, replicates=20)
-    assert set(partial.not_completed) == set(done)  # 漏給 e1：資料不完整會被看見
+    with pytest.raises(ValueError):  # 漏給 e1：已知的祖先目錄沒有傳入 → 拒絕（decision 021 §2 取代原本的「標示為未完成」）
+        analyze_sweep_runs([runs / "e2", runs / "e3"], base, replicates=20)
 
 
 def test_chained_resume_after_an_interrupted_resume(baselines: dict[str, Path], tmp_path: Path,

@@ -20,14 +20,14 @@ from typing import Any, Callable, Sequence
 
 from agents.baseline import MAX_EPISODE_ATTEMPTS
 from env.hashing import canonical_json
-from experiments.run_baseline import SUMMARY_FORMAT, EpisodeResult, RunSummary
+from experiments.run_baseline import RUN_FILE, SUMMARY_FORMAT, EpisodeResult, RunSummary
 from replay.aborts import ERROR_CLASSES, AttemptRecord, read_manifest, utc_date
 from replay.localization import ROLLOUT_OUTCOMES, classify_rollout
 from replay.stats import BootstrapResult, stratified_task_bootstrap
 from replay.trajectory import Trajectory, TrajectoryError, load_strict_json
 from tasks.generator import week1_pool
 
-ANALYSIS_FORMAT = "agent-gym/baseline-analysis/v2"  # v2：decision 017 §4
+ANALYSIS_FORMAT = "agent-gym/baseline-analysis/v3"  # v2：decision 017 §4；v3：dry_run（021 §1）
 COMPLETED = ("success", "failure", "refusal")
 # interrupted：沒有 summary 的目錄中，最後一次嘗試是還沒用完嘗試的 infrastructure 中止（重試在中斷時進行中）或 harness 中止
 # （run 因此停止）；decision 017 §4.1
@@ -88,6 +88,7 @@ class LoadedRuns:
     labels: tuple[str, ...]  # 每個目錄的標籤（與輸入順序相同）
     interrupted_runs: tuple[str, ...]  # 沒有 summary.json 的目錄標籤
     trajectories: dict[tuple[str, str, int], Trajectory]  # (標籤, task_id, rollout_index) → 完成的 trajectory（已 verify）
+    dry_run: bool = False  # 所有目錄的 run.json dry_run（必須相同；decision 021 §1）
 
 
 def load_rollouts(run_dirs: Sequence[str | Path]) -> tuple[RolloutRecord, ...]:
@@ -98,7 +99,9 @@ def load_rollouts(run_dirs: Sequence[str | Path]) -> tuple[RolloutRecord, ...]:
 def load_runs(run_dirs: Sequence[str | Path]) -> LoadedRuns:
     """讀取一或多個 run_baseline 輸出目錄。任何不一致 → ValueError。
 
-    - 每個目錄必須存在、是目錄且有 ``manifest.jsonl``（decision 018 §4）；同一個目錄（以 device + inode 判定，不比較路徑字串）
+    - 每個目錄必須存在、是目錄且有 ``manifest.jsonl``（decision 018 §4）與 ``run.json``（decision 021 §1：key 與 format 正確、
+      split = "eval"、rollouts 為 int >= 1、config_id 與 manifest 相同、dry_run 為 bool；有 summary 時 split / rollouts / config_id
+      必須與它相同；所有目錄的 dry_run 必須相同——dry-run 與付費的輸出不得合併）；同一個目錄（以 device + inode 判定，不比較路徑字串）
       出現兩次 → ValueError。標籤 = 目錄名稱；名稱重複時改用傳入的路徑字串。
     - 所有 manifest 列的 (generator_version, grader_version, schema_version, config_id, max_turns) 必須相同，
       且都不是 checkpoint rollout、task 都屬於 eval pool。
@@ -129,8 +132,13 @@ def load_runs(run_dirs: Sequence[str | Path]) -> LoadedRuns:
     trajectories: dict[tuple[str, str, int], Trajectory] = {}
     interrupted_runs: list[str] = []
     merge_key: dict[str, Any] | None = None
+    modes: set[bool] = set()
     for directory, label in zip(directories, labels):
         rows = list(read_manifest(directory / "manifest.jsonl"))
+        description = _check_run_file(directory, rows)
+        modes.add(description["dry_run"])
+        if len(modes) > 1:
+            raise ValueError("dry-run and paid baseline runs cannot be merged (decision 021 §1)")
         all_rows.extend(rows)
         for row in rows:
             key = {name: getattr(row, name) for name in MERGE_FIELDS}
@@ -152,6 +160,8 @@ def load_runs(run_dirs: Sequence[str | Path]) -> LoadedRuns:
             results: list[dict[str, Any] | None] = [None] * len(keys)
         else:
             _check_summary(directory, summary, rows, tasks)
+            if any(not _same(summary[name], description[name]) for name in ("split", "rollouts", "config_id")):
+                raise ValueError(f"{directory}: summary.json disagrees with {RUN_FILE}")
             keys, results = _summary_results(directory, summary)
             if set(groups) != set(keys):
                 raise ValueError(f"{directory}: the manifest and the summary list different rollouts")
@@ -163,7 +173,34 @@ def load_runs(run_dirs: Sequence[str | Path]) -> LoadedRuns:
                 trajectories[(label, key[0], key[1])] = trajectory
     if merge_key is None:
         raise ValueError("no attempts in the manifests")
-    return LoadedRuns(tuple(records), merge_key, tuple(all_rows), labels, tuple(interrupted_runs), trajectories)
+    return LoadedRuns(
+        tuple(records), merge_key, tuple(all_rows), labels, tuple(interrupted_runs), trajectories, dry_run=modes == {True}
+    )
+
+
+RUN_FILE_KEYS = frozenset({"format", "split", "rollouts", "config_id", "dry_run"})
+
+
+def _check_run_file(directory: Path, rows: list[AttemptRecord]) -> dict[str, Any]:
+    """decision 021 §1：baseline 目錄的 ``run.json``；回傳其內容。"""
+    path = directory / RUN_FILE
+    try:
+        data = load_strict_json(path.read_bytes()) if path.exists() else None
+    except OSError as exc:
+        raise ValueError(f"cannot read {path}: {exc}") from exc
+    if not isinstance(data, dict) or data.get("format") != SUMMARY_FORMAT:
+        raise ValueError(f"{directory} has no {RUN_FILE} of format {SUMMARY_FORMAT}; not a baseline run")
+    if set(data) != RUN_FILE_KEYS:
+        raise ValueError(f"{directory}: {RUN_FILE} must have exactly the keys {sorted(RUN_FILE_KEYS)}")
+    if data["split"] != "eval":
+        raise ValueError(f"{directory} is not an eval run")
+    if type(data["rollouts"]) is not int or data["rollouts"] < 1:
+        raise ValueError(f"{directory}: {RUN_FILE} rollouts must be an int >= 1")
+    if not isinstance(data["config_id"], str) or any(row.config_id != data["config_id"] for row in rows):
+        raise ValueError(f"{directory}: {RUN_FILE} config_id disagrees with the manifest")
+    if not isinstance(data["dry_run"], bool):
+        raise ValueError(f"{directory}: {RUN_FILE} dry_run must be a bool")
+    return data
 
 
 def run_labels(directories: Sequence[Path]) -> tuple[str, ...]:
@@ -472,6 +509,7 @@ class BaselineAnalysis:
     interrupted_runs: tuple[str, ...] = ()  # 沒有 summary.json 的目錄標籤（analyze_runs 填入）
     multi_tool_turns: tuple[dict[str, Any], ...] = ()  # run、task_id、rollout_index、turn
     blocked_attempts: tuple[dict[str, Any], ...] = ()  # run、task_id、rollout_index、step、rule_index
+    dry_run: bool = False  # 輸入目錄是 dry-run（OracleFakeClient）的輸出：不是研究結果（decision 021 §1；analyze_runs 填入）
 
     def to_dict(self) -> dict[str, Any]:
         """``{"format": ANALYSIS_FORMAT, ...}``，JSON-native（dataclass 以欄位 dict 表示、tuple → list）。"""
@@ -690,6 +728,7 @@ def analyze_runs(run_dirs: Sequence[str | Path], *, replicates: int = 10000, see
             "merge_key": loaded.merge_key,
             "attempt_counts": counts,
             "interrupted_runs": loaded.interrupted_runs,
+            "dry_run": loaded.dry_run,
         }
     )
 
@@ -711,6 +750,11 @@ def render_markdown(analysis: BaselineAnalysis) -> str:
         "",
         "> eval 只有 15 題：以下只能當 infrastructure validation / 初步觀察，不得宣稱統計上的泛化。",
         "",
+        *(
+            ["> **dry-run（OracleFakeClient）的輸出：只驗證 harness，不是研究結果**（decision 021 §1）。", ""]
+            if a.dry_run
+            else []
+        ),
         f"- runs：{', '.join(a.runs)}；計入指標的 rollouts：{a.n_rollouts}",
         f"- merge key：`{canonical_json(a.merge_key)}`",
     ]

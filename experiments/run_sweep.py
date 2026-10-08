@@ -55,9 +55,9 @@ from tasks.generator import week1_pool
 
 COMPLETED_OUTCOMES = ("success", "failure", "refusal")
 
-# v2：max_turns_confounded、rollout 存檔（017）；v3：skipped（018）；v4：run.json（019）；v5：run_id / resumed_from（020）。
-# run.json 與 summary.json 共用此 format
-SWEEP_SUMMARY_FORMAT = "agent-gym/sweep-run/v5"
+# v2：max_turns_confounded、rollout 存檔（017）；v3：skipped（018）；v4：run.json（019）；v5：run_id / resumed_from（020）；
+# v6：dry_run（021）。run.json 與 summary.json 共用此 format
+SWEEP_SUMMARY_FORMAT = "agent-gym/sweep-run/v6"
 RUN_FILE = "run.json"
 _RUN_ID = re.compile(r"[0-9a-f]{32}")
 
@@ -82,7 +82,14 @@ def baseline_directories(baseline_run_dirs: str | Path | Sequence[str | Path]) -
 
 
 def select_sources(baseline_run_dirs: str | Path | Sequence[str | Path]) -> dict[str, Trajectory | None]:
-    """decision 012 §3 / 017 §3 / 019 §1：以 ``experiments.analyze_baseline.load_runs`` 讀 eval baseline 的**所有**目錄（summary、
+    """``load_sources(baseline_run_dirs)[0]``。"""
+    return load_sources(baseline_run_dirs)[0]
+
+
+def load_sources(baseline_run_dirs: str | Path | Sequence[str | Path]) -> tuple[dict[str, Trajectory | None], bool]:
+    """回傳 (sources, dry_run)：dry_run = baseline 目錄是 dry-run 的輸出（decision 021 §1；dry-run 與付費不得合併）。
+
+    decision 012 §3 / 017 §3 / 019 §1：以 ``experiments.analyze_baseline.load_runs`` 讀 eval baseline 的**所有**目錄（summary、
     manifest、trajectory 交叉核對；沒有 summary 的中斷目錄由 manifest 重建），回傳**全部** eval task（依 eval pool 的順序）→ source。
 
     - 每個 task 的 rollout_index 0 = 所有目錄中最早結束者（最後一次嘗試的 manifest utc_time，換算成 UTC）；interrupted（沒有結束）
@@ -111,25 +118,27 @@ def select_sources(baseline_run_dirs: str | Path | Sequence[str | Path]) -> dict
             sources[task_id] = None
         else:
             sources[task_id] = loaded.trajectories[(record.run, task_id, 0)]
-    return sources
+    return sources, loaded.dry_run
 
 
 def run_description(
     *,
     run_id: str,
     resumed_from: Sequence[str],
+    dry_run: bool,
     plan: SweepPlan,
     criterion: str,
     config_id: str,
     skipped: Sequence[str],
     sources: Mapping[str, Trajectory | None],
 ) -> dict[str, Any]:
-    """``run.json`` 的內容（decision 019 §2 / 020 §2）：format、run_id、resumed_from（list）、plan（欄位 dict）、criterion、
-    config_id、skipped（list）、sources（task_id → source 的 trajectory_id，沒有 source 為 None）。"""
+    """``run.json`` 的內容（decision 019 §2 / 020 §2 / 021 §1）：format、run_id、resumed_from（list）、dry_run、plan（欄位 dict）、
+    criterion、config_id、skipped（list）、sources（task_id → source 的 trajectory_id，沒有 source 為 None）。"""
     return {
         "format": SWEEP_SUMMARY_FORMAT,
         "run_id": run_id,
         "resumed_from": list(resumed_from),
+        "dry_run": dry_run,
         "plan": asdict(plan),
         "criterion": criterion,
         "config_id": config_id,
@@ -138,8 +147,8 @@ def run_description(
     }
 
 
-def read_lineage(directory: Path) -> tuple[str, tuple[str, ...]] | None:
-    """寬鬆讀取 ``directory/run.json`` 的 (run_id, resumed_from)；不是目前格式的 sweep 目錄、讀不到或欄位不合法 → None
+def read_lineage(directory: Path) -> tuple[str, tuple[str, ...], bool] | None:
+    """寬鬆讀取 ``directory/run.json`` 的 (run_id, resumed_from, dry_run)；不是目前格式的 sweep 目錄、讀不到或欄位不合法 → None
     （decision 020 §3 的後代檢查只用它來拒絕，不據以加入任何目錄）。"""
     try:
         data = load_strict_json((directory / RUN_FILE).read_bytes())
@@ -147,44 +156,75 @@ def read_lineage(directory: Path) -> tuple[str, tuple[str, ...]] | None:
         return None
     if not isinstance(data, dict) or data.get("format") != SWEEP_SUMMARY_FORMAT:
         return None
-    run_id, parents = data.get("run_id"), data.get("resumed_from")
+    run_id, parents, dry_run = data.get("run_id"), data.get("resumed_from"), data.get("dry_run")
     if not is_run_id(run_id) or not isinstance(parents, list) or not all(is_run_id(parent) for parent in parents):
         return None
-    return run_id, tuple(parents)
+    if not isinstance(dry_run, bool):
+        return None
+    return run_id, tuple(parents), dry_run
 
 
-def later_sweeps(resume_from: Sequence[Path], run_dir: Path) -> list[Path]:
-    """decision 020 §3：在 resume_from 各目錄與 run_dir 的上層目錄中（不遞迴），找出 run.json 的 resumed_from 含有任一
-    resume_from 目錄的 run_id、有 manifest、但不在 resume_from 中的目錄（依路徑排序）。"""
-
-    def identity(directory: Path) -> tuple[int, int] | None:
-        try:
-            info = os.stat(directory)
-        except (OSError, ValueError):
-            return None
-        return info.st_dev, info.st_ino
-
-    given = {identity(directory) for directory in resume_from} - {None}
-    ids = {lineage[0] for directory in resume_from if (lineage := read_lineage(directory)) is not None}
+def _sibling_sweeps(directories: Sequence[Path]) -> list[tuple[Path, tuple[str, tuple[str, ...], bool]]]:
+    """directories 各自的上層目錄中（不遞迴、以 device + inode 去重）每個有合法 run.json 的 sweep 目錄與其 lineage，依路徑排序。"""
     parents: dict[tuple[int, int], Path] = {}
-    for parent in [directory.parent for directory in resume_from] + [run_dir.parent]:
-        key = identity(parent)
+    for parent in (directory.parent for directory in directories):
+        key = _identity(parent)
         if key is not None:
             parents.setdefault(key, parent)
-    found: list[Path] = []
+    found: list[tuple[Path, tuple[str, tuple[str, ...], bool]]] = []
     for parent in parents.values():
         try:
             children = sorted(parent.iterdir())
         except OSError:
             continue
         for child in children:
-            key = identity(child)
-            if key is None or key in given or not child.is_dir():
+            try:
+                is_dir = child.is_dir()
+            except OSError:
                 continue
-            lineage = read_lineage(child)
-            if lineage is not None and set(lineage[1]) & ids and (child / "manifest.jsonl").is_file():
-                found.append(child)
-    return sorted(found)
+            lineage = read_lineage(child) if is_dir else None
+            if lineage is not None:
+                found.append((child, lineage))
+    return sorted(found, key=lambda item: str(item[0]))
+
+
+def _identity(directory: Path) -> tuple[int, int] | None:
+    try:
+        info = os.stat(directory)
+    except (OSError, ValueError):
+        return None
+    return info.st_dev, info.st_ino
+
+
+def missing_ancestors(resume_from: Sequence[Path], run_dir: Path) -> dict[str, list[Path]]:
+    """decision 021 §2：resume_from 各目錄的 resumed_from 中、不屬於 resume_from 任一目錄的 run_id → 在相關上層目錄中找到的
+    對應目錄（可能為空 list）。"""
+    lineages = [read_lineage(directory) for directory in resume_from]
+    ids = {lineage[0] for lineage in lineages if lineage is not None}
+    missing = sorted({parent for lineage in lineages if lineage is not None for parent in lineage[1]} - ids)
+    if not missing:
+        return {}
+    siblings = _sibling_sweeps([*resume_from, run_dir])
+    return {run_id: [path for path, lineage in siblings if lineage[0] == run_id] for run_id in missing}
+
+
+def later_sweeps(resume_from: Sequence[Path], run_dir: Path, *, dry_run: bool = False) -> list[Path]:
+    """decision 020 §3 / 021 §1：在 resume_from 各目錄與 run_dir 的上層目錄中（不遞迴），找出 run.json 的 resumed_from 含有任一
+    resume_from 目錄的 run_id、與這次同一種模式（dry_run）、有 manifest、但不在 resume_from 中的目錄（依路徑排序）。"""
+
+    given = {_identity(directory) for directory in resume_from} - {None}
+    ids = {lineage[0] for directory in resume_from if (lineage := read_lineage(directory)) is not None}
+    found: list[Path] = []
+    for child, lineage in _sibling_sweeps([*resume_from, run_dir]):
+        if _identity(child) in given or lineage[2] != dry_run or not set(lineage[1]) & ids:
+            continue
+        try:
+            has_manifest = (child / "manifest.jsonl").is_file()
+        except OSError:
+            continue
+        if has_manifest:
+            found.append(child)
+    return found
 
 
 @dataclass(frozen=True)
@@ -250,6 +290,7 @@ def run_sweeps(
     replicates: int = 10000,
     skip: Collection[str] = (),
     resumed_from: Collection[str] = (),
+    dry_run: bool = False,
 ) -> SweepRunSummary:
     """依 eval pool 的順序對每個非 None、且不在 skip 中的 source 執行 ``replay.localization.sweep``（共用一個 manifest）。
 
@@ -259,7 +300,9 @@ def run_sweeps(
       source（decision 019 §3）；每個非 None 的 source 的 agent.config_id 必須等於 agent_config（預設 baseline）的 config_id；
       ``check_budget_args``；run_dir 不存在或為空。
     - resumed_from：續跑時各 --resume-from 目錄的 run_id（不是 str 的集合；每個都是 32 位小寫 hex、不重複；否則 ValueError）。
-    - 第一次嘗試之前寫入 ``run.json``（``run_description``：新的隨機 run_id、排序後的 resumed_from；decision 019 §2 / 020 §2）。
+    - dry_run（bool）：OracleFakeClient 的輸出（CLI 的 --dry-run）；直接以 Python 呼叫時預設 False（decision 021 §1）。
+    - 第一次嘗試之前寫入 ``run.json``（``run_description``：新的隨機 run_id、排序後的 resumed_from、dry_run；decision 019 §2 /
+      020 §2 / 021 §1）。
     - policy_factory(k, i, attempt)：``budget_reached(ledger, max_cost_usd)`` → raise BudgetExceeded；否則
       ``CostMeter(AnthropicPolicy(client, agent_config), ledger)``（ledger 跨所有 source 共用）。
     - BudgetExceeded → 停止（stopped_by_budget = True）：該 source 的部分 sweep 不計入 completed（rollouts 仍在 manifest 中），
@@ -289,6 +332,8 @@ def run_sweeps(
     parents = sorted(resumed_from)
     if len(set(parents)) != len(parents):
         raise ValueError("resumed_from must not repeat a run id")
+    if not isinstance(dry_run, bool):
+        raise ValueError("dry_run must be a bool")
     config = baseline_agent_config() if agent_config is None else copy.deepcopy(agent_config)
     check_budget_args(max_cost_usd, config)
     for task_id, source in sources.items():
@@ -308,6 +353,7 @@ def run_sweeps(
     description = run_description(
         run_id=uuid.uuid4().hex,
         resumed_from=parents,
+        dry_run=dry_run,
         plan=plan,
         criterion=criterion,
         config_id=config.config_id,
@@ -419,12 +465,28 @@ def main(argv: list[str] | None = None) -> int:
             f"{run_dir} already exists; to continue an interrupted or budget-stopped sweep, give a new --run-name and "
             "--resume-from every earlier sweep directory (decision 020 §6)"
         )
-    sources = select_sources(args.baseline_run)
+    sources, baseline_dry_run = load_sources(args.baseline_run)
+    if baseline_dry_run and not args.dry_run:
+        parser.error("the eval baseline is a dry-run output; a paid sweep needs a paid baseline (decision 021 §1)")
     skip: tuple[str, ...] = ()
     resumed_from: list[str] = []
     if args.resume_from:
         from experiments.analyze_sweep import analyze_sweep_runs  # 延遲 import：analyze_sweep 依賴本模組
 
+        resume_dirs = [Path(directory) for directory in args.resume_from]
+        lineages = [read_lineage(directory) for directory in resume_dirs]
+        if any(lineage is not None and lineage[2] != args.dry_run for lineage in lineages):
+            parser.error(
+                "every --resume-from directory must have the same mode as this run: a paid sweep cannot continue a dry-run "
+                "and a dry-run cannot continue a paid sweep (decision 021 §1)"
+            )
+        absent = missing_ancestors(resume_dirs, run_dir)
+        if absent:
+            listed = "; ".join(
+                f"{run_id} ({', '.join(str(path) for path in paths) or 'not found next to the given directories'})"
+                for run_id, paths in absent.items()
+            )
+            parser.error(f"--resume-from leaves out earlier sweep directories they continued: {listed} (decision 021 §2)")
         previous = analyze_sweep_runs(args.resume_from, args.baseline_run, replicates=1, plan=plan, criterion=args.criterion)
         skip = tuple(curve.task_id for curve in previous.curves)
         uncovered = sorted({t for entry in previous.resumed for t in entry["skipped"]} - set(skip))
@@ -433,14 +495,12 @@ def main(argv: list[str] | None = None) -> int:
                 f"{', '.join(uncovered)} were skipped by a --resume-from directory but completed in none of them; "
                 "pass every earlier sweep directory to --resume-from (decision 019 §3)"
             )
-        resume_dirs = [Path(directory) for directory in args.resume_from]
-        left_out = later_sweeps(resume_dirs, run_dir)
+        left_out = later_sweeps(resume_dirs, run_dir, dry_run=args.dry_run)
         if left_out:
             parser.error(
-                f"{', '.join(str(d) for d in left_out)} continued a --resume-from directory and already billed attempts; "
+                f"{', '.join(str(d) for d in left_out)} continued a --resume-from directory and already recorded attempts; "
                 "pass them to --resume-from too (decision 020 §3)"
             )
-        lineages = [read_lineage(directory) for directory in resume_dirs]
         resumed_from = sorted(lineage[0] for lineage in lineages if lineage is not None)
         print(f"resuming: {len(skip)} sources already completed in {', '.join(previous.runs)}", file=sys.stderr)
         print(
@@ -459,7 +519,7 @@ def main(argv: list[str] | None = None) -> int:
         client = make_anthropic_client()
     summary = run_sweeps(
         sources, client, plan=plan, criterion=args.criterion, run_dir=run_dir, max_cost_usd=args.max_cost_usd,
-        skip=skip, resumed_from=resumed_from,
+        skip=skip, resumed_from=resumed_from, dry_run=args.dry_run,
     )
     for task_id in summary.sources:
         result = summary.results.get(task_id)

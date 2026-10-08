@@ -29,8 +29,8 @@ from experiments.run_sweep import (
     SweepRunSummary,
     baseline_directories,
     is_run_id,
+    load_sources,
     run_description,
-    select_sources,
 )
 from replay.aborts import AttemptRecord, read_manifest, utc_date
 from replay.localization import (
@@ -50,7 +50,7 @@ from replay.checkpoint import make_checkpoint
 from replay.trajectory import Trajectory, TrajectoryError, load_strict_json
 from tasks.generator import week1_pool
 
-SWEEP_ANALYSIS_FORMAT = "agent-gym/sweep-analysis/v3"  # v2：decision 017 §5；v3：baseline_runs（019 §4）
+SWEEP_ANALYSIS_FORMAT = "agent-gym/sweep-analysis/v4"  # v2：decision 017 §5；v3：baseline_runs（019 §4）；v4：dry_run（021 §1）
 STEP_CATEGORIES: tuple[str, ...] = (
     "forbidden_attempt",
     "unnecessary_mutation",
@@ -255,6 +255,7 @@ class SweepAnalysis:
     plan: SweepPlan
     criterion: str
     baseline_runs: tuple[str, ...]  # eval baseline 目錄的標籤（source 依 decision 019 §1 從這些目錄選取）
+    dry_run: bool  # sweep 目錄是 dry-run（OracleFakeClient）的輸出：不是研究結果（decision 021 §1）
     runs: tuple[str, ...]  # 每個 sweep 目錄的標籤（目錄名稱；名稱重複時為傳入的路徑字串）
     interrupted_runs: tuple[str, ...]  # 沒有 summary.json 的目錄
     stopped_by_budget: tuple[str, ...]  # summary 標示因預算停止的目錄
@@ -355,7 +356,7 @@ def analyze_sweep_runs(
     if len(set(identities)) != len(identities) or {directory_identity(d) for d in baselines} & set(identities):
         raise ValueError("each sweep directory must be given once and must differ from the baseline runs")
     labels = run_labels(directories)
-    sources = select_sources(baselines)
+    sources, baseline_dry_run = load_sources(baselines)
     pool_families = {instance.task.task_id: instance.task.family for instance in week1_pool("eval")}
     pool_order = list(pool_families)
     source_ids = {source.trajectory_id: task_id for task_id, source in sources.items() if source is not None}
@@ -371,6 +372,8 @@ def analyze_sweep_runs(
     partial_sweeps: list[dict[str, Any]] = []
     resumed: list[dict[str, Any]] = []
     run_ids: set[str] = set()
+    ancestors: set[str] = set()
+    modes: set[bool] = set()
     interrupted_runs: list[str] = []
     stopped: list[str] = []
     all_rows: list[tuple[str, AttemptRecord]] = []
@@ -389,10 +392,16 @@ def analyze_sweep_runs(
                 raise ValueError(f"{directory}: a manifest row used a different agent config")
         all_rows.extend((label, row) for row in rows)
         results = _read_sweep_files(directory)
-        run_id, run_plan, run_criterion, skipped = _check_run_file(directory, sources, config_ids)
+        run_id, parents, dry_run, run_plan, run_criterion, skipped = _check_run_file(directory, sources, config_ids)
         if run_id in run_ids:
             raise ValueError(f"{directory}: run_id {run_id} also belongs to another sweep directory (a copy?)")
         run_ids.add(run_id)
+        ancestors.update(parents)
+        modes.add(dry_run)
+        if len(modes) > 1:
+            raise ValueError("dry-run and paid sweep directories cannot be analyzed together (decision 021 §1)")
+        if not dry_run and baseline_dry_run:
+            raise ValueError("a paid sweep cannot be analyzed against a dry-run baseline (decision 021 §1)")
         settings.add(canonical_json([asdict(run_plan), run_criterion]))
         if skipped:
             resumed.append({"run": label, "skipped": skipped})
@@ -435,6 +444,11 @@ def analyze_sweep_runs(
         for task_id in sorted(swept - set(results), key=pool_order.index):
             n = len({(k, i) for t, k, i in groups if t == task_id})
             partial_sweeps.append({"run": label, "task_id": task_id, "rollouts": n})
+    if ancestors - run_ids:
+        raise ValueError(
+            f"the sweep directories continued directories that are not being analyzed (run ids {', '.join(sorted(ancestors - run_ids))}); "
+            "pass every sweep directory (decision 021 §2)"
+        )
     if len(settings) != 1:
         raise ValueError("the sweep directories used different plans or criteria (or none could be determined)")
     plan_data, criterion = load_strict_json(next(iter(settings)).encode("utf-8"))
@@ -498,6 +512,7 @@ def analyze_sweep_runs(
         plan=plan,
         criterion=criterion,
         baseline_runs=run_labels(baselines),
+        dry_run=modes == {True},
         runs=labels,
         interrupted_runs=tuple(interrupted_runs),
         stopped_by_budget=tuple(stopped),
@@ -578,13 +593,14 @@ def _read_sweep_summary(directory: Path) -> dict[str, Any] | None:
 
 def _check_run_file(
     directory: Path, sources: dict[str, Trajectory | None], config_ids: set[str]
-) -> tuple[str, SweepPlan, str, tuple[str, ...]]:
-    """decision 019 §2 / 020 §2：``run.json`` 逐欄驗證，sources 必須等於這次選出的 source；回傳 (run_id, plan, criterion, skipped)。"""
+) -> tuple[str, list[str], bool, SweepPlan, str, tuple[str, ...]]:
+    """decision 019 §2 / 020 §2 / 021 §1：``run.json`` 逐欄驗證，sources 必須等於這次選出的 source；
+    回傳 (run_id, resumed_from, dry_run, plan, criterion, skipped)。"""
     path = directory / RUN_FILE
     data = _read_json(path) if path.exists() else None
     if not isinstance(data, dict) or data.get("format") != SWEEP_SUMMARY_FORMAT:
         raise ValueError(f"{directory} has no {RUN_FILE} of format {SWEEP_SUMMARY_FORMAT}; not a sweep run")
-    expected_keys = {"format", "run_id", "resumed_from", "plan", "criterion", "config_id", "skipped", "sources"}
+    expected_keys = {"format", "run_id", "resumed_from", "dry_run", "plan", "criterion", "config_id", "skipped", "sources"}
     if set(data) != expected_keys:
         raise ValueError(f"{directory}: {RUN_FILE} must have exactly the keys {sorted(expected_keys)}")
     run_id, parents = data["run_id"], data["resumed_from"]
@@ -597,6 +613,8 @@ def _check_run_file(
         or run_id in parents
     ):
         raise ValueError(f"{directory}: {RUN_FILE} resumed_from must be sorted, distinct run ids other than its own")
+    if not isinstance(data["dry_run"], bool):
+        raise ValueError(f"{directory}: {RUN_FILE} dry_run must be a bool")
     plan = _build(SweepPlan, _fields(data["plan"], SweepPlan, "plan"))
     criterion = data["criterion"]
     if criterion not in CLIFF_CRITERIA:
@@ -608,11 +626,12 @@ def _check_run_file(
     if skipped != [task_id for task_id, source in sources.items() if task_id in set(skipped) and source is not None]:
         raise ValueError(f"{directory}: {RUN_FILE} skipped must list tasks with a source, in pool order")
     expected = run_description(
-        run_id=run_id, resumed_from=parents, plan=plan, criterion=criterion, config_id=config_id, skipped=skipped, sources=sources
+        run_id=run_id, resumed_from=parents, dry_run=data["dry_run"], plan=plan, criterion=criterion, config_id=config_id,
+        skipped=skipped, sources=sources,
     )
     if data["sources"] != expected["sources"]:
         raise ValueError(f"{directory}: {RUN_FILE} lists different sources than the given baseline runs select (decision 019 §1)")
-    return run_id, plan, criterion, tuple(skipped)
+    return run_id, parents, data["dry_run"], plan, criterion, tuple(skipped)
 
 
 def _str_list(value: Any, what: str) -> list[str]:
@@ -876,6 +895,11 @@ def render_markdown(analysis: SweepAnalysis) -> str:
         "",
         "> eval 只有 15 題：以下只能當 infrastructure validation / 初步觀察，不得宣稱統計上的泛化。",
         "",
+        *(
+            ["> **dry-run（OracleFakeClient）的輸出：只驗證 harness，曲線沒有研究意義**（decision 021 §1）。", ""]
+            if a.dry_run
+            else []
+        ),
         f"- plan：stride {p.coarse_stride}、n_coarse {p.n_coarse}、n_fine {p.n_fine}、drop_threshold {p.drop_threshold}；"
         f"驟降判定 criterion：{a.criterion}",
         f"- eval baseline 目錄（source 依 decision 019 §1 選取）：{', '.join(a.baseline_runs)}",

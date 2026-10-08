@@ -169,7 +169,7 @@ def test_run_json_records_run_id_and_lineage(baseline: Path, tmp_path: Path, mon
     runs = tmp_path / "runs"
     _two_budget_stops(baseline, runs)
     one, two = _run_json(runs / "s1"), _run_json(runs / "s2")
-    assert SWEEP_SUMMARY_FORMAT == "agent-gym/sweep-run/v5" == one["format"]
+    assert SWEEP_SUMMARY_FORMAT == one["format"]
     assert RUN_ID.fullmatch(one["run_id"]) and RUN_ID.fullmatch(two["run_id"]) and one["run_id"] != two["run_id"]
     assert one["resumed_from"] == [] and two["resumed_from"] == [one["run_id"]]
     assert _cli(baseline, "--run-name", "s3", "--resume-from", str(runs / "s2"), str(runs / "s1")) == 0

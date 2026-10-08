@@ -5,7 +5,7 @@
 Core：Day 1 完成；Week 1 除「#5 baseline 真正跑完整 task」以外都完成；#5 與 SPEC §6 中**不需要 API key 的部分全部完成**。
 需要真正呼叫 LLM 的步驟（dev sanity、eval baseline、eval 上的 failure localization sweep）依使用者決策 **deferred / blocked-by-paid-API**；
 keyless Core infrastructure（含分析工具、驟降判定選項、README 示範）已完成；第七輪對抗式審查找出的 keyless 缺口
-（已登記但漏實作的規則、只信任 summary 的分析）已依 decision 017 補齊；第八～十輪審查找出的缺口已依 decision 018 / 019 / 020 補齊。
+（已登記但漏實作的規則、只信任 summary 的分析）已依 decision 017 補齊；第八～十一輪審查找出的缺口已依 decision 018 – 021 補齊。
 **所有 keyless Core 工作已完成；剩下的都在下方「Blocked / 需要使用者」**（付費 LLM run 與研究設計決策）。
 尚未進 Advanced（Gate 未滿足：還沒有任何真實的 failure localization 結果）。
 
@@ -14,7 +14,7 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 `d7241dc` Day 1 → `5c8ada4` Week 1 replay infrastructure → `c554735` keyless baseline adapter + attempt manifest →
 `638be6d` §6 failure localization infrastructure → `7a796f3` 付費 run 執行工具 + 計費修正 → SweepPlan 偵測力模擬（decision 011）→
 `b8c600f` 預先登記的分析工具 + README 示範（decision 015 / 016）→ `9baae38`…`63bde0b` 第七輪審查修正（decision 017）→
-第八輪審查修正（decision 018）→ `7a94d24` 第九輪（decision 019）→ 第十輪（decision 020）。
+第八輪審查修正（decision 018）→ `7a94d24` 第九輪（decision 019）→ `724f3b9` 第十輪（decision 020）→ 第十一輪（decision 021）。
 
 ## 上次完成（2026-10-08）
 
@@ -96,7 +96,17 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
    - analyze_sweep 驗證 run_id / resumed_from，同一個 run_id 出現在兩個目錄（複製的目錄）→ ValueError。
    - rollout 0 的同時間檢查只看最早的時間，與傳入順序無關；目標目錄已存在時提示以 `--resume-from` 續跑。
 
-測試：`uv run pytest` → 8644 passed、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 4–6 分鐘；`ruff check` 通過。
+11. **第十一輪對抗式審查後的修正**（decision 021）：
+   - dry-run 與付費輸出分開：baseline 也在開始時寫入 `run.json`（split、rollouts、config_id、`dry_run`；baseline 格式 v2），sweep 的
+     run.json 加上 `dry_run`（格式 v6）。dry-run 與付費的 baseline 不得合併（原本較早的 dry-run 預演會成為「最早結束」的 source）；
+     付費 sweep 必須用付費 baseline；續跑不得跨模式；後代檢查只看同一種模式；分析不得混合，dry-run 報告開頭標示「不是研究結果」
+     （分析格式：baseline v3、sweep v4）。原本 dry-run 預演會擋下付費續跑，並誘導把假結果併入。
+   - 祖先目錄必須齊全：續跑與分析時，給定目錄 resumed_from 中的每個 run_id 都必須在給定的目錄中（原本沒有完成任何 sweep 的祖先目錄
+     可以被漏掉，它的成本與中止嘗試會消失）。取代 018 / 019 對「只分析部分目錄」的容許。
+   - 審查判定不成立而未處理：`--run-name` 含路徑分隔時後代目錄可能在其他位置（020 已記錄的限制）；runs/ 內的備份複本會先被要求
+     傳入、再被判定為複本（fail closed）；B.2 沒有可照打的指令（R 待使用者決定）；decision 004 / 007 / 009 缺少範本段落標題。
+
+測試：`uv run pytest` → 8666 passed、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 4–6 分鐘；`ruff check` 通過。
 
 ## 使用者決策（2026-10-08 / 10-09）
 
@@ -148,7 +158,10 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 
 1. dev sanity（估計 $0.42 – $6.78）：`uv run --extra llm python -m experiments.run_baseline --split dev --confirm-paid-run --max-cost-usd 10`；
    以實測 tokens / call 重估 eval 與 sweep 的成本，再請使用者確認預算。
-2. eval baseline（每輪 15 題估計 $1.16 – $18.51；R = 3 約 $3.5 – $56）。被中斷或因預算停止時以新目錄重跑；之後所有指令的 baseline
+2. eval baseline（每輪 15 題估計 $1.16 – $18.51；R = 3 約 $3.5 – $56）：
+   `uv run --extra llm python -m experiments.run_baseline --split eval --rollouts <R> --confirm-paid-run --max-cost-usd <X>`
+   （R 由 A.2 決定；`--rollouts` 預設為 1）。被中斷或因預算停止時以新目錄（`--run-name <新名稱>`）重跑；dry-run 的目錄不能一起傳入
+   （decision 021 §1）；之後所有指令的 baseline
    都要列出**全部**目錄（analyze_baseline 的位置參數、run_sweep / analyze_sweep 的 `--baseline-run`；decision 016 A1 / 019 §1）。
 3. 以 decision 012 / 019 的規則選 source → eval sweep（成本見 A.3）：
    `uv run --extra llm python -m experiments.run_sweep --baseline-run runs/<eval-run> [runs/<eval-rerun> ...] --plan S,NC,NF,T --criterion C --confirm-paid-run --max-cost-usd X`
@@ -158,6 +171,13 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 4. 以真實結果跑 `analyze_baseline` / `analyze_sweep`，把 recoverability curve、trajectory safety、「最終成功但中途有
    forbidden action」案例、Gate 判定放進 README 的「結果」段（README 目前只有 synthetic 示範）。
 5. Gate 判定（需要使用者確認 A.4 之後才能判斷是否進 Advanced）。
+
+### C. 環境（系統層，需要使用者處理）
+
+- 2026-10-09：`/usr/bin/git` 透過 xcrun 載入 `/Applications/Xcode.app/.../libxcrun.dylib` 失敗（"incompatible architecture
+  (have 'arm64', need 'arm64e')"），所有 git 指令都會失敗。修正需要系統層操作（例如更新 / 重新安裝 Xcode，或
+  `sudo xcode-select --switch /Library/Developer/CommandLineTools`），依規則不自行處理。暫時的繞過方式（不改任何系統設定）：
+  每個指令前加 `DEVELOPER_DIR=/Library/Developer/CommandLineTools`，例如 `DEVELOPER_DIR=/Library/Developer/CommandLineTools git status`。
 
 ## 分析前必須注意的已知限制（decision 003 / 004 / 005 / 007 / 009 / 011）
 
@@ -174,7 +194,9 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 - manifest 不支援並行寫入；付費 run 被手動中斷時，進行中的嘗試不會進 manifest（那次嘗試中已計費的 call 也不會出現在任何
   成本加總中），重跑必須用新目錄。分析工具可直接同時讀中斷的目錄與重跑的目錄（decision 017）；sweep 以 `--resume-from` 續跑
   （decision 018 / 019 / 020，必須列出所有先前的 sweep 目錄）。續跑前的後代檢查只看相關目錄的上層目錄（不遞迴）：
-  搬到其他位置的後續 sweep 目錄偵測不到。沒有 `--resume-from` 的新 sweep 不做這個檢查（無法分辨刻意重新開始與忘了續跑）。中斷時還沒有任何嘗試寫入 manifest 的目錄沒有可分析的內容，不要傳入分析工具。
+  搬到其他位置的後續 sweep 目錄偵測不到。沒有 `--resume-from` 的新 sweep 不做這個檢查（無法分辨刻意重新開始與忘了續跑）。
+- dry-run 標記由 CLI 的 `--dry-run` 決定（decision 021 §1）；直接以 Python 呼叫 `run_split` / `run_sweeps` 時預設 `dry_run=False`。
+  dry-run 的輸出永遠不能與付費輸出一起分析或互相續跑；預演續跑要用 dry-run 鏈。中斷時還沒有任何嘗試寫入 manifest 的目錄沒有可分析的內容，不要傳入分析工具。
 - sweep 會為每個完成的 rerun 存一個 trajectory 檔（含前綴，約為 source 的大小）；付費 sweep 的 `runs/` 可能達數百 MB（gitignored）。
 - max_turns 混淆判定只看最大下降：被混淆時不改看其他下降（decision 017 §1，刻意保守）。
 - 偵測力模擬的情境是假設；真實曲線形狀未知。

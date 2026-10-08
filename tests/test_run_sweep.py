@@ -293,8 +293,9 @@ def test_unknown_criterion_is_rejected_without_running(eval_run: Path, tmp_path:
 # ---------------------------------------------------------------- rollout 存檔與格式（decision 017 §1 / §2）
 
 
-def test_sweep_output_format_is_v5() -> None:
-    assert SWEEP_SUMMARY_FORMAT == "agent-gym/sweep-run/v5"  # v3：skipped（018）；v4：run.json（019）；v5：run_id / resumed_from（020）
+def test_sweep_output_format_is_v6() -> None:
+    # v3：skipped（018）；v4：run.json（019）；v5：run_id / resumed_from（020）；v6：dry_run（021）
+    assert SWEEP_SUMMARY_FORMAT == "agent-gym/sweep-run/v6"
 
 
 def test_dry_run_saves_every_completed_rollout_trajectory(eval_run: Path, tmp_path: Path) -> None:
@@ -408,7 +409,7 @@ def test_cli_resume_runs_only_the_sources_not_completed_before(
     old = tmp_path / "runs" / "old"
     with pytest.raises(KeyboardInterrupt):
         run_sweeps(select_sources(eval_run), _InterruptAfter(OracleFakeClient(week1_pool("eval")), 40), plan=SMALL_PLAN,
-                   criterion="wilson95", run_dir=old, clock=ZERO, replicates=50)
+                   criterion="wilson95", run_dir=old, clock=ZERO, replicates=50, dry_run=True)  # 與 --dry-run 續跑同一種模式
     done = sorted(path.stem for path in (old / "sweeps").glob("*.json"))
     assert 0 < len(done) < 15 and not (old / "summary.json").exists()
     plan_text = "3,2,2,0.3"
@@ -433,7 +434,7 @@ def test_cli_resume_rejects_a_different_plan_or_criterion(
     monkeypatch.chdir(tmp_path)
     old = tmp_path / "runs" / "old"
     run_sweeps(select_sources(eval_run), OracleFakeClient(week1_pool("eval")), plan=SMALL_PLAN, criterion="wilson95", run_dir=old,
-               clock=ZERO, replicates=50, skip=tuple(EVAL_IDS[2:]))
+               clock=ZERO, replicates=50, skip=tuple(EVAL_IDS[2:]), dry_run=True)
     for plan_text, criterion in (("3,2,4,0.3", "wilson95"), ("3,2,2,0.3", "bonferroni95")):
         with pytest.raises(ValueError):
             main(["--baseline-run", str(eval_run), "--plan", plan_text, "--criterion", criterion, "--dry-run",

@@ -1591,8 +1591,8 @@ def test_interrupted_records_are_excluded_from_metrics_and_groups() -> None:
     assert analyze(only_interrupted, replicates=R).missing_tasks == (T["K1"],)
 
 
-def test_analysis_format_is_v2() -> None:
-    assert ANALYSIS_FORMAT == "agent-gym/baseline-analysis/v2"
+def test_analysis_format_is_v3() -> None:
+    assert ANALYSIS_FORMAT == "agent-gym/baseline-analysis/v3"  # v3：dry_run（decision 021 §1）
 
 
 # ================================================================ decision 018 §3 / §4：summary 全欄核對、目錄識別

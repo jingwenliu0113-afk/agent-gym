@@ -3,8 +3,8 @@
 ## 目前位置
 
 Core：Day 1 完成；Week 1 除「#5 baseline 真正跑完整 task」以外都完成；#5 與 SPEC §6 中**不需要 API key 的部分全部完成**。
-剩下的 Core 工作都必須真正呼叫 LLM（dev sanity、eval baseline、eval 上的 failure localization sweep），
-因此停在 **blocker：需要使用者確認模型 / 成本 / SweepPlan，並以環境變數提供 credential**（見下）。
+需要真正呼叫 LLM 的步驟（dev sanity、eval baseline、eval 上的 failure localization sweep）依使用者決策 **deferred / blocked-by-paid-API**；
+目前繼續做其他 keyless Core 工作（分析工具、驟降判定選項、README，見下）。
 尚未進 Advanced（Gate 未滿足：還沒有任何真實的 failure localization 結果）。
 
 Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/jingwenliu0113-afk/agent-gym），main 追蹤 origin/main；
@@ -46,25 +46,41 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 
 測試：`uv run pytest` → 8260 passed、1 xfailed（已知限制的特徵測試），約 70 秒；`ruff check` 通過。
 
-## 下一步（需要使用者先決定，依序）
+## 使用者決策（2026-10-08）
 
-1. **使用者確認**（decision 012「待使用者確認的事項」）：
-   - 模型 `claude-opus-5-5` 與 dev sanity 上限 $10；
-   - 在環境變數提供 `ANTHROPIC_API_KEY`（程式不讀取、不保存；由 SDK 解析），確認帳號可用 `thinking-binding-controls-2026-08-01` beta；
-   - eval rollout 數 R（提案 3）；SweepPlan 選項（decision 011：A / B / C）；Gate 判定的操作化（decision 012 第 4 節）。
-   - 若選 A：另立 decision log，把 Bonferroni 判定正式實作到 `replay.localization`（目前只在模擬程式中，標為探索）並測試，再重跑模擬確認。
-2. dev sanity：`uv run --extra llm python -m experiments.run_baseline --split dev --confirm-paid-run --max-cost-usd 10`；
-   以實測 tokens / call 重新估算 eval 與 sweep 的成本，再請使用者確認預算。
-3. eval baseline（R rollouts）→ 以 decision 012 的規則選 source → 依選定的 SweepPlan 實作 / 測試（若選 A，先另立 decision log 並實作
-   Bonferroni 判定、重跑 decision 011 模擬）→ eval sweep：
+- 需要 `ANTHROPIC_API_KEY` 或其他付費 API 的正式 LLM run（baseline / eval / failure-localization sweep）**全部延後**；
+  不要求 API key、不執行任何付費 API call。Claude Code Desktop 自身的 token 可自由用於開發、測試、review、commit、push。
+- 不得把 Claude Code Desktop 的內部模型當成正式 benchmark provider（除非使用者明確修改實驗設計）。
+- 只因需要真實 LLM API 而卡住的步驟標記 `deferred / blocked-by-paid-API`；其他 keyless Core 工作照常推進。
+  所有 keyless Core infrastructure 完成、只剩 paid runs 時，才一次性回報需要的 paid runs、預估成本與順序。
+
+## 下一步
+
+### keyless Core（進行中，依序）
+
+1. 驟降判定可選擇（decision 011 的選項 A 先實作成可選項，預設維持 decision 010 判定；選擇仍屬使用者決策）。
+2. eval baseline 分析工具：依 decision 005 / 009 預先登記的規則計算主指標與敏感度分析、family 分層 bootstrap、
+   安全指標分開報告、中止嘗試的部分安全指標、時間窗、「最終成功但中途有 forbidden action」案例。
+3. sweep 分析工具：每個 source 的 recoverability curve（表格 + SVG）、Gate 判定（decision 012 第 4 節的操作化，待確認）。
+4. README 首屏：Task → Agent actions → state changes → grader → replay from checkpoint，以可重現的 keyless 示範
+   （dry-run / synthetic，明確標示不是 LLM 結果）；真實結果的位置標示為待 paid runs。
+
+### deferred / blocked-by-paid-API（依序；全部等使用者日後決定）
+
+1. dev sanity：`uv run --extra llm python -m experiments.run_baseline --split dev --confirm-paid-run --max-cost-usd 10`；
+   以實測 tokens / call 重估 eval 與 sweep 的成本，再請使用者確認預算。
+2. eval baseline（R rollouts，提案 R = 3）。
+3. 以 decision 012 的規則選 source → eval sweep：
    `uv run --extra llm python -m experiments.run_sweep --baseline-run runs/<eval-run> --plan S,NC,NF,T --confirm-paid-run --max-cost-usd X`
    （plan 沒有預設值；`--dry-run` 已驗證）。
-4. 有真實結果後：recoverability curve、trajectory safety、「最終成功但中途有 forbidden action」案例、Gate 判定，再寫 README 首屏。
+4. 以真實結果填入 recoverability curve、trajectory safety、「最終成功但中途有 forbidden action」案例、Gate 判定。
 
-## Blocked / 需要使用者
+### 仍待使用者決定的研究設計（與 paid runs 一起回報）
 
-- **所有真正呼叫 LLM 的步驟**：需要上面第 1 點的確認與 credential（依指示本 session 未要求、未處理任何 key）。
-- **SweepPlan**：decision 011 依預先登記規則無合格 plan，依規則不自行放寬，等使用者選擇。
+- 模型 `claude-opus-5-5` 與各階段預算；credential 由環境變數提供、帳號可用 `thinking-binding-controls-2026-08-01` beta。
+- eval rollout 數 R（提案 3）。
+- SweepPlan / 驟降判定：decision 011 的選項 A / B / C（依預先登記規則無合格 plan，不自行放寬）。
+- Gate 判定的操作化（decision 012 第 4 節）。
 
 ## 分析前必須注意的已知限制（decision 003 / 004 / 005 / 007 / 009 / 011）
 

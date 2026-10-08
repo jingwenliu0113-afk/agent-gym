@@ -137,6 +137,9 @@ ATTEMPT_RECORD_FIELDS: tuple[str, ...] = (
     "http_status",
     "request_id",
     "model_calls_completed",
+    "billed_calls",
+    "cost_usd",
+    "unknown_cost_calls",
     "partial_steps",
     "partial_forbidden_action_count",
     "partial_forbidden_attempt_count",
@@ -645,10 +648,11 @@ def expected_row(
 
 
 def row_fields(record: AttemptRecord) -> dict[str, Any]:
-    """AttemptRecord 除 utc_time（量測）以外的全部欄位。"""
+    """AttemptRecord 除 utc_time（量測）與計費欄位（decision 014，另見 tests/test_billing.py）以外的全部欄位。"""
     assert isinstance(record, AttemptRecord)
     data = dataclasses.asdict(record)
-    del data["utc_time"]
+    for name in ("utc_time", "billed_calls", "cost_usd", "unknown_cost_calls"):
+        del data[name]
     return data
 
 
@@ -1363,7 +1367,7 @@ def test_turn_meta_is_carried_by_checkpoints(tmp_path: Path) -> None:
 
 
 def test_abort_constants_match_decision_009() -> None:
-    assert ATTEMPT_RECORD_FORMAT == "agent-gym/attempt/v1"
+    assert ATTEMPT_RECORD_FORMAT == "agent-gym/attempt/v2"  # v2：每次嘗試的計費（decision 014）
     assert ERROR_CLASSES == ("infrastructure", "agent_output", "harness")
     assert OUTCOMES == ("completed", "aborted")
     assert MESSAGE_LIMIT == 1000

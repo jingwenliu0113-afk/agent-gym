@@ -293,6 +293,27 @@ def parse_response(response: Any, model: str) -> PolicyStep:
     except (TypeError, ValueError) as exc:
         raise AdapterError(f"the response cannot be recorded as a turn: {exc}") from exc
 
+    raw, cache_1h, input_total, output_tokens, cost = _read_usage(response, model)
+
+    details = getattr(response, "stop_details", None)
+    meta = {
+        "response_model": _optional_str(getattr(response, "model", None)),
+        "request_id": _optional_str(getattr(response, "_request_id", None)),
+        "stop_reason": stop_reason,
+        "stop_details": None
+        if details is None
+        else {
+            "category": _optional_str(getattr(details, "category", None)),
+            "explanation": _optional_str(getattr(details, "explanation", None)),
+        },
+        "tool_use_blocks": len(tool_uses),
+        "usage": {**raw, "cache_creation_1h_input_tokens": cache_1h},
+    }
+    return PolicyStep(message=message, input_tokens=input_total, output_tokens=output_tokens, cost_usd=cost, meta=meta)
+
+
+def _read_usage(response: Any, model: str) -> tuple[dict[str, Any], int, int, int, float | None]:
+    """(原始 usage 欄位, cache_1h, input 總數, output, cost_usd)；usage 欄位不合法 → AdapterError。規則見模組 docstring。"""
     usage = getattr(response, "usage", None)
     raw = {name: getattr(usage, name, None) for name in _USAGE_FIELDS}
     for name, value in raw.items():
@@ -314,28 +335,17 @@ def parse_response(response: Any, model: str) -> PolicyStep:
             + cache_read * prices["cache_read"]
             + output_tokens * prices["output"]
         ) / 1e6
+    return raw, cache_1h, input_tokens + cache_write + cache_read, output_tokens, cost
 
-    details = getattr(response, "stop_details", None)
-    meta = {
-        "response_model": _optional_str(getattr(response, "model", None)),
-        "request_id": _optional_str(getattr(response, "_request_id", None)),
-        "stop_reason": stop_reason,
-        "stop_details": None
-        if details is None
-        else {
-            "category": _optional_str(getattr(details, "category", None)),
-            "explanation": _optional_str(getattr(details, "explanation", None)),
-        },
-        "tool_use_blocks": len(tool_uses),
-        "usage": {**raw, "cache_creation_1h_input_tokens": cache_1h},
-    }
-    return PolicyStep(
-        message=message,
-        input_tokens=input_tokens + cache_write + cache_read,
-        output_tokens=output_tokens,
-        cost_usd=cost,
-        meta=meta,
-    )
+
+def billed_usage(response: Any, model: str) -> dict[str, Any]:
+    """decision 014：已回傳（已計費）的 response 的 ``{"input_tokens", "output_tokens", "cost_usd"}``，規則同 parse_response，
+    但**不拋例外**：usage 不合法 → 三者皆 None；model 不在 PRICING → cost_usd 為 None。"""
+    try:
+        _, _, input_total, output_tokens, cost = _read_usage(response, model)
+    except AdapterError:
+        return {"input_tokens": None, "output_tokens": None, "cost_usd": None}
+    return {"input_tokens": input_total, "output_tokens": output_tokens, "cost_usd": cost}
 
 
 def _convert_block(block: Any) -> dict[str, Any]:
@@ -374,6 +384,7 @@ class AnthropicPolicy:
     實驗腳本應一律以 ``make_anthropic_client`` 建立 client。
     ``next_message(messages, tools)`` = ``parse_response(client.beta.messages.create(**build_request(...)), model)``；
     build_request 的 ValueError 在呼叫 client 之前拋出；client 的例外原樣往外拋。``agent_config`` 每次回傳新物件且不變。
+    parse_response 拋出的 AdapterError / ReplayIntegrityError 會附加 ``billed_usage``（decision 014）後原樣往外拋。
     """
 
     def __init__(self, client: Any, agent_config: AgentConfig | None = None) -> None:
@@ -408,7 +419,12 @@ class AnthropicPolicy:
         model_config = self._config.model_config
         request = build_request(messages, tools, model_config)
         response = self._client.beta.messages.create(**request)
-        return parse_response(response, model_config["model"])
+        try:
+            return parse_response(response, model_config["model"])
+        except (AdapterError, ReplayIntegrityError) as exc:
+            # decision 014：response 已回傳即已計費；附上用量讓 CountingPolicy / CostMeter 記帳，原例外照常往外拋
+            exc.billed_usage = billed_usage(response, model_config["model"])  # type: ignore[attr-defined]
+            raise
 
 
 def _same_setting(actual: Any, expected: Any) -> bool:

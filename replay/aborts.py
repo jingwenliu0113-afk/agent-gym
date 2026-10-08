@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass, fields, replace
 from datetime import datetime, timezone
@@ -28,7 +29,7 @@ from grader.schema import GRADER_VERSION
 from replay.trajectory import Trajectory, load_strict_json
 from tasks.schema import Task
 
-ATTEMPT_RECORD_FORMAT = "agent-gym/attempt/v1"
+ATTEMPT_RECORD_FORMAT = "agent-gym/attempt/v2"  # v2：每次嘗試的計費欄位（decision 014）
 ERROR_CLASSES: tuple[str, ...] = ("infrastructure", "agent_output", "harness")
 OUTCOMES: tuple[str, ...] = ("completed", "aborted")
 MESSAGE_LIMIT = 1000
@@ -67,6 +68,9 @@ class AttemptRecord:
     http_status: int | None  # 例外帶 int 的 status_code 時
     request_id: str | None  # 例外帶 str 的 request_id 時
     model_calls_completed: int  # 本次嘗試中成功回傳的 next_message 次數（不含 checkpoint 前綴）
+    billed_calls: int  # 本次嘗試中已計費的 model call 數（成功回傳 + 帶 billed_usage 的例外；decision 014）
+    cost_usd: float  # 這些 call 中已知成本的總和
+    unknown_cost_calls: int  # 成本無法量測的已計費 call 數
     partial_steps: int | None  # aborted 且有 partial_episode 時：部分軌跡的 tool step 總數（含前綴）
     partial_forbidden_action_count: int | None
     partial_forbidden_attempt_count: int | None
@@ -89,6 +93,10 @@ class AttemptRecord:
             value = getattr(self, name)
             if value is not None and (type(value) is not int or value < 0):
                 raise ValueError(f"AttemptRecord.{name} must be an int >= 0 or None")
+        if isinstance(self.cost_usd, bool) or not isinstance(self.cost_usd, (int, float)) or not (
+            math.isfinite(self.cost_usd) and self.cost_usd >= 0
+        ):
+            raise ValueError("AttemptRecord.cost_usd must be a finite number >= 0")
         if self.outcome not in OUTCOMES:
             raise ValueError(f"AttemptRecord.outcome must be one of {OUTCOMES}")
         if self.error_class is not None and self.error_class not in ERROR_CLASSES:
@@ -123,7 +131,7 @@ _OPTIONAL_STR_FIELDS = (
     "request_id",
     "sdk_version",
 )
-_INT_FIELDS = ("max_turns", "rollout_index", "attempt", "model_calls_completed")
+_INT_FIELDS = ("max_turns", "rollout_index", "attempt", "model_calls_completed", "billed_calls", "unknown_cost_calls")
 _OPTIONAL_INT_FIELDS = (
     "checkpoint_turn",
     "http_status",
@@ -163,25 +171,66 @@ def _status_code(exc: BaseException) -> int | None:
     return status if type(status) is int else None
 
 
+def billed_cost(exc: BaseException) -> tuple[bool, float | None]:
+    """例外是否代表一次已計費的 call（帶 ``billed_usage`` 屬性，decision 014）與其成本（未知 → None）。"""
+    usage = getattr(exc, "billed_usage", None)
+    if not isinstance(usage, dict):
+        return False, None
+    cost = usage.get("cost_usd")
+    if isinstance(cost, bool) or not isinstance(cost, (int, float)) or not math.isfinite(cost) or cost < 0:
+        return True, None
+    return True, float(cost)
+
+
 class CountingPolicy:
-    """包住另一個 policy，計算成功回傳的 ``next_message`` 次數；``agent_config`` 原樣委派。"""
+    """包住另一個 policy：計算成功回傳的 ``next_message`` 次數，以及已計費的 call 數與成本（成功回傳的 PolicyStep.cost_usd +
+    帶 billed_usage 的例外；cost 為 None → unknown_cost_calls）。例外原樣往外拋。``agent_config`` 原樣委派。"""
 
     def __init__(self, inner: Policy) -> None:
         self._inner = inner
         self._calls = 0
+        self._billed = 0
+        self._cost = 0.0
+        self._unknown = 0
 
     @property
     def calls_completed(self) -> int:
         return self._calls
 
     @property
+    def billed_calls(self) -> int:
+        return self._billed
+
+    @property
+    def cost_usd(self) -> float:
+        return self._cost
+
+    @property
+    def unknown_cost_calls(self) -> int:
+        return self._unknown
+
+    @property
     def agent_config(self) -> Any:
         return self._inner.agent_config
 
     def next_message(self, messages: list[dict[str, Any]], tools: tuple[dict[str, Any], ...]) -> PolicyStep:
-        step = self._inner.next_message(messages, tools)
+        try:
+            step = self._inner.next_message(messages, tools)
+        except Exception as exc:
+            billed, cost = billed_cost(exc)
+            if billed:
+                self._record(cost)
+            raise
         self._calls += 1
+        self._record(step.cost_usd if isinstance(step, PolicyStep) else None)
         return step
+
+    def _record(self, cost: float | None) -> None:
+        self._billed += 1
+        if cost is None:
+            self._unknown += 1
+        else:
+            self._cost += cost
 
 
 def run_logged(
@@ -267,6 +316,9 @@ def run_logged(
                 http_status=_status_code(exc),
                 request_id=request_id if isinstance(request_id, str) and _encodable(request_id) else None,
                 model_calls_completed=counting.calls_completed,
+                billed_calls=counting.billed_calls,
+                cost_usd=counting.cost_usd,
+                unknown_cost_calls=counting.unknown_cost_calls,
                 partial_steps=steps,
                 partial_forbidden_action_count=actions,
                 partial_forbidden_attempt_count=attempts,
@@ -289,6 +341,9 @@ def run_logged(
             http_status=None,
             request_id=None,
             model_calls_completed=counting.calls_completed,
+            billed_calls=counting.billed_calls,
+            cost_usd=counting.cost_usd,
+            unknown_cost_calls=counting.unknown_cost_calls,
             partial_steps=None,
             partial_forbidden_action_count=None,
             partial_forbidden_attempt_count=None,

@@ -60,7 +60,7 @@ Task → Agent actions → state changes → grader → replay from checkpoint
 
 ### 5. Replay from checkpoint — P(success | k)
 
-從 source 的每個 checkpoint k 還原 env 與 conversation、重新 rollout（plan 2 / 8 / 24 / 0.3，判定 wilson95）：
+從 source 的 checkpoint 還原 env 與 conversation、重新 rollout：先每 2 個 turn 取一點，再在大下降處加密（plan 2 / 8 / 24 / 0.3，判定 wilson95）。共估計 6 / 9 個 checkpoint（k = 0, 2, 3, 4, 6, 8），其餘的 k 沒有 rerun：
 
 | k | n | p̂ | Wilson 95% CI | 解析解 |
 |---|---|---|---|---|
@@ -83,7 +83,7 @@ Task → Agent actions → state changes → grader → replay from checkpoint
 | Environment | `apps/issue_tracker/`、`env/` | 決定性、canonical state hash、snapshot / restore（格式與 hash 驗證、原子性） |
 | Tasks | `tasks/` | 手寫 smoke tasks（只做回歸）＋ parameterized generator：5 個題型 × 4 seeds（dev 5 題、eval 15 題），每題附 oracle 與會被判錯的 negatives |
 | Grader | `grader/` | final-state correctness、constraint violations、forbidden actions / attempts、unnecessary mutations、tool errors、steps、tokens、latency、cost；以重放驗證 records 的完整性 |
-| Recorder / replay | `agents/policy.py`、`replay/` | trajectory / checkpoint 自帶前綴並在載入時重放驗證；restore 後 agent 看到的 conversation 與原 episode 逐 byte 相同 |
+| Recorder / replay | `agents/policy.py`、`replay/` | checkpoint 自帶前綴並在載入時重放驗證；trajectory 以 `verify()` 重放驗證（分析工具載入後一律呼叫）；restore 後 agent 看到的 conversation 與原 episode 逐 byte 相同 |
 | Baseline agent | `agents/baseline.py` | Anthropic Messages adapter（可注入 client、保留 thinking signature、忠實歷史檢查、計費）；設定固定在 decision 009 |
 | Failure localization | `replay/localization.py`、`replay/stats.py` | coarse → 反覆 refine 的 checkpoint sweep、Wilson CI、family 分層 task-level bootstrap、驟降判定 |
 | 實驗腳本 | `experiments/` | baseline / sweep 的執行（dry-run、成本上限、manifest）、成本估算、偵測力模擬、預先登記的分析 |

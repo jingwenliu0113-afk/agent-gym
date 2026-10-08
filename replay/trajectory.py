@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
@@ -425,14 +426,23 @@ class Trajectory:
 
 
 def load_strict_json(text_bytes: bytes) -> Any:
-    """strict UTF-8 解碼 + ``json.loads``（NaN / Infinity / -Infinity 與重複 key 都 raise ValueError）。
-    供 Trajectory.load 與 Checkpoint.load 共用；UnicodeDecodeError / JSONDecodeError 都是 ValueError。
+    """strict UTF-8 解碼 + ``json.loads``（NaN / Infinity / -Infinity、溢位成無限大的數字（例如 ``1e400``）與重複 key
+    都 raise ValueError）。供 Trajectory.load 與 Checkpoint.load 共用；UnicodeDecodeError / JSONDecodeError 都是 ValueError。
     """
     text = text_bytes.decode("utf-8")
     try:
-        return json.loads(text, parse_constant=_reject_constant, object_pairs_hook=_reject_duplicate_keys)
+        return json.loads(
+            text, parse_constant=_reject_constant, parse_float=_finite_float, object_pairs_hook=_reject_duplicate_keys
+        )
     except RecursionError as exc:
         raise ValueError("JSON is nested too deeply to parse") from exc
+
+
+def _finite_float(text: str) -> float:
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError(f"number {text} is out of the float range")
+    return value
 
 
 def _reject_constant(name: str) -> Any:

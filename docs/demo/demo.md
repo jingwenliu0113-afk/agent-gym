@@ -42,7 +42,7 @@
 
 ### 5. Replay from checkpoint — P(success | k)
 
-從 source 的每個 checkpoint k 還原 env 與 conversation、重新 rollout（plan 2 / 8 / 24 / 0.3，判定 wilson95）：
+從 source 的 checkpoint 還原 env 與 conversation、重新 rollout：先每 2 個 turn 取一點，再在大下降處加密（plan 2 / 8 / 24 / 0.3，判定 wilson95）。共估計 6 / 9 個 checkpoint（k = 0, 2, 3, 4, 6, 8），其餘的 k 沒有 rerun：
 
 | k | n | p̂ | Wilson 95% CI | 解析解 |
 |---|---|---|---|---|

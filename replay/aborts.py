@@ -94,9 +94,10 @@ class AttemptRecord:
             if value is not None and (type(value) is not int or value < 0):
                 raise ValueError(f"AttemptRecord.{name} must be an int >= 0 or None")
         if isinstance(self.cost_usd, bool) or not isinstance(self.cost_usd, (int, float)) or not (
-            math.isfinite(self.cost_usd) and self.cost_usd >= 0
+            _is_finite(self.cost_usd) and self.cost_usd >= 0
         ):
             raise ValueError("AttemptRecord.cost_usd must be a finite number >= 0")
+        utc_date(self.utc_time)  # 必須是帶時區、可轉成 UTC 的 ISO 8601
         if self.outcome not in OUTCOMES:
             raise ValueError(f"AttemptRecord.outcome must be one of {OUTCOMES}")
         if self.error_class is not None and self.error_class not in ERROR_CLASSES:
@@ -119,6 +120,31 @@ class AttemptRecord:
 
 
 ATTEMPT_RECORD_FIELDS: tuple[str, ...] = tuple(f.name for f in fields(AttemptRecord))
+
+
+def _is_finite(value: int | float) -> bool:
+    """超出 float 範圍的 int（math.isfinite 會 OverflowError）視為非有限。"""
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
+
+
+def utc_date(utc_time: str) -> str:
+    """manifest utc_time 的 UTC 日期（YYYY-MM-DD；decision 016 A8 的時間窗）。utc_time 必須是帶時區的 ISO 8601
+    （沒有時區時日期會隨分析主機的時區改變）且可轉成 UTC；否則 ValueError。"""
+    if not isinstance(utc_time, str):
+        raise ValueError("utc_time must be a str")
+    try:
+        stamp = datetime.fromisoformat(utc_time)
+    except ValueError as exc:
+        raise ValueError(f"utc_time {utc_time!r} is not an ISO 8601 timestamp") from exc
+    if stamp.tzinfo is None or stamp.utcoffset() is None:
+        raise ValueError(f"utc_time {utc_time!r} has no time zone")
+    try:
+        return stamp.astimezone(timezone.utc).date().isoformat()
+    except OverflowError as exc:
+        raise ValueError(f"utc_time {utc_time!r} cannot be converted to UTC") from exc
 _STR_FIELDS = ("task_id", "generator_version", "config_id", "grader_version", "schema_version", "outcome", "utc_time")
 _OPTIONAL_STR_FIELDS = (
     "checkpoint_id",
@@ -401,12 +427,16 @@ def _logged_error_class(log_path: str | Path, task_id: str, config_id: str, key:
 
 
 def read_manifest(log_path: str | Path) -> tuple[AttemptRecord, ...]:
-    """讀回 run_logged 寫入的紀錄（依寫入順序）；檔案不存在 → ()。任何一行格式不符 → ValueError。"""
+    """讀回 run_logged 寫入的紀錄（依寫入順序）；檔案不存在 → ()。無法讀取（例如是目錄）或任何一行格式不符 → ValueError。"""
     path = Path(log_path)
     if not path.exists():
         return ()
+    try:
+        content = path.read_bytes()
+    except OSError as exc:
+        raise ValueError(f"cannot read the manifest {path}: {exc}") from exc
     rows: list[AttemptRecord] = []
-    for number, line in enumerate(path.read_bytes().split(b"\n"), start=1):
+    for number, line in enumerate(content.split(b"\n"), start=1):
         if line == b"":
             continue
         try:

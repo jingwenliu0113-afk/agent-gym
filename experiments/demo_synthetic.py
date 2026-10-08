@@ -133,11 +133,12 @@ def run_demo(out_dir: str | Path) -> DemoResult:
 def render_demo(result: DemoResult) -> str:
     """README 用的 Markdown：依序說明 1. Task（instruction 與成功 / 禁止條件摘要）、2. Agent actions（source 每個 turn 的 tool call）、
     3. State changes（每個 call 的 changes 與 state hash 前後）、4. Grader（success、trajectory_safe、forbidden / unnecessary 等）、
-    5. Replay from checkpoint（每個 k 的 n、p̂、Wilson CI 與解析解；largest drop 與 k*），並明確標示「synthetic policy、不是 LLM 結果」。
+    5. Replay from checkpoint（估計了哪些 k；每個已估計 k 的 n、p̂、Wilson CI 與解析解；largest drop 與 k*），並明確標示「synthetic policy、不是 LLM 結果」。
     決定性輸出（不含時間或路徑）。"""
     task = result.source.task
     grade = result.source_grade
     truth = dict(result.truth)
+    ks = [e.k for e in result.sweep.estimates]
     lines = [
         "> **synthetic policy 的示範，不是 LLM 結果。** agent 是解析解已知的 synthetic policy（decision 010）：照 oracle 行動，"
         f"每個 turn 以機率 q = {DEMO_Q} 改為發出不可逆的錯誤（在受保護的 issue 上留言）。真正的 LLM 結果要等 paid runs。",
@@ -183,8 +184,10 @@ def render_demo(result: DemoResult) -> str:
         "",
         "### 5. Replay from checkpoint — P(success | k)",
         "",
-        f"從 source 的每個 checkpoint k 還原 env 與 conversation、重新 rollout（plan {DEMO_PLAN.coarse_stride} / "
-        f"{DEMO_PLAN.n_coarse} / {DEMO_PLAN.n_fine} / {DEMO_PLAN.drop_threshold}，判定 {result.sweep.criterion}）：",
+        f"從 source 的 checkpoint 還原 env 與 conversation、重新 rollout：先每 {DEMO_PLAN.coarse_stride} 個 turn 取一點，"
+        f"再在大下降處加密（plan {DEMO_PLAN.coarse_stride} / {DEMO_PLAN.n_coarse} / {DEMO_PLAN.n_fine} / "
+        f"{DEMO_PLAN.drop_threshold}，判定 {result.sweep.criterion}）。共估計 {len(ks)} / {len(result.source.turns)} 個 checkpoint"
+        f"（k = {', '.join(str(k) for k in ks)}），其餘的 k 沒有 rerun：",
         "",
         "| k | n | p̂ | Wilson 95% CI | 解析解 |",
         "|---|---|---|---|---|",

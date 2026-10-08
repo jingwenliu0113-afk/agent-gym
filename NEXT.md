@@ -178,6 +178,9 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
   (have 'arm64', need 'arm64e')"），所有 git 指令都會失敗。修正需要系統層操作（例如更新 / 重新安裝 Xcode，或
   `sudo xcode-select --switch /Library/Developer/CommandLineTools`），依規則不自行處理。暫時的繞過方式（不改任何系統設定）：
   每個指令前加 `DEVELOPER_DIR=/Library/Developer/CommandLineTools`，例如 `DEVELOPER_DIR=/Library/Developer/CommandLineTools git status`。
+- 2026-10-09：以上述繞過方式 `git push` 時卡在 HTTPS 憑證（Command Line Tools 的 git 使用 osxkeychain helper，疑似在等 keychain
+  授權；網路正常）。依規則不處理任何 credential，已中止該次 push。**`c629da0` 之後的 commit 只在本機，尚未 push**：修好 git / 授權
+  keychain 之後執行 `git push origin main`（不需要 force）。
 
 ## 分析前必須注意的已知限制（decision 003 / 004 / 005 / 007 / 009 / 011）
 

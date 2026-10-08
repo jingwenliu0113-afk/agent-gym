@@ -4,7 +4,7 @@
 
 Core：Day 1 完成；Week 1 除「#5 baseline 真正跑完整 task」以外都完成；#5 與 SPEC §6 中**不需要 API key 的部分全部完成**。
 需要真正呼叫 LLM 的步驟（dev sanity、eval baseline、eval 上的 failure localization sweep）依使用者決策 **deferred / blocked-by-paid-API**；
-目前繼續做其他 keyless Core 工作（分析工具、驟降判定選項、README，見下）。
+keyless Core infrastructure（含分析工具、驟降判定選項、README 示範）已完成。
 尚未進 Advanced（Gate 未滿足：還沒有任何真實的 failure localization 結果）。
 
 Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/jingwenliu0113-afk/agent-gym），main 追蹤 origin/main；
@@ -44,7 +44,7 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 5. **計費修正**（decision 014，審查確認的高嚴重度問題）：API 已回傳但被 adapter 拒絕的回應（例如 max_tokens 截斷）原本不記帳，
    成本上限可被繞過。現在一律記帳；manifest 升 `attempt/v2`，每列記錄該次嘗試的已計費 call 數與成本；有上限時模型必須在 PRICING。
 
-測試：`uv run pytest` → 8260 passed、1 xfailed（已知限制的特徵測試），約 70 秒；`ruff check` 通過。
+測試：`uv run pytest` → 8393 passed、1 xfailed（已知限制的特徵測試），約 100 秒；`ruff check` 通過。
 
 ## 使用者決策（2026-10-08）
 
@@ -56,14 +56,16 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 
 ## 下一步
 
-### keyless Core（進行中，依序）
+### keyless Core（2026-10-08 完成）
 
-1. ~~驟降判定可選擇~~（完成，decision 015：`--criterion wilson95 | bonferroni95`，sweep 必須明確指定）。
-2. eval baseline 分析工具：依 decision 005 / 009 預先登記的規則計算主指標與敏感度分析、family 分層 bootstrap、
-   安全指標分開報告、中止嘗試的部分安全指標、時間窗、「最終成功但中途有 forbidden action」案例。
-3. sweep 分析工具：每個 source 的 recoverability curve（表格 + SVG）、Gate 判定（decision 012 第 4 節的操作化，待確認）。
-4. README 首屏：Task → Agent actions → state changes → grader → replay from checkpoint，以可重現的 keyless 示範
-   （dry-run / synthetic，明確標示不是 LLM 結果）；真實結果的位置標示為待 paid runs。
+1. 驟降判定可選擇（decision 015：`--criterion wilson95 | bonferroni95`，sweep 必須明確指定）。
+2. eval baseline 分析：`uv run python -m experiments.analyze_baseline runs/<eval-run> --out runs/<name>`（decision 016 A：主指標與敏感度、
+   family 分層 bootstrap、安全指標分開、中止嘗試的部分安全指標（含被重試的嘗試）、時間窗、response_model、「最終成功但中途有
+   forbidden action」案例、成本）。
+3. sweep 分析：`uv run python -m experiments.analyze_sweep runs/<sweep-run> --baseline-run runs/<eval-run> --out runs/<name>`
+   （decision 016 B：每個 source 的 recoverability curve 表格 + SVG、cliff turn 的 (tool, 類別) 模式、Gate 評估（提案規則））。
+4. README 首屏：以可重現的 synthetic 示範（`experiments/demo_synthetic.py`，明確標示不是 LLM 結果）展示
+   Task → Agent actions → state changes → grader → replay from checkpoint；測試確保 README 與程式輸出同步。
 
 ### deferred / blocked-by-paid-API（依序；全部等使用者日後決定）
 
@@ -73,7 +75,8 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 3. 以 decision 012 的規則選 source → eval sweep：
    `uv run --extra llm python -m experiments.run_sweep --baseline-run runs/<eval-run> --plan S,NC,NF,T --criterion C --confirm-paid-run --max-cost-usd X`
    （plan 與 criterion 都沒有預設值；`--dry-run` 已驗證）。
-4. 以真實結果填入 recoverability curve、trajectory safety、「最終成功但中途有 forbidden action」案例、Gate 判定。
+4. 以真實結果跑 `analyze_baseline` / `analyze_sweep`，把 recoverability curve、trajectory safety、「最終成功但中途有
+   forbidden action」案例、Gate 判定放進 README 的「結果」段（README 目前只有 synthetic 示範）。
 
 ### 仍待使用者決定的研究設計（與 paid runs 一起回報）
 

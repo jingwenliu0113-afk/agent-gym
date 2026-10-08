@@ -178,13 +178,13 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 
 ### C. 環境（系統層，需要使用者處理）
 
-- 2026-10-09：`/usr/bin/git` 透過 xcrun 載入 `/Applications/Xcode.app/.../libxcrun.dylib` 失敗（"incompatible architecture
-  (have 'arm64', need 'arm64e')"），所有 git 指令都會失敗。修正需要系統層操作（例如更新 / 重新安裝 Xcode，或
-  `sudo xcode-select --switch /Library/Developer/CommandLineTools`），依規則不自行處理。暫時的繞過方式（不改任何系統設定）：
-  每個指令前加 `DEVELOPER_DIR=/Library/Developer/CommandLineTools`，例如 `DEVELOPER_DIR=/Library/Developer/CommandLineTools git status`。
-- 2026-10-09：以上述繞過方式 `git push` 時卡在 HTTPS 憑證（Command Line Tools 的 git 使用 osxkeychain helper，疑似在等 keychain
-  授權；網路正常）。依規則不處理任何 credential，已中止該次 push。**`c629da0` 之後的 commit 只在本機，尚未 push**：修好 git / 授權
-  keychain 之後執行 `git push origin main`（不需要 force）。
+- 2026-10-09：`/usr/bin/git`（xcrun shim）載入 `/Applications/Xcode.app/.../libxcrun.dylib` 失敗（"incompatible architecture
+  (have 'arm64', need 'arm64e')"），所以直接打 `git` 的指令都會失敗。修正需要系統層操作（例如更新 / 重新安裝 Xcode，或
+  `sudo xcode-select --switch ...`），依規則不自行處理。
+  - 暫時的繞過方式（不改任何系統設定）：直接用 `/Applications/Xcode.app/Contents/Developer/usr/bin/git`。它沿用原本已授權的
+    keychain helper，所有 commit 都已用它 push 到 origin。
+  - 不要用 `DEVELOPER_DIR=/Library/Developer/CommandLineTools git push`：Command Line Tools 的 osxkeychain helper 會停在
+    keychain 授權（已中止，沒有處理任何 credential）。
 
 ## 分析前必須注意的已知限制（decision 003 / 004 / 005 / 007 / 009 / 011）
 

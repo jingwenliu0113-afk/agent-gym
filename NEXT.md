@@ -107,6 +107,10 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
   所有 keyless Core infrastructure 完成、只剩 paid runs 時，才一次性回報需要的 paid runs、預估成本與順序。
 - （2026-10-09）使用者離開期間：需要使用者決策、批准、key、credential、sudo、人工標註、修改 frozen protocol、進 Advanced / Optional 的
   事項不等待，記到下方「Blocked / 需要使用者」後跳過；只有所有可做的 Core 都完成或全部 blocked 時才停。
+- （2026-10-09 晚）Mac 使用自動電力模式：只暫停會產生正式 performance-sensitive 結果的 Mac 實驗（正式 Mac performance benchmark、
+  正式 incident collection 先 deferred）；一般 heavy 工作、correctness、資料處理、開發測試、gpu-server 工作照常。本 project 目前唯一
+  performance-sensitive 的數字是正式 LLM run 的 `latency_s`（SPEC §4 的 latency 指標），而正式 run 已因付費 API deferred；
+  dry-run、測試、審查不產生正式結果，不受影響。電力模式期間若要跑正式 run，必須先恢復一般電力設定或延後（見 Blocked B）。
 
 ## 下一步
 
@@ -139,6 +143,7 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 
 ### B. 付費 LLM runs（依序；每一步都需要使用者先確認預算並提供 credential）
 
+前提：Mac 不在自動電力模式（`latency_s` 是 performance-sensitive 指標；2026-10-09 晚的電力模式期間不跑正式 run）。
 成本都是 dry-run request 大小推得的估計（`uv run python -m experiments.cost_estimate`；低 / 高情境見 decision 012），dev sanity 後以實測重估。
 
 1. dev sanity（估計 $0.42 – $6.78）：`uv run --extra llm python -m experiments.run_baseline --split dev --confirm-paid-run --max-cost-usd 10`；

@@ -254,6 +254,7 @@ def _expected_rich_conversation(
                 "tool_calls": [
                     {"id": cid, "name": name, "args": copy.deepcopy(args)} for cid, (name, args) in zip(ids, calls)
                 ],
+                "provider_content": None,  # trajectory/v2：ScriptedPolicy 一律為 None
             }
         )
         for cid, (name, args) in zip(ids, calls):

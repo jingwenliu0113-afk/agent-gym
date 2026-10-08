@@ -5,6 +5,11 @@ description = "Agent Gym + Replay: resettable, replayable stateful environment f
 requires-python = ">=3.12"
 dependencies = []
 
+[project.optional-dependencies]
+llm = [
+    "anthropic>=1.12.1",
+]
+
 [dependency-groups]
 dev = ["pytest>=8"]
 

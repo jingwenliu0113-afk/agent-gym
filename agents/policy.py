@@ -8,11 +8,13 @@ messages 的形狀由 ``replay.trajectory.render_messages`` 決定（JSON-native
     {"role": "system",    "content": str}
     {"role": "developer", "content": str}
     {"role": "user",      "content": str}
-    {"role": "assistant", "content": str, "tool_calls": [{"id", "name", "args"}, ...]}
+    {"role": "assistant", "content": str, "tool_calls": [{"id", "name", "args"}, ...],
+     "provider_content": None | [provider 原生 content block, ...]}
     {"role": "tool",      "tool_call_id": str, "content": str}   # content = canonical_json(observation)
 
-trajectory/v1 的 assistant 訊息只有 text 與 tool_calls。Week 1 #5 的 baseline 不得啟用需要原樣回傳
-provider 專屬 content block 的功能（例如 extended thinking）；若需要，必須另立 decision log 並升 trajectory 格式。
+trajectory/v2（decision 009）：assistant 訊息另帶 ``provider_content``——provider 原生的 content blocks（例如 Anthropic 的
+thinking block 與 signature），由 provider adapter 原樣回傳，使 restore 後送出的 request 與原 episode 逐 byte 相同。
+ScriptedPolicy 等非 provider policy 一律為 None。
 
 統一規則
 ========
@@ -81,11 +83,15 @@ class ModelMessage:
 
     建構時驗證：text 為 str；tool_calls 必須是 tuple（list → TypeError）且元素皆為 ToolCall、id 不重複（ValueError）；
     stop_reason 為 str 或 None；字串須可 UTF-8 編碼。沒有 tool call 的訊息代表 agent 結束 episode。
+    provider_content 為 None，或元素皆為 dict 的 list（其他型別 → TypeError），內容須是 JSON 值、巢狀深度不超過
+    MAX_MODEL_CONFIG_DEPTH、字串可 UTF-8 編碼（否則 TypeError / ValueError）；以正規化後的深拷貝保存。
+    本類別不解讀 provider_content；它與 text / tool_calls 的一致性由產生它的 adapter 負責（decision 009）。
     """
 
     text: str
     tool_calls: tuple[ToolCall, ...]
     stop_reason: str | None
+    provider_content: list[dict[str, Any]] | None = None
 
     def __post_init__(self) -> None:
         _require_str(self.text, "ModelMessage.text")
@@ -99,42 +105,66 @@ class ModelMessage:
             raise ValueError("tool call ids must be unique within a message")
         if self.stop_reason is not None:
             _require_str(self.stop_reason, "ModelMessage.stop_reason")
+        if self.provider_content is not None:
+            if type(self.provider_content) is not list:
+                raise TypeError("ModelMessage.provider_content must be None or a list of dicts")
+            for block in self.provider_content:
+                if not isinstance(block, dict):
+                    raise TypeError("ModelMessage.provider_content must contain only dicts")
+            _check_json(self.provider_content, "provider_content", 0, MAX_MODEL_CONFIG_DEPTH)
+            object.__setattr__(self, "provider_content", _normalized(self.provider_content))
 
     def to_dict(self) -> dict[str, Any]:
-        """剛好 ``{"text", "tool_calls", "stop_reason"}``；tool_calls 為 list of ToolCall.to_dict()。"""
+        """剛好 ``{"text", "tool_calls", "stop_reason", "provider_content"}``；tool_calls 為 list of ToolCall.to_dict()，
+        provider_content 為深拷貝或 None。
+        """
         return {
             "text": self.text,
             "tool_calls": [call.to_dict() for call in self.tool_calls],
             "stop_reason": self.stop_reason,
+            "provider_content": copy.deepcopy(self.provider_content),
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ModelMessage:
-        """data 必須是 dict、key 剛好為上述三個、tool_calls 為 list；任何錯誤 raise ValueError。"""
-        _require_keys(data, ("text", "tool_calls", "stop_reason"), "model message")
+        """data 必須是 dict、key 剛好為上述四個、tool_calls 為 list；任何錯誤 raise ValueError。"""
+        _require_keys(data, MODEL_MESSAGE_FIELDS, "model message")
         if not isinstance(data["tool_calls"], list):
             raise ValueError("model message tool_calls must be a list")
         calls = tuple(ToolCall.from_dict(call) for call in data["tool_calls"])
-        return _construct(cls, text=data["text"], tool_calls=calls, stop_reason=data["stop_reason"])
+        return _construct(
+            cls,
+            text=data["text"],
+            tool_calls=calls,
+            stop_reason=data["stop_reason"],
+            provider_content=data["provider_content"],
+        )
 
 
 @dataclass(frozen=True)
 class PolicyStep:
-    """``Policy.next_message`` 的回傳：訊息 + policy 自報的用量（未知為 None）。latency 由 runner 量測。
+    """``Policy.next_message`` 的回傳：訊息 + policy 自報的用量（未知為 None）+ provider 量測 meta。latency 由 runner 量測。
 
     建構時驗證：message 必須是 ModelMessage（TypeError）；input_tokens / output_tokens 為 ``type(x) is int`` 或 None，
-    cost_usd 為有限的 int / float 或 None（規則同 ``grader.schema.Usage``）。
+    cost_usd 為有限的 int / float 或 None（規則同 ``grader.schema.Usage``）；meta 為 None 或 dict，內容規則同 model_config
+    （JSON 值、深度不超過 MAX_MODEL_CONFIG_DEPTH、字串可 UTF-8 編碼），以正規化深拷貝保存。meta 是量測，不進 conversation。
     """
 
     message: ModelMessage
     input_tokens: int | None = None
     output_tokens: int | None = None
     cost_usd: float | None = None
+    meta: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.message, ModelMessage):
             raise TypeError("PolicyStep.message must be a ModelMessage")
         Usage(input_tokens=self.input_tokens, output_tokens=self.output_tokens, cost_usd=self.cost_usd)
+        if self.meta is not None:
+            if not isinstance(self.meta, dict):
+                raise TypeError("PolicyStep.meta must be None or a dict")
+            _check_json(self.meta, "PolicyStep.meta", 0, MAX_MODEL_CONFIG_DEPTH)
+            object.__setattr__(self, "meta", _normalized(self.meta))
 
 
 @dataclass(frozen=True)
@@ -283,6 +313,7 @@ def oracle_policy(oracle_calls: Sequence[tuple[str, Any]], **kwargs: Any) -> Scr
     return ScriptedPolicy([[call] for call in oracle_calls], **kwargs)
 
 
+MODEL_MESSAGE_FIELDS: tuple[str, ...] = ("text", "tool_calls", "stop_reason", "provider_content")
 AGENT_CONFIG_FIELDS: tuple[str, ...] = ("policy", "prompt_version", "system_prompt", "developer_prompt", "model_config")
 
 

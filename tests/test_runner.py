@@ -1,6 +1,9 @@
-"""replay/runner.py 的契約測試：run_episode 與 _continue_episode（decision log 006）。
+"""replay/runner.py 的契約測試：run_episode、_continue_episode 與 PartialEpisode（decision log 006 / 009）。
 
-契約來源：``replay/runner.py`` docstring、``replay/trajectory.py``、``agents/policy.py``、decision 006。
+契約來源：``replay/runner.py`` docstring、``replay/trajectory.py``、``agents/policy.py``、decision 006 / 009。
+- decision 009：Turn 帶 ``meta = step.meta``（量測，不進 conversation）；迴圈中發生的例外原樣往外拋（同一個物件），
+  但先被附加 ``partial_episode``（已完成的 turns 含前綴、進行中 turn 已執行的 records、例外發生時的 env snapshot、
+  task.to_dict()）；入口檢查的錯誤不附加。
 - 「相同 / 相符」一律以 ``canonical_json`` 逐 byte 比較（不用 Python ``==``）。
 - policy 收到的 conversation 以 order-sensitive 的 ``json.dumps(..., ensure_ascii=False)`` 比較。
 - 真實 task 使用 smoke tasks（只用於回歸測試，不計入任何統計）；邊界情況用測試內的小型 policy。
@@ -19,10 +22,10 @@ from typing import Any, Callable, Sequence
 import pytest
 
 from agents.policy import AgentConfig, ModelMessage, PolicyStep, ScriptedPolicy, ToolCall, oracle_policy
-from env.environment import IssueTrackerEnv
+from env.environment import IssueTrackerEnv, ToolCallRecord
 from env.hashing import canonical_json
 from grader.schema import Usage
-from replay.runner import _continue_episode, run_episode
+from replay.runner import PartialEpisode, _continue_episode, run_episode
 from replay.trajectory import Trajectory, Turn, render_messages
 from tasks.schema import TASK_FORMAT, Task, TaskError
 from tasks.smoke import REFERENCE_SOLUTIONS, SMOKE_TASK_IDS, get_smoke_task
@@ -76,8 +79,8 @@ def _turns_cj(turns: Sequence[Turn]) -> str:
 
 
 def _content_cj(turns: Sequence[Turn]) -> str:
-    """只取決定性內容（index / message / tool_steps），不含 usage。"""
-    return canonical_json([{k: v for k, v in t.to_dict().items() if k != "usage"} for t in turns])
+    """只取決定性內容（index / message / tool_steps），不含量測（usage / meta）。"""
+    return canonical_json([{k: v for k, v in t.to_dict().items() if k not in ("usage", "meta")} for t in turns])
 
 
 def _records_cj(records: Sequence[Any]) -> str:
@@ -235,10 +238,11 @@ def _small_task(world: dict[str, Any]) -> Task:
 def test_run_episode_rejects_bad_max_turns(max_turns: Any) -> None:
     spy = _Spy(_oracle(SHORT_ID))
     clock = _CountingClock()
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError) as excinfo:
         run_episode(get_smoke_task(SHORT_ID), spy, max_turns=max_turns, clock=clock)
     assert spy.inputs == []
     assert clock.calls == 0
+    assert not hasattr(excinfo.value, "partial_episode")  # 入口檢查的錯誤不附加
 
 
 @pytest.mark.parametrize("max_turns", BAD_MAX_TURNS, ids=repr)
@@ -262,10 +266,11 @@ def test_run_episode_checks_max_turns_before_agent_config() -> None:
 def test_run_episode_propagates_task_error(kind: str) -> None:
     spy = _Spy(_oracle(SHORT_ID))
     clock = _CountingClock()
-    with pytest.raises(TaskError):
+    with pytest.raises(TaskError) as excinfo:
         run_episode(_invalid_task(kind), spy, max_turns=5, clock=clock)
     assert spy.inputs == []
     assert clock.calls == 0
+    assert not hasattr(excinfo.value, "partial_episode")  # 入口檢查的錯誤不附加
 
 
 def test_run_episode_validates_task_before_agent_config() -> None:
@@ -494,6 +499,77 @@ def test_turn_usage_comes_from_policy_step_fields() -> None:
         assert isinstance(turn.usage, Usage)
         assert _cj(turn.usage.to_dict()) == _cj(Usage(i, o, 1, c, 1).to_dict())
     traj.validate()
+
+
+# ---------------------------------------------------------------- step.meta → Turn.meta（decision 009）
+
+META_MARKER = "META_MARKER_量測"
+
+
+def _meta(k: int) -> dict[str, Any]:
+    """provider 量測 meta 範例（任意 JSON 物件；runner 不解讀）：含非 ASCII、null、巢狀、1 與 1.0。"""
+    return {
+        "request_id": f"req_{k}",
+        "stop_details": None,
+        "ratio": 1.0,
+        "count": 1,
+        "nested": {"z": [1, 1.0, True, None], "a": META_MARKER},
+    }
+
+
+def test_policy_step_meta_is_copied_into_turn_meta() -> None:
+    task = get_smoke_task(SHORT_ID)
+    script = [[("get_issue", {"issue_id": 8})], [("get_issue", {"issue_id": 1})], [("get_issue", {"issue_id": 2})]]
+    # None / 一般物件 / 空物件 / 只差在 1 vs 1.0 的物件
+    metas: list[Any] = [_meta(0), None, {}, {"ratio": 1, "stop_reason": "end_turn"}]
+
+    def make(k: int) -> PolicyStep:
+        calls = script[k] if k < len(script) else ()
+        return PolicyStep(
+            _message(k, calls), input_tokens=1, output_tokens=2, cost_usd=0.5, meta=copy.deepcopy(metas[k])
+        )
+
+    traj = run_episode(task, _TurnPolicy(make), max_turns=10, clock=_zero_clock)
+    assert traj.termination == "final_answer"
+    assert len(traj.turns) == len(metas)
+    for turn, meta in zip(traj.turns, metas):
+        assert _cj(turn.meta) == _cj(meta)
+        if meta is None:
+            assert turn.meta is None
+        else:
+            assert isinstance(turn.meta, dict)
+    d = traj.to_dict()
+    assert [_cj(t["meta"]) for t in d["turns"]] == [_cj(m) for m in metas]
+    traj.validate()
+    traj.verify()
+    back = Trajectory.from_dict(json.loads(_cj(d)))
+    assert _cj(back.to_dict()) == _cj(d)
+
+
+def test_turn_meta_is_not_sent_back_to_policy() -> None:
+    """meta 是量測，不進 conversation：policy 收到的 messages 與沒有 meta 的同一 episode 逐 byte 相同。"""
+    task = get_smoke_task(SHORT_ID)
+    inner = _script_steps([[("get_issue", {"issue_id": 8})], [("assign_issue", {"issue_id": 8, "assignee_id": "u4"})]])
+    policy = _TurnPolicy(lambda k: R(inner(k), meta=_meta(k)))
+    plain_policy = _TurnPolicy(inner)
+    traj = run_episode(task, policy, max_turns=5, clock=_zero_clock)
+    plain = run_episode(task, plain_policy, max_turns=5, clock=_zero_clock)
+
+    assert len(policy.inputs) == len(plain_policy.inputs) == 3
+    for i, ((messages, _), (plain_messages, _)) in enumerate(zip(policy.inputs, plain_policy.inputs)):
+        assert META_MARKER not in _dumps(messages)
+        assert _dumps(messages) == _dumps(plain_messages)
+        assert _dumps(messages) == _dumps(render_messages(task.instruction, traj.agent, traj.turns[:i]))
+    assert _content_cj(traj.turns) == _content_cj(plain.turns)
+    assert [_cj(t.meta) for t in traj.turns] == [_cj(_meta(k)) for k in range(3)]
+    assert all(t.meta is None for t in plain.turns)
+    assert META_MARKER not in _dumps(traj.messages())
+
+
+def test_scripted_policy_turns_have_meta_none() -> None:
+    traj = run_episode(get_smoke_task(LONG_ID), _oracle(LONG_ID), max_turns=10, clock=_zero_clock)
+    assert all(t.meta is None for t in traj.turns)
+    assert all(t["meta"] is None for t in traj.to_dict()["turns"])
 
 
 # ---------------------------------------------------------------- PolicyStep 型別與例外
@@ -741,16 +817,17 @@ def _continue(s: _Setup, *, policy: Any = None, clock: Any = None, **overrides: 
 def _assert_rejected(
     s: _Setup, exc_type: type[Exception] = ValueError, *, policy: Any = None, **overrides: Any
 ) -> None:
-    """入口檢查失敗：raise exc_type、policy 與 clock 都沒被呼叫、env 不變。"""
+    """入口檢查失敗：raise exc_type、policy 與 clock 都沒被呼叫、env 不變、例外不帶 partial_episode。"""
     env = overrides.get("env", s.env)
     before = _env_state(env)
     spy = _Spy(_oracle(s.task_id) if policy is None else policy)
     clock = _CountingClock()
-    with pytest.raises(exc_type):
+    with pytest.raises(exc_type) as excinfo:
         _continue(s, policy=spy, clock=clock, **overrides)
     assert spy.inputs == []
     assert clock.calls == 0
     assert _env_state(env) == before
+    assert not hasattr(excinfo.value, "partial_episode")  # 入口檢查的錯誤不附加（decision 009）
 
 
 @pytest.mark.parametrize("env_kind", ["restored", "replayed"])
@@ -803,6 +880,26 @@ def test_continue_counts_prefix_toward_max_turns(max_turns: int) -> None:
     assert _cj(result.final_snapshot) == _cj(_env_after(s.task, s.calls[:max_turns]).snapshot())
     result.validate()
     result.verify()
+
+
+def test_continue_keeps_prefix_turn_meta_unchanged() -> None:
+    """前綴 turns 的 meta（量測）原樣保留（1 不可變成 1.0、None 不可變成 {}），新 turns 的 meta 來自 step.meta。"""
+    s = _setup(3)
+    prefix_metas: list[Any] = [{"ratio": 1}, None, {"ratio": 1.0, "note": META_MARKER}]
+    prefix = tuple(R(t, meta=m) for t, m in zip(s.prefix, prefix_metas))
+    spy = _Spy(_oracle(LONG_ID))
+    result = _continue(s, policy=spy, prefix_turns=prefix)
+
+    result.validate()
+    result.verify()
+    assert _turns_cj(result.turns[:3]) == _turns_cj(prefix)
+    assert [_cj(t.meta) for t in result.turns[:3]] == [_cj(m) for m in prefix_metas]
+    assert result.turns[1].meta is None
+    assert all(t.meta is None for t in result.turns[3:])  # ScriptedPolicy 不回報 meta
+    assert _content_cj(result.turns) == _content_cj(s.full.turns)
+    # meta 不進 conversation：policy 看到的 conversation 與原 episode 相同
+    assert META_MARKER not in _dumps(spy.inputs[0][0])
+    assert _dumps(spy.inputs[0][0]) == _dumps(render_messages(s.task.instruction, result.agent, s.prefix))
 
 
 def test_continue_keeps_prefix_turn_usage_unchanged() -> None:
@@ -1218,3 +1315,341 @@ def test_continue_rejects_non_agent_config(bad_agent: str) -> None:
     assert policy.inputs == []
     assert clock.calls == 0
     assert _env_state(s.env) == before
+
+
+# ---------------------------------------------------------------- 例外中止：partial_episode（decision 009）
+# 迴圈中發生的例外（policy、env、clock、PolicyStep 型別檢查…）原樣往外拋（同一個物件），並帶 ``partial_episode``：
+# task = task.to_dict()、turns = 已完成的 turns（含前綴）、pending_records = 進行中 turn 已執行的 records、
+# env_snapshot = 例外發生時的 env.snapshot()。``records()`` = turns 的 tool steps 依序 + pending_records（深拷貝）。
+
+
+def _partial(exc: BaseException) -> PartialEpisode:
+    partial = getattr(exc, "partial_episode", None)
+    assert isinstance(partial, PartialEpisode), "an exception raised inside the loop must carry partial_episode"
+    return partial
+
+
+def _assert_partial(
+    exc: BaseException,
+    *,
+    task: Task,
+    turns: Sequence[Turn],
+    pending: Sequence[ToolCallRecord],
+    snapshot: dict[str, Any],
+    records: Sequence[ToolCallRecord],
+) -> PartialEpisode:
+    p = _partial(exc)
+    assert isinstance(p.task, dict)
+    assert _cj(p.task) == _cj(task.to_dict())
+    assert type(p.turns) is tuple and all(isinstance(t, Turn) for t in p.turns)
+    assert _turns_cj(p.turns) == _turns_cj(turns)
+    assert type(p.pending_records) is tuple and all(isinstance(r, ToolCallRecord) for r in p.pending_records)
+    assert _records_cj(p.pending_records) == _records_cj(pending)
+    assert isinstance(p.env_snapshot, dict)
+    assert _cj(p.env_snapshot) == _cj(snapshot)
+    flat = p.records()
+    assert type(flat) is tuple and all(isinstance(r, ToolCallRecord) for r in flat)
+    assert _records_cj(flat) == _records_cj(records)
+    return p
+
+
+def _expected_turn(k: int, calls: Sequence[tuple[str, Any]], steps: Sequence[ToolCallRecord], meta: Any = None) -> Turn:
+    """_TurnPolicy + _script_steps（未給用量）+ 常數 0.0 clock 產生的 turn。"""
+    message = _message(k, calls, text="" if calls else "final")
+    return Turn(index=k, message=message, tool_steps=tuple(steps), usage=Usage(None, None, 0.0, None, 1), meta=meta)
+
+
+@pytest.mark.parametrize("fail_at", [0, 1, 3, 7])
+@pytest.mark.parametrize("exc_type", [_PolicyFailure, ValueError, KeyError])
+def test_policy_exception_carries_partial_episode(fail_at: int, exc_type: type[Exception]) -> None:
+    """policy 在第 fail_at 次呼叫 raise（7 = 原本的 final answer turn）：partial 有 fail_at 個完成的 turns、無 pending。"""
+    task = get_smoke_task(LONG_ID)
+    calls = [tuple(c) for c in copy.deepcopy(REFERENCE_SOLUTIONS[LONG_ID])]
+    assert len(calls) == 7
+    inner = _script_steps([[c] for c in calls])
+    full = run_episode(task, _TurnPolicy(inner), max_turns=20, clock=_zero_clock)
+    error = exc_type("policy failed")
+
+    def make(k: int) -> PolicyStep:
+        if k == fail_at:
+            raise error
+        return inner(k)
+
+    policy = _TurnPolicy(make)
+    with pytest.raises(exc_type) as excinfo:
+        run_episode(task, policy, max_turns=20, clock=_zero_clock)
+    assert excinfo.value is error
+    assert len(policy.inputs) == fail_at + 1
+    expected_env = _env_after(task, calls[:fail_at])
+    _assert_partial(
+        error,
+        task=task,
+        turns=full.turns[:fail_at],
+        pending=(),
+        snapshot=expected_env.snapshot(),
+        records=expected_env.records,
+    )
+
+
+@pytest.mark.parametrize("exc_type", [_EnvFailure, ValueError])
+@pytest.mark.parametrize("fail_on", [1, 3])
+@pytest.mark.parametrize("k", [0, 2])
+def test_env_exception_carries_partial_episode_including_prefix(k: int, fail_on: int, exc_type: type[Exception]) -> None:
+    """從前綴 k 續跑、env 在第 fail_on 個新 call raise。partial.turns 以前綴開頭（原樣保留，含刻意改過的量測），
+    env_snapshot 等於失敗當下的 env 狀態。oracle 每個 turn 一個 call，因此 pending 為空。"""
+    s = _setup(k)
+    prefix = tuple(R(t, usage=Usage(5, 7, 1, 0, 1), meta={"prefix_turn": i}) for i, t in enumerate(s.prefix))
+    error = exc_type("env failed")
+    env = _failing_env(s.env.snapshot(), fail_on, error)
+    with pytest.raises(exc_type) as excinfo:
+        _continue(s, env=env, prefix_turns=prefix)
+    assert excinfo.value is error
+    assert env.tool_calls == fail_on
+
+    done = k + fail_on - 1  # 已完成（含前綴）的 turns 數
+    expected_env = _env_after(s.task, s.calls[:done])
+    p = _assert_partial(
+        error,
+        task=s.task,
+        turns=prefix + tuple(s.full.turns[k:done]),
+        pending=(),
+        snapshot=expected_env.snapshot(),
+        records=expected_env.records,
+    )
+    assert len(p.turns) == done
+    assert _turns_cj(p.turns[:k]) == _turns_cj(prefix)
+    assert _cj(p.env_snapshot) == _cj(env.snapshot())
+    # partial 是當下的快照：之後 env 再變動不影響它。
+    env.fail_on = None
+    env.call_tool("assign_issue", {"issue_id": 2, "assignee_id": "u3"})
+    assert _cj(p.env_snapshot) == _cj(expected_env.snapshot())
+
+
+@pytest.mark.parametrize("fail_on", [2, 3, 4])
+def test_env_exception_inside_multi_call_turn_carries_pending_records(fail_on: int) -> None:
+    """turn 1 有 3 個 call；env 在第 fail_on 個 call raise → turn 1 已執行的 records 進 pending_records（不遺失寫入）。"""
+    s = _setup(0, task_id=SHORT_ID)
+    turn0 = [("get_issue", {"issue_id": 8})]
+    turn1 = [
+        ("assign_issue", {"issue_id": 8, "assignee_id": "u4"}),
+        ("update_issue", {"issue_id": 8, "status": "in_progress"}),
+        ("get_issue", {"issue_id": 8}),
+    ]
+    steps = _script_steps([turn0, turn1])
+    error = _EnvFailure("env failed")
+    env = _failing_env(s.env.snapshot(), fail_on, error)
+    policy = _TurnPolicy(steps)
+    with pytest.raises(_EnvFailure) as excinfo:
+        _continue(s, policy=policy, env=env)
+    assert excinfo.value is error
+    assert len(policy.inputs) == 2
+
+    expected_env = _env_after(s.task, (turn0 + turn1)[: fail_on - 1])
+    records = expected_env.records
+    p = _assert_partial(
+        error,
+        task=s.task,
+        turns=(_expected_turn(0, turn0, records[:1]),),
+        pending=records[1:],
+        snapshot=expected_env.snapshot(),
+        records=records,
+    )
+    assert [r.step for r in p.pending_records] == list(range(1, fail_on - 1))
+    assert [r.tool for r in p.pending_records] == [name for name, _ in turn1[: fail_on - 2]]
+    assert _cj(p.env_snapshot) == _cj(env.snapshot())
+
+
+NON_JSON_ARGS: list[tuple[str, Any, type[Exception]]] = [
+    ("nan", float("nan"), ValueError),
+    ("inf", float("-inf"), ValueError),
+    ("tuple", ("a", "b"), TypeError),
+    ("set", {"a"}, TypeError),
+    ("non_str_key", {1: "a"}, TypeError),
+    ("bytes", b"x", TypeError),
+]
+
+
+@pytest.mark.parametrize("bad, exc_type", [(b, e) for _, b, e in NON_JSON_ARGS], ids=[n for n, _, _ in NON_JSON_ARGS])
+def test_env_precondition_error_after_first_call_carries_partial_episode(bad: Any, exc_type: type[Exception]) -> None:
+    """policy 在 turn 1 送出兩個 call，第二個的 args 不是 JSON 值（ToolCall 建構後才被改壞）：env 執行第一個（寫入）後，
+    第二個違反 call_tool 前置條件而 raise。第一個 call 的 record 必須留在 pending_records，env_snapshot 反映這次寫入。"""
+    task = get_smoke_task(SHORT_ID)
+    first = [("get_issue", {"issue_id": 8})]
+    second = [("assign_issue", {"issue_id": 8, "assignee_id": "u4"}), ("add_comment", {"issue_id": 8, "body": "ok"})]
+    meta0 = {"request_id": "req_0", "ratio": 1.0}
+
+    def make(k: int) -> PolicyStep:
+        if k == 0:
+            return PolicyStep(_message(0, first), meta=copy.deepcopy(meta0))
+        message = _message(k, second)
+        message.tool_calls[1].args["body"] = bad
+        return PolicyStep(message)
+
+    policy = _TurnPolicy(make)
+    with pytest.raises(exc_type) as excinfo:
+        run_episode(task, policy, max_turns=5, clock=_zero_clock)
+    assert len(policy.inputs) == 2
+
+    expected_env = _env_after(task, first + second[:1])
+    records = expected_env.records
+    p = _assert_partial(
+        excinfo.value,
+        task=task,
+        turns=(_expected_turn(0, first, records[:1], meta=meta0),),
+        pending=records[1:],
+        snapshot=expected_env.snapshot(),
+        records=records,
+    )
+    assert _cj(p.turns[0].meta) == _cj(meta0)
+    assert len(p.pending_records) == 1
+    assert p.pending_records[0].tool == "assign_issue"
+    assert p.pending_records[0].ok is True and len(p.pending_records[0].changes) > 0
+    assert p.env_snapshot["state"] != _env_after(task, first).snapshot()["state"]
+
+
+def test_non_policy_step_type_error_carries_partial_episode() -> None:
+    """第二個 turn 回傳非 PolicyStep：TypeError 帶 partial（1 個完成的 turn、無 pending、env 只有第一個 turn 的 call）。"""
+    task = get_smoke_task(SHORT_ID)
+    call = ("assign_issue", {"issue_id": 8, "assignee_id": "u4"})
+
+    def make(k: int) -> Any:
+        message = _message(k, [call])
+        return PolicyStep(message) if k == 0 else message
+
+    env = _restored(_env_after(task, []))
+    with pytest.raises(TypeError) as excinfo:
+        _continue_episode(task, _TurnPolicy(make), max_turns=5, env=env, prefix_turns=(), parent=None, clock=_zero_clock)
+    expected_env = _env_after(task, [call])
+    p = _assert_partial(
+        excinfo.value,
+        task=task,
+        turns=(_expected_turn(0, [call], expected_env.records),),
+        pending=(),
+        snapshot=expected_env.snapshot(),
+        records=expected_env.records,
+    )
+    assert _cj(p.env_snapshot) == _cj(env.snapshot())
+
+
+@pytest.mark.parametrize("fail_call", [1, 2, 3, 4])
+def test_clock_exception_carries_partial_episode(fail_call: int) -> None:
+    """clock 呼叫也在迴圈內（t0 = clock(); next_message; t1 = clock(); 之後才執行 tool calls）：
+    第 fail_call 次（1-based）clock 呼叫 raise → 已完成 (fail_call - 1) // 2 個 turns，pending 為空。"""
+    task = get_smoke_task(LONG_ID)
+    calls = [tuple(c) for c in copy.deepcopy(REFERENCE_SOLUTIONS[LONG_ID])]
+    full = run_episode(task, _oracle(LONG_ID), max_turns=20, clock=_zero_clock)
+    error = _PolicyFailure("clock failed")
+    counter = itertools.count(1)
+
+    def clock() -> float:
+        if next(counter) == fail_call:
+            raise error
+        return 0.0
+
+    with pytest.raises(_PolicyFailure) as excinfo:
+        run_episode(task, _oracle(LONG_ID), max_turns=20, clock=clock)
+    assert excinfo.value is error
+    done = (fail_call - 1) // 2
+    expected_env = _env_after(task, calls[:done])
+    _assert_partial(
+        error,
+        task=task,
+        turns=full.turns[:done],
+        pending=(),
+        snapshot=expected_env.snapshot(),
+        records=expected_env.records,
+    )
+
+
+def test_entry_error_has_no_partial_episode_but_loop_error_has() -> None:
+    """同一個 _continue 設定下：入口檢查的 ValueError 不帶 partial_episode，迴圈內的例外帶。"""
+    s = _setup(2)
+    with pytest.raises(ValueError) as entry:
+        _continue(s, parent=None)  # 非空前綴缺 parent：入口檢查
+    assert not hasattr(entry.value, "partial_episode")
+    error = _EnvFailure("env failed")
+    env = _failing_env(s.env.snapshot(), 1, error)
+    with pytest.raises(_EnvFailure):
+        _continue(s, env=env)
+    assert isinstance(getattr(error, "partial_episode", None), PartialEpisode)
+
+
+# ---------------------------------------------------------------- PartialEpisode.records()
+
+
+def _partial_fixture(kind: str) -> tuple[Task, tuple[Turn, ...], tuple[ToolCallRecord, ...], IssueTrackerEnv]:
+    """以真實 run 的 turns 與 env records 組出 PartialEpisode 的欄位；env 為 turns + pending 執行後的狀態。"""
+    if kind == "one_call_per_turn":
+        task = get_smoke_task(LONG_ID)
+        script = [[tuple(c)] for c in copy.deepcopy(REFERENCE_SOLUTIONS[LONG_ID])]
+        n_turns, n_pending = 3, 2
+    else:
+        task = get_smoke_task(LONG_ID)
+        script = [
+            [("search_issues", {"assignee_id": "u1"}), ("get_issue", {"issue_id": 2})],
+            [("assign_issue", {"issue_id": 2, "assignee_id": "u2"})],
+            [("add_comment", {"issue_id": 2, "body": "Now owned by Bob Li."}), ("get_issue", {"issue_id": 2})],
+        ]
+        n_turns, n_pending = 2, 2
+    full = run_episode(task, ScriptedPolicy(script), max_turns=20, clock=_zero_clock)
+    turns = tuple(full.turns[:n_turns])
+    flat = [c for turn_calls in script for c in turn_calls]
+    n_done = sum(len(t.tool_steps) for t in turns)
+    env = _env_after(task, flat[: n_done + n_pending])
+    pending = env.records[n_done:]
+    assert len(pending) == n_pending
+    return task, turns, pending, env
+
+
+@pytest.mark.parametrize("kind", ["one_call_per_turn", "multi_call_turns"])
+def test_partial_episode_records_are_turn_steps_then_pending_in_order(kind: str) -> None:
+    task, turns, pending, env = _partial_fixture(kind)
+    p = PartialEpisode(task=task.to_dict(), turns=turns, pending_records=pending, env_snapshot=env.snapshot())
+    recs = p.records()
+    assert type(recs) is tuple
+    assert all(isinstance(r, ToolCallRecord) for r in recs)
+    expected = [step for t in turns for step in t.tool_steps] + list(pending)
+    assert _records_cj(recs) == _records_cj(expected)
+    assert _records_cj(recs) == _records_cj(env.records)
+    assert [r.step for r in recs] == list(range(len(env.records)))
+
+
+@pytest.mark.parametrize("layout", ["empty", "pending_only", "turns_only"])
+def test_partial_episode_records_edge_layouts(layout: str) -> None:
+    task, turns, pending, env = _partial_fixture("multi_call_turns")
+    if layout == "empty":
+        turns_, pending_ = (), ()
+    elif layout == "pending_only":
+        turns_, pending_ = (), tuple(env.records[:3])
+    else:
+        turns_, pending_ = turns, ()
+    p = PartialEpisode(task=task.to_dict(), turns=turns_, pending_records=pending_, env_snapshot=env.snapshot())
+    recs = p.records()
+    assert type(recs) is tuple
+    expected = [step for t in turns_ for step in t.tool_steps] + list(pending_)
+    assert _records_cj(recs) == _records_cj(expected)
+    if layout == "empty":
+        assert recs == ()
+
+
+def test_partial_episode_records_is_deep_copy() -> None:
+    task, turns, pending, env = _partial_fixture("one_call_per_turn")
+    p = PartialEpisode(task=task.to_dict(), turns=turns, pending_records=pending, env_snapshot=env.snapshot())
+    before_turns = _turns_cj(p.turns)
+    before_pending = _records_cj(p.pending_records)
+    before_records = _records_cj(p.records())
+
+    recs = p.records()
+    assert recs[0] is not p.turns[0].tool_steps[0]
+    assert recs[-1] is not p.pending_records[-1]
+    for r in recs:
+        if isinstance(r.args, dict):
+            r.args["tampered"] = True
+        if isinstance(r.result, dict):
+            r.result["tampered"] = True
+    assert _turns_cj(p.turns) == before_turns
+    assert _records_cj(p.pending_records) == before_pending
+    assert _records_cj(p.records()) == before_records
+    # 每次呼叫回傳新的物件
+    a, b = p.records(), p.records()
+    assert a[0] is not b[0] and a[0].args is not b[0].args

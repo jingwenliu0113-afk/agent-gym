@@ -24,7 +24,8 @@ Checkpoint 的結構與重放規則（``verify``，違反 raise CheckpointError�
    ``canonical_json(重放後 env.snapshot()) == canonical_json(env_snapshot)``（因此 env_snapshot["step"] == 前綴 tool steps 數）。
 5. source_trajectory_id 為非空 str；``canonical_json(to_dict()).encode("utf-8")`` 成功。
 6. env_snapshot 可被全新的 ``IssueTrackerEnv().restore`` 接受（因此通過 verify 的 checkpoint 一定能 restore / rerun）；
-   task、env_snapshot 與前綴 tool steps 的內容都符合 Trajectory 規則 10（JSON 文件、不含 tuple、深度上限；decision 007）。
+   task、env_snapshot、前綴 turns 的 meta 與 tool steps 的內容都符合 Trajectory 規則 10（JSON 文件、不含 tuple、深度上限；
+   decision 007 / 009）。
    ``from_dict`` / ``load`` 在任何深拷貝之前先以同一規則檢查整份輸入。
 """
 
@@ -44,6 +45,7 @@ from replay.trajectory import (
     Trajectory,
     TrajectoryError,
     Turn,
+    MAX_DOCUMENT_DEPTH,
     check_json_document,
     check_turn_payloads,
     check_turn_sequence,
@@ -55,7 +57,7 @@ from replay.trajectory import (
 )
 from tasks.schema import Task
 
-CHECKPOINT_FORMAT = "agent-gym/checkpoint/v1"
+CHECKPOINT_FORMAT = "agent-gym/checkpoint/v2"  # v2：turns 中的 ModelMessage 含 provider_content（decision 009）
 
 CHECKPOINT_KEYS: tuple[str, ...] = (
     "format",
@@ -86,8 +88,9 @@ class Checkpoint:
 
     def verify(self) -> None:
         """模組 docstring 的規則 1–6；違反 raise CheckpointError。"""
-        check_json_document(self.task, error=CheckpointError)
-        check_json_document(self.env_snapshot, error=CheckpointError)
+        # 深度以文件根計算（task / env_snapshot / turns 位於 to_dict() 的第 1 層），與 from_dict / load 一致
+        check_json_document(self.task, error=CheckpointError, max_depth=MAX_DOCUMENT_DEPTH - 1)
+        check_json_document(self.env_snapshot, error=CheckpointError, max_depth=MAX_DOCUMENT_DEPTH - 1)
         check_turn_payloads(self.turns, error=CheckpointError)
         task = parse_canonical_task(self.task, error=CheckpointError)
         if not isinstance(self.agent, AgentConfig):

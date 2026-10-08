@@ -1,12 +1,13 @@
 """Recorder 的 trajectory 格式（decision log 006）。
 
 一個 turn = 一次 model 呼叫（``message``）+ 該訊息每個 tool call 的 env 紀錄（``tool_steps``，與
-``message.tool_calls`` 一一對應）+ 該次呼叫的量測（``usage``，model_turns 固定為 1）。
-``message`` 與 ``tool_steps`` 是決定性內容；``usage`` 是量測（latency 由 runner 的 clock 決定）。
+``message.tool_calls`` 一一對應）+ 該次呼叫的量測（``usage``，model_turns 固定為 1；``meta``，provider 回報的量測，
+例如 response.model、request id、stop_details，None 或 JSON 物件）。
+``message`` 與 ``tool_steps`` 是決定性內容；``usage`` 與 ``meta`` 是量測，不進 conversation。
 
 本模組所有「相同 / 相符」一律以 ``canonical_json`` 逐 byte 比較（不用 Python ``==``）；所有「int」一律 ``type(x) is int``。
 
-Trajectory（``agent-gym/trajectory/v1``）的結構規則（``validate``，違反 raise TrajectoryError）：
+Trajectory（``agent-gym/trajectory/v2``）的結構規則（``validate``，違反 raise TrajectoryError）：
 1. task 可被 ``Task.from_dict`` 解析，且 ``canonical_json(Task.from_dict(task).to_dict()) == canonical_json(task)``；
    agent 為 AgentConfig；max_turns 為 int >= 1。
 2. 1 <= len(turns) <= max_turns；每個元素是 Turn 且 ``turns[i].index == i``（int）。
@@ -19,7 +20,7 @@ Trajectory（``agent-gym/trajectory/v1``）的結構規則（``validate``，違�
    其 step（int）== tool steps 總數、actor_id == task 的 actor_id。
 8. parent 為 None 或剛好 ``{"trajectory_id": str, "checkpoint_id": str, "turn": int}``，且 0 <= turn < len(turns)。
 9. ``canonical_json(self.to_dict()).encode("utf-8")`` 成功（所有字串可 UTF-8 編碼）。
-10. task、final_snapshot、parent 與每個 tool step 的 args / result / error / changes 都是 JSON 文件：容器只能是
+10. task、final_snapshot、parent、每個 turn 的 meta 與每個 tool step 的 args / result / error / changes 都是 JSON 文件：容器只能是
     ``list`` / ``dict``（不含 tuple）、key 為 str、葉節點為 None / str / bool / int / float，巢狀深度不超過
     MAX_DOCUMENT_DEPTH（decision 007）。``from_dict`` / ``load`` 在任何深拷貝之前先以同一規則檢查整份輸入。
 """
@@ -39,7 +40,7 @@ from grader.grader import grade as grade_records
 from grader.schema import GradeReport, Usage
 from tasks.schema import Task
 
-TRAJECTORY_FORMAT = "agent-gym/trajectory/v1"
+TRAJECTORY_FORMAT = "agent-gym/trajectory/v2"  # v2：ModelMessage.provider_content（decision 009）
 TERMINATIONS: tuple[str, ...] = ("final_answer", "max_turns")
 
 TRAJECTORY_KEYS: tuple[str, ...] = (
@@ -53,7 +54,7 @@ TRAJECTORY_KEYS: tuple[str, ...] = (
     "parent",
 )
 PARENT_KEYS: tuple[str, ...] = ("trajectory_id", "checkpoint_id", "turn")
-TURN_KEYS: tuple[str, ...] = ("index", "message", "tool_steps", "usage")
+TURN_KEYS: tuple[str, ...] = ("index", "message", "tool_steps", "usage", "meta")
 
 # trajectory / checkpoint 文件的巢狀深度上限（以文件根為第 0 層；decision 007）。合法內容最深約為
 # agent.model_config + MAX_MODEL_CONFIG_DEPTH（約 130 層），且 256 層的 deepcopy 遠低於 Python 預設的遞迴上限。
@@ -70,19 +71,21 @@ class Turn:
     message: ModelMessage
     tool_steps: tuple[ToolCallRecord, ...]
     usage: Usage
+    meta: dict[str, Any] | None = None  # 量測（decision 009）；None 或 JSON 物件
 
     def to_dict(self) -> dict[str, Any]:
-        """剛好 ``{"index", "message", "tool_steps", "usage"}``，巢狀物件用各自的 to_dict。"""
+        """剛好 ``{"index", "message", "tool_steps", "usage", "meta"}``，巢狀物件用各自的 to_dict，meta 為深拷貝。"""
         return {
             "index": self.index,
             "message": self.message.to_dict(),
             "tool_steps": [step.to_dict() for step in self.tool_steps],
             "usage": self.usage.to_dict(),
+            "meta": copy.deepcopy(self.meta),
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Turn:
-        """data 必須是 dict 且 key 剛好為上述四個、index 為 int、tool_steps 為 list；
+        """data 必須是 dict 且 key 剛好為上述五個、index 為 int、tool_steps 為 list、meta 為 None 或 dict；
         巢狀物件以各自的 from_dict 解析。任何錯誤一律 raise TrajectoryError（以 ``from e`` 包裝內層例外）。
         """
         check_json_document(data, error=TrajectoryError)
@@ -92,13 +95,15 @@ class Turn:
             raise TrajectoryError("turn.index must be an integer")
         if not isinstance(data["tool_steps"], list):
             raise TrajectoryError("turn.tool_steps must be a list")
+        if data["meta"] is not None and type(data["meta"]) is not dict:
+            raise TrajectoryError("turn.meta must be null or an object")
         try:
             message = ModelMessage.from_dict(data["message"])
             steps = tuple(ToolCallRecord.from_dict(step) for step in data["tool_steps"])
             usage = Usage.from_dict(data["usage"])
         except (TypeError, ValueError) as exc:
             raise TrajectoryError(f"invalid turn: {exc}") from exc
-        return cls(index=data["index"], message=message, tool_steps=steps, usage=usage)
+        return cls(index=data["index"], message=message, tool_steps=steps, usage=usage, meta=copy.deepcopy(data["meta"]))
 
 
 def render_messages(instruction: str, agent: AgentConfig, turns: Sequence[Turn]) -> list[dict[str, Any]]:
@@ -106,7 +111,8 @@ def render_messages(instruction: str, agent: AgentConfig, turns: Sequence[Turn])
 
     順序：``{"role": "system", "content": agent.system_prompt}`` → ``{"role": "developer", "content": agent.developer_prompt}``
     → ``{"role": "user", "content": instruction}`` → 每個 turn：
-    ``{"role": "assistant", "content": message.text, "tool_calls": [call.to_dict(), ...]}`` → 每個 tool call 一則
+    ``{"role": "assistant", "content": message.text, "tool_calls": [call.to_dict(), ...],
+    "provider_content": message.provider_content 的深拷貝或 None}`` → 每個 tool call 一則
     ``{"role": "tool", "tool_call_id": call.id, "content": canonical_json(step.observation())}``。
     每個 dict 的 key 依上列順序建立；即使 prompt 為空字串也輸出該訊息。回傳 JSON-native 的新物件。
     """
@@ -118,7 +124,12 @@ def render_messages(instruction: str, agent: AgentConfig, turns: Sequence[Turn])
     for turn in turns:
         calls = turn.message.tool_calls
         messages.append(
-            {"role": "assistant", "content": turn.message.text, "tool_calls": [call.to_dict() for call in calls]}
+            {
+                "role": "assistant",
+                "content": turn.message.text,
+                "tool_calls": [call.to_dict() for call in calls],
+                "provider_content": copy.deepcopy(turn.message.provider_content),
+            }
         )
         for call, step in zip(calls, turn.tool_steps):
             messages.append(
@@ -146,6 +157,8 @@ def check_turn_sequence(turns: Sequence[Any], *, error: type[Exception], all_hav
             raise error(f"turns[{i}].index must be {i}")
         if not isinstance(turn.message, ModelMessage) or not isinstance(turn.usage, Usage):
             raise error(f"turns[{i}] has an invalid message or usage")
+        if turn.meta is not None and type(turn.meta) is not dict:
+            raise error(f"turns[{i}].meta must be None or a dict")
         if not isinstance(turn.tool_steps, (list, tuple)) or not all(
             isinstance(step, ToolCallRecord) for step in turn.tool_steps
         ):
@@ -187,25 +200,32 @@ def check_json_document(value: Any, *, error: type[Exception], max_depth: int = 
             raise error(f"document contains a non-JSON value of type {type(item).__name__}")
 
 
-def check_turn_payloads(turns: Any, *, error: type[Exception]) -> None:
-    """對 turns 中每個 tool step 的 args / result / error / changes 執行 check_json_document（非 Turn 元素略過，
-    交給 check_turn_sequence 處理）。必須在任何對這些內容做遞迴處理（canonical_json、deepcopy）之前呼叫。
+def check_turn_payloads(turns: Any, *, error: type[Exception], turns_depth: int = 1) -> None:
+    """對 turns 中每個 turn 的 meta 與每個 tool step 的 args / result / error / changes 執行 check_json_document
+    （非 Turn 元素略過，交給 check_turn_sequence 處理）。必須在任何對這些內容做遞迴處理（canonical_json、deepcopy）之前呼叫。
+    深度上限以**文件根**計算（與 from_dict / load 一致）：turns list 位於文件第 ``turns_depth`` 層，因此 meta 在
+    turns_depth + 2 層、tool step 的 args / result / error 在 + 4 層、change 的 before / after 在 + 6 層。
     """
     if not isinstance(turns, (list, tuple)):
         return
     for turn in turns:
-        if not isinstance(turn, Turn) or not isinstance(turn.tool_steps, (list, tuple)):
+        if not isinstance(turn, Turn):
             continue
+        check_json_document(turn.meta, error=error, max_depth=MAX_DOCUMENT_DEPTH - turns_depth - 2)
+        if not isinstance(turn.tool_steps, (list, tuple)):
+            continue
+        payload_limit = MAX_DOCUMENT_DEPTH - turns_depth - 4
+        change_limit = MAX_DOCUMENT_DEPTH - turns_depth - 6
         for step in turn.tool_steps:
             if not isinstance(step, ToolCallRecord):
                 continue
-            check_json_document(step.args, error=error)
-            check_json_document(step.result, error=error)
-            check_json_document(step.error, error=error)
+            check_json_document(step.args, error=error, max_depth=payload_limit)
+            check_json_document(step.result, error=error, max_depth=payload_limit)
+            check_json_document(step.error, error=error, max_depth=payload_limit)
             if isinstance(step.changes, (list, tuple)):
                 for change in step.changes:
-                    check_json_document(getattr(change, "before", None), error=error)
-                    check_json_document(getattr(change, "after", None), error=error)
+                    check_json_document(getattr(change, "before", None), error=error, max_depth=change_limit)
+                    check_json_document(getattr(change, "after", None), error=error, max_depth=change_limit)
 
 
 def same_canonical(a: Any, b: Any) -> bool:
@@ -251,9 +271,10 @@ class Trajectory:
 
     def validate(self) -> None:
         """結構規則（模組 docstring 1–10）；違反 raise TrajectoryError。不做重放。"""
-        check_json_document(self.task, error=TrajectoryError)
-        check_json_document(self.final_snapshot, error=TrajectoryError)
-        check_json_document(self.parent, error=TrajectoryError)
+        # 深度以文件根計算：task / final_snapshot / parent 位於 to_dict() 的第 1 層（與 from_dict / load 的檢查一致）
+        check_json_document(self.task, error=TrajectoryError, max_depth=MAX_DOCUMENT_DEPTH - 1)
+        check_json_document(self.final_snapshot, error=TrajectoryError, max_depth=MAX_DOCUMENT_DEPTH - 1)
+        check_json_document(self.parent, error=TrajectoryError, max_depth=MAX_DOCUMENT_DEPTH - 1)
         check_turn_payloads(self.turns, error=TrajectoryError)
         task = parse_canonical_task(self.task, error=TrajectoryError)
         if not isinstance(self.agent, AgentConfig):

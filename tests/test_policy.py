@@ -240,8 +240,8 @@ def test_scripted_constants():
     "cls, names",
     [
         (ToolCall, ["id", "name", "args"]),
-        (ModelMessage, ["text", "tool_calls", "stop_reason"]),
-        (PolicyStep, ["message", "input_tokens", "output_tokens", "cost_usd"]),
+        (ModelMessage, ["text", "tool_calls", "stop_reason", "provider_content"]),
+        (PolicyStep, ["message", "input_tokens", "output_tokens", "cost_usd", "meta"]),
         (AgentConfig, list(AGENT_CONFIG_FIELDS)),
     ],
 )
@@ -610,13 +610,13 @@ def test_model_message_to_dict_shape():
     calls = (ToolCall("call_0_0", "get_issue", {"issue_id": 1}), ToolCall("call_0_1", "search_issues", {"z": 1, "a": 2}))
     msg = ModelMessage(text="hi", tool_calls=calls, stop_reason="tool_use")
     d = msg.to_dict()
-    assert set(d) == {"text", "tool_calls", "stop_reason"}
+    assert set(d) == {"text", "tool_calls", "stop_reason", "provider_content"}
     assert type(d["tool_calls"]) is list
     assert canonical_json(d) == canonical_json(
-        {"text": "hi", "tool_calls": [c.to_dict() for c in calls], "stop_reason": "tool_use"}
+        {"text": "hi", "tool_calls": [c.to_dict() for c in calls], "stop_reason": "tool_use", "provider_content": None}
     )
     empty = ModelMessage(text="", tool_calls=(), stop_reason=None).to_dict()
-    assert canonical_json(empty) == '{"stop_reason":null,"text":"","tool_calls":[]}'
+    assert canonical_json(empty) == '{"provider_content":null,"stop_reason":null,"text":"","tool_calls":[]}'
     assert type(empty["tool_calls"]) is list
 
 

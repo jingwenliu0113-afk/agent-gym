@@ -33,7 +33,7 @@ from grader.schema import (
     Usage,
 )
 from tasks.schema import TASK_FORMAT, ScopeEntry, Task, TaskError
-from tests.conftest import SMALL_ACTOR, SMALL_WORLD
+from tests.conftest import SMALL_ACTOR
 
 Call = tuple[Any, Any]
 R = dataclasses.replace

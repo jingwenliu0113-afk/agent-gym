@@ -1,7 +1,10 @@
-"""replay/trajectory.py 與 grader.schema.Usage.from_dict 的契約測試（decision log 006）。
+"""replay/trajectory.py 與 grader.schema.Usage.from_dict 的契約測試（decision log 006 / 009）。
 
 Trajectory 一律以真實 IssueTrackerEnv 產生的 ToolCallRecord 手工組裝（不經 runner），
-讓 validate 規則 1–9 的測試與 runner 實作無關。task 使用 smoke tasks（只做回歸測試用途）。
+讓 validate 規則 1–10 的測試與 runner 實作無關。task 使用 smoke tasks（只做回歸測試用途）。
+
+trajectory/v2（decision 009）：Turn 多了 ``meta``（量測；None 或 JSON 物件；不進 conversation、在 trajectory_id 內），
+Turn.to_dict 剛好 5 個 key；render_messages 的 assistant 訊息帶 ``provider_content``（細節測試在 test_provider_content.py）。
 
 所有「相同 / 相符」都以 canonical_json 逐 byte 比較；凡是 Python ``==`` 會被騙的地方
 （1 vs 1.0、True vs 1）都有對應案例。
@@ -25,6 +28,7 @@ from env.hashing import canonical_json, sha256_of
 from grader.grader import grade
 from grader.schema import Usage
 from replay.trajectory import (
+    MAX_DOCUMENT_DEPTH,
     PARENT_KEYS,
     TERMINATIONS,
     TRAJECTORY_FORMAT,
@@ -35,6 +39,7 @@ from replay.trajectory import (
     load_strict_json,
     render_messages,
 )
+from replay.trajectory import TURN_KEYS as MODULE_TURN_KEYS
 from tasks.schema import Task
 from tasks.smoke import REFERENCE_SOLUTIONS, SMOKE_TASK_IDS, get_smoke_task
 
@@ -47,13 +52,13 @@ REASSIGN = "smoke-reassign-departed"
 NOOP = "smoke-conditional-noop"
 
 FAKE_HASH = "sha256:" + "0" * 64
-TURN_KEYS = frozenset({"index", "message", "tool_steps", "usage"})
+TURN_KEYS = frozenset({"index", "message", "tool_steps", "usage", "meta"})
 USAGE_FIELDS = ("input_tokens", "output_tokens", "latency_s", "cost_usd", "model_turns")
 ROLE_KEYS: dict[str, list[str]] = {
     "system": ["role", "content"],
     "developer": ["role", "content"],
     "user": ["role", "content"],
-    "assistant": ["role", "content", "tool_calls"],
+    "assistant": ["role", "content", "tool_calls", "provider_content"],
     "tool": ["role", "tool_call_id", "content"],
 }
 
@@ -74,6 +79,32 @@ MIXED_LAYOUT: list[list[tuple[str, Any]]] = [
 
 def zero_usage() -> Usage:
     return Usage(0, 0, 0.0, 0.0, 1)
+
+
+META_MARKER = "META_MARKER_量測"
+
+
+def sample_meta(k: int) -> dict[str, Any]:
+    """turn meta 範例（量測；內容是任意 JSON 物件，trajectory 不解讀）：含非 ASCII、null、巢狀、int 與 float（1 vs 1.0）。"""
+    return {
+        "response_model": "model-x",
+        "request_id": f"req_{k:04d}",
+        "stop_reason": "tool_use",
+        "stop_details": None,
+        "usage_detail": {"input": 100 + k, "cache_read": 0, "cache_write": {"5m": 0, "1h": 0}},
+        "tool_use_blocks": 1,
+        "ratio": 1.0,
+        "count": 1,
+        "note": META_MARKER,
+        "list": [1, 1.0, True, None, "x"],
+    }
+
+
+def deep_value(depth: int) -> Any:
+    value: Any = 1
+    for _ in range(depth):
+        value = [value]
+    return value
 
 
 def make_agent(**overrides: Any) -> AgentConfig:
@@ -139,14 +170,20 @@ def build(
     termination: Any = None,
     parent: Any = None,
     agent: Any = None,
+    metas: list[Any] | None = None,
 ) -> Trajectory:
-    """以真實 env records 手工組裝 trajectory；預設為合法的 final_answer trajectory。"""
+    """以真實 env records 手工組裝 trajectory；預設為合法的 final_answer trajectory。
+    metas（長度須等於 turn 數）給定時，第 i 個 turn 的 meta 設為 metas[i]（深拷貝）。
+    """
     task = get_smoke_task(task_id)
     if layout is None:
         layout = reference_layout(task_id)
     turns, snapshot = run_layout(task, layout)
     if final:
         turns.append(final_turn(len(turns)))
+    if metas is not None:
+        assert len(metas) == len(turns)
+        turns = [R(t, meta=copy.deepcopy(m)) for t, m in zip(turns, metas, strict=True)]
     if max_turns is None:
         max_turns = len(turns) + 2 if final else len(turns)
     if termination is None:
@@ -211,7 +248,7 @@ def assert_json_native(obj: Any) -> None:
 
 
 def expected_messages(instruction: str, agent: AgentConfig, turns: Any) -> list[dict[str, Any]]:
-    """依 render_messages docstring 逐字組出的期望 conversation。"""
+    """依 render_messages docstring 逐字組出的期望 conversation（v2：assistant 帶 provider_content；meta 不出現）。"""
     msgs: list[dict[str, Any]] = [
         {"role": "system", "content": agent.system_prompt},
         {"role": "developer", "content": agent.developer_prompt},
@@ -224,6 +261,7 @@ def expected_messages(instruction: str, agent: AgentConfig, turns: Any) -> list[
                 "role": "assistant",
                 "content": turn.message.text,
                 "tool_calls": [{"id": c.id, "name": c.name, "args": copy.deepcopy(c.args)} for c in calls],
+                "provider_content": copy.deepcopy(turn.message.provider_content),
             }
         )
         for call, step in zip(calls, turn.tool_steps, strict=True):
@@ -291,6 +329,9 @@ VARIANTS: dict[str, Callable[[], Trajectory]] = {
     "noop_final_answer_only": lambda: build(NOOP, []),
     "mixed_failing_calls": lambda: build(ASSIGN, MIXED_LAYOUT),
     "escalate_with_parent": lambda: build(ESCALATE, parent=make_parent(1)),
+    # v2：turn meta（量測）。None / 空物件 / 一般物件混用。
+    "assign_with_meta": lambda: build(ASSIGN, metas=[sample_meta(0), None, {"stop_reason": "end_turn"}]),
+    "mixed_with_meta": lambda: build(ASSIGN, MIXED_LAYOUT, metas=[sample_meta(i) for i in range(3)] + [{}]),
 }
 
 
@@ -300,7 +341,7 @@ VARIANTS: dict[str, Callable[[], Trajectory]] = {
 
 
 def test_constants() -> None:
-    assert TRAJECTORY_FORMAT == "agent-gym/trajectory/v1"
+    assert TRAJECTORY_FORMAT == "agent-gym/trajectory/v2"  # decision 009
     assert TERMINATIONS == ("final_answer", "max_turns")
     assert TRAJECTORY_KEYS == (
         "format",
@@ -313,6 +354,8 @@ def test_constants() -> None:
         "parent",
     )
     assert PARENT_KEYS == ("trajectory_id", "checkpoint_id", "turn")
+    assert MODULE_TURN_KEYS == ("index", "message", "tool_steps", "usage", "meta")  # v2（decision 009）
+    assert frozenset(MODULE_TURN_KEYS) == TURN_KEYS
     assert issubclass(TrajectoryError, ValueError)
 
 
@@ -414,6 +457,19 @@ def test_render_messages_assistant_content_is_message_text() -> None:
     assert assistants[1]["content"] == ""
 
 
+@pytest.mark.parametrize("layout", [None, MIXED_LAYOUT], ids=["reference", "mixed"])
+def test_render_messages_ignores_turn_meta(layout: Any) -> None:
+    """meta 是量測，不進 conversation：只差在 meta 的 turns 產生逐 byte 相同（含 key 順序）的 messages。"""
+    plain = build(ASSIGN, layout)
+    n = len(plain.turns)
+    with_meta = build(ASSIGN, layout, metas=[sample_meta(i) for i in range(n)])
+    a = render_messages("x", plain.agent, plain.turns)
+    b = render_messages("x", with_meta.agent, with_meta.turns)
+    assert json.dumps(a, ensure_ascii=False) == json.dumps(b, ensure_ascii=False)
+    assert META_MARKER not in json.dumps(b, ensure_ascii=False)
+    assert json.dumps(with_meta.messages(), ensure_ascii=False) == json.dumps(plain.messages(), ensure_ascii=False)
+
+
 def test_render_messages_accepts_list_of_turns() -> None:
     traj = build(ASSIGN)
     a = render_messages("x", traj.agent, list(traj.turns))
@@ -443,17 +499,78 @@ def test_render_messages_returns_new_objects_and_does_not_alias_turns() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_turn_to_dict_shape() -> None:
-    traj = build(ASSIGN, MIXED_LAYOUT)
+@pytest.mark.parametrize("with_meta", [False, True])
+def test_turn_to_dict_shape(with_meta: bool) -> None:
+    metas = [sample_meta(0), None, {}, {"stop_reason": "end_turn"}] if with_meta else None
+    traj = build(ASSIGN, MIXED_LAYOUT, metas=metas)
     for turn in traj.turns:
         d = turn.to_dict()
         assert set(d) == TURN_KEYS
+        assert len(d) == 5
         assert_json_native(d)
         assert type(d["index"]) is int and d["index"] == turn.index
         assert canonical_json(d["message"]) == canonical_json(turn.message.to_dict())
         assert type(d["tool_steps"]) is list
         assert canonical_json(d["tool_steps"]) == canon_records(turn.tool_steps)
         assert canonical_json(d["usage"]) == canonical_json(turn.usage.to_dict())
+        assert canonical_json(d["meta"]) == canonical_json(turn.meta)
+        if turn.meta is None:
+            assert d["meta"] is None
+
+
+def test_turn_meta_defaults_to_none() -> None:
+    turn = Turn(
+        index=0,
+        message=ModelMessage(text="Done.", tool_calls=(), stop_reason="end_turn"),
+        tool_steps=(),
+        usage=zero_usage(),
+    )
+    assert turn.meta is None
+    d = turn.to_dict()
+    assert set(d) == TURN_KEYS
+    assert d["meta"] is None
+    # 手工組裝（未指定 meta）的 turns 一律 meta = None
+    assert all(t.meta is None for t in build(ASSIGN, MIXED_LAYOUT).turns)
+
+
+def test_turn_to_dict_meta_is_deep_copy() -> None:
+    turn = R(build(ASSIGN).turns[0], meta=sample_meta(0))
+    before = canonical_json(turn.to_dict())
+    d = turn.to_dict()
+    assert d["meta"] is not turn.meta
+    d["meta"]["usage_detail"]["cache_write"]["1h"] = 999
+    d["meta"]["list"].append("tampered")
+    d["meta"]["request_id"] = "tampered"
+    assert canonical_json(turn.to_dict()) == before
+    assert canonical_json(turn.meta) == canonical_json(sample_meta(0))
+
+
+@pytest.mark.parametrize("via_json", [False, True])
+@pytest.mark.parametrize(
+    "meta",
+    [None, {}, sample_meta(3), {"a": {"b": {"c": [1, {"d": None}]}}}, {"x": deep_value(40)}],
+    ids=["none", "empty", "sample", "nested", "deep_ok"],
+)
+def test_turn_round_trip_with_meta(meta: Any, via_json: bool) -> None:
+    turn = R(build(ASSIGN).turns[0], meta=copy.deepcopy(meta))
+    d = turn.to_dict()
+    if via_json:
+        d = json.loads(canonical_json(d))
+    back = Turn.from_dict(d)
+    assert back == turn
+    assert canonical_json(back.to_dict()) == canonical_json(turn.to_dict())
+    assert canonical_json(back.meta) == canonical_json(meta)
+    if meta is None:
+        assert back.meta is None
+
+
+def test_turn_round_trip_preserves_int_vs_float_in_meta() -> None:
+    as_int = R(build(ASSIGN).turns[0], meta={"ratio": 1, "nested": [0]})
+    as_float = R(as_int, meta={"ratio": 1.0, "nested": [0.0]})
+    assert as_int == as_float  # Python == 會被騙
+    back = Turn.from_dict(json.loads(canonical_json(as_int.to_dict())))
+    assert canonical_json(back.to_dict()) == canonical_json(as_int.to_dict())
+    assert canonical_json(back.to_dict()) != canonical_json(as_float.to_dict())
 
 
 def test_turn_to_dict_is_deep_copy() -> None:
@@ -530,6 +647,20 @@ TURN_TOP_LEVEL_ERRORS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "tool_steps_tuple": lambda d: {**d, "tool_steps": tuple(d["tool_steps"])},
     "tool_steps_dict": _set(("tool_steps",), {}),
     "tool_steps_none": _set(("tool_steps",), None),
+    # meta 必須是 None 或 dict（JSON 物件），且整份輸入是 JSON 文件（規則 10）
+    "meta_list": _set(("meta",), []),
+    "meta_list_of_dict": _set(("meta",), [{"a": 1}]),
+    "meta_str": _set(("meta",), "meta"),
+    "meta_int": _set(("meta",), 0),
+    "meta_true": _set(("meta",), True),
+    "meta_false": _set(("meta",), False),
+    "meta_tuple": _set(("meta",), ({"a": 1},)),
+    "meta_nested_tuple": _set(("meta",), {"a": (1, 2)}),
+    "meta_non_str_key": _set(("meta",), {1: "a"}),
+    "meta_set_value": _set(("meta",), {"a": {1, 2}}),
+    "meta_object_value": _set(("meta",), {"a": object()}),
+    "meta_too_deep": _set(("meta",), {"x": deep_value(MAX_DOCUMENT_DEPTH + 50)}),
+    "meta_far_too_deep": _set(("meta",), {"x": deep_value(5000)}),
 }
 
 TURN_NESTED_ERRORS: dict[str, Callable[[dict[str, Any]], Any]] = {
@@ -1143,6 +1274,62 @@ def test_validate_rule9_rejects_lone_surrogate_in_record_result() -> None:
 
 
 # ---------------------------------------------------------------------------
+# validate 規則 9 / 10：turn meta（量測，decision 009）
+# 規則 10：每個 turn 的 meta 是 JSON 文件（容器只能是 list / dict、key 為 str、葉節點為 JSON 純量、深度有上限）；
+# 規則 9：canonical_json(to_dict()) 可 UTF-8 編碼（因此 NaN / inf、lone surrogate 也被擋下）。
+# 深度案例只用兩種計層慣例（以 meta 本身或以文件根為第 0 層）都一致的值。
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("method", ["validate", "verify"])
+def test_validate_accepts_turn_meta(method: str) -> None:
+    n = len(build(ASSIGN, MIXED_LAYOUT).turns)
+    metas: list[Any] = [sample_meta(0), None, {}, {"x": deep_value(40), "名": "值"}]
+    assert len(metas) == n
+    getattr(build(ASSIGN, MIXED_LAYOUT, metas=metas), method)()
+
+
+TURN_META_INVALID: dict[str, Callable[[], Any]] = {
+    "tuple_value": lambda: {"a": (1, 2)},
+    "tuple_in_list": lambda: {"a": [1, (2,)]},
+    "set_value": lambda: {"a": {1, 2}},
+    "bytes_value": lambda: {"a": b"x"},
+    "object_value": lambda: {"a": object()},
+    "non_str_key": lambda: {1: "a"},
+    "nested_non_str_key": lambda: {"a": {None: 1}},
+    "nan": lambda: {"a": float("nan")},
+    "inf": lambda: {"a": [float("inf")]},
+    "lone_surrogate_value": lambda: {"a": "\ud800"},
+    "lone_surrogate_key": lambda: {"\udfff": 1},
+    "too_deep": lambda: {"x": deep_value(MAX_DOCUMENT_DEPTH + 50)},
+    "far_too_deep": lambda: {"x": deep_value(5000)},
+}
+
+
+@pytest.mark.parametrize("method", ["validate", "verify"])
+@pytest.mark.parametrize("turn_index", [0, 3])
+@pytest.mark.parametrize("name", list(TURN_META_INVALID))
+def test_validate_rejects_invalid_turn_meta(name: str, turn_index: int, method: str) -> None:
+    """不合法的 meta 一律 TrajectoryError（不得漏出 TypeError / RecursionError 等）。turn 3 是最後的 final turn。"""
+    base = build(ASSIGN, MIXED_LAYOUT)
+    assert len(base.turns) == 4
+    getattr(base, method)()  # 控制組
+    traj = set_turn(base, turn_index, R(base.turns[turn_index], meta=TURN_META_INVALID[name]()))
+    with pytest.raises(TrajectoryError):
+        getattr(traj, method)()
+
+
+def test_verify_and_grade_ignore_turn_meta() -> None:
+    """meta 是量測：不影響重放與評分。"""
+    plain = build(ASSIGN, MIXED_LAYOUT)
+    with_meta = build(ASSIGN, MIXED_LAYOUT, metas=[sample_meta(i) for i in range(len(plain.turns))])
+    with_meta.verify()
+    assert canon_records(with_meta.records()) == canon_records(plain.records())
+    assert canonical_json(with_meta.grade().to_dict()) == canonical_json(plain.grade().to_dict())
+    assert canonical_json(with_meta.usage().to_dict()) == canonical_json(plain.usage().to_dict())
+
+
+# ---------------------------------------------------------------------------
 # verify
 # ---------------------------------------------------------------------------
 
@@ -1492,14 +1679,27 @@ def test_trajectory_id_is_deterministic() -> None:
         lambda t: R(t, parent=make_parent(0)),
         lambda t: R(t, max_turns=t.max_turns + 1),
         lambda t: R(t, agent=make_agent(system_prompt="other")),
+        lambda t: set_turn(t, 0, R(t.turns[0], meta=sample_meta(0))),
+        lambda t: set_turn(t, 2, R(t.turns[2], meta={})),
     ],
-    ids=["latency", "tokens", "cost_unknown", "parent", "max_turns", "agent"],
+    ids=["latency", "tokens", "cost_unknown", "parent", "max_turns", "agent", "meta_set", "meta_empty"],
 )
 def test_trajectory_id_changes_with_content(change: Callable[[Trajectory], Trajectory]) -> None:
     base = build(ASSIGN)
     changed = change(base)
     changed.validate()
     assert changed.trajectory_id != base.trajectory_id
+
+
+def test_trajectory_id_distinguishes_meta_values() -> None:
+    """trajectory_id 是紀錄 id（含量測）：meta 的任何差異（含 1 vs 1.0、None vs {}）都改變它。"""
+    base = build(ASSIGN)
+    as_int = set_turn(base, 0, R(base.turns[0], meta={"ratio": 1}))
+    as_float = set_turn(base, 0, R(base.turns[0], meta={"ratio": 1.0}))
+    empty = set_turn(base, 0, R(base.turns[0], meta={}))
+    assert as_int == as_float  # Python == 會被騙
+    ids = {base.trajectory_id, as_int.trajectory_id, as_float.trajectory_id, empty.trajectory_id}
+    assert len(ids) == 4
 
 
 def test_trajectory_id_distinguishes_int_and_float_latency() -> None:
@@ -1531,6 +1731,18 @@ def test_to_dict_shape(name: str) -> None:
     assert d["termination"] == traj.termination
     assert canonical_json(d["final_snapshot"]) == canonical_json(traj.final_snapshot)
     assert canonical_json(d["parent"]) == canonical_json(traj.parent)
+
+
+def test_to_dict_meta_is_deep_copy() -> None:
+    traj = build(ASSIGN, metas=[sample_meta(0), None, sample_meta(2)])
+    before = canonical_json(traj.to_dict())
+    d = traj.to_dict()
+    assert d["turns"][1]["meta"] is None
+    assert d["turns"][0]["meta"] is not traj.turns[0].meta
+    d["turns"][0]["meta"]["usage_detail"]["input"] = -1
+    d["turns"][2]["meta"]["list"].clear()
+    d["turns"][1]["meta"] = {"injected": True}
+    assert canonical_json(traj.to_dict()) == before
 
 
 def test_to_dict_parent_none() -> None:
@@ -1592,9 +1804,10 @@ TRAJ_DICT_ERRORS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "not_dict_str": lambda d: canonical_json(d),
     **{f"missing_{k}": _drop(k) for k in TRAJECTORY_KEYS},
     "extra_key": _set(("extra",), None),
-    "format_v2": _set(("format",), "agent-gym/trajectory/v2"),
+    "format_v1": _set(("format",), "agent-gym/trajectory/v1"),  # v1 已被 v2 取代（decision 009）
+    "format_v3": _set(("format",), "agent-gym/trajectory/v3"),
     "format_none": _set(("format",), None),
-    "format_checkpoint": _set(("format",), "agent-gym/checkpoint/v1"),
+    "format_checkpoint": _set(("format",), "agent-gym/checkpoint/v2"),
     "task_missing_key": _del_nested(("task", "instruction")),
     "task_not_dict": _set(("task",), "task"),
     "agent_none": _set(("agent",), None),
@@ -1611,6 +1824,15 @@ TRAJ_DICT_ERRORS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "turns_empty": _set(("turns",), []),
     "turn_not_dict": _set(("turns", 0), None),
     "turn_missing_key": _del_nested(("turns", 0, "usage")),
+    "turn_missing_meta": _del_nested(("turns", 0, "meta")),
+    "turn_final_missing_meta": _del_nested(("turns", 2, "meta")),
+    "turn_meta_list": _set(("turns", 0, "meta"), []),
+    "turn_meta_str": _set(("turns", 0, "meta"), "meta"),
+    "turn_meta_int": _set(("turns", 1, "meta"), 1),
+    "turn_meta_nan": _set(("turns", 0, "meta"), {"x": float("nan")}),
+    "turn_meta_lone_surrogate": _set(("turns", 0, "meta"), {"x": "\ud800"}),
+    "turn_meta_tuple": _set(("turns", 0, "meta"), {"x": (1,)}),
+    "turn_meta_too_deep": _set(("turns", 0, "meta"), {"x": deep_value(MAX_DOCUMENT_DEPTH + 50)}),
     "turn_bad_index": _set(("turns", 1, "index"), 5),
     "turn_bool_index": _set(("turns", 1, "index"), True),
     "turn_bad_usage": _set(("turns", 0, "usage", "model_turns"), "1"),

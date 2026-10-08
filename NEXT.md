@@ -5,7 +5,8 @@
 Core：Day 1 完成；Week 1 除「#5 baseline 真正跑完整 task」以外都完成；#5 與 SPEC §6 中**不需要 API key 的部分全部完成**。
 需要真正呼叫 LLM 的步驟（dev sanity、eval baseline、eval 上的 failure localization sweep）依使用者決策 **deferred / blocked-by-paid-API**；
 keyless Core infrastructure（含分析工具、驟降判定選項、README 示範）已完成；第七輪對抗式審查找出的 keyless 缺口
-（已登記但漏實作的規則、只信任 summary 的分析）已依 decision 017 補齊；第八輪審查（017 的實作）找出的缺口已依 decision 018 補齊。
+（已登記但漏實作的規則、只信任 summary 的分析）已依 decision 017 補齊；第八～十輪審查找出的缺口已依 decision 018 / 019 / 020 補齊。
+**所有 keyless Core 工作已完成；剩下的都在下方「Blocked / 需要使用者」**（付費 LLM run 與研究設計決策）。
 尚未進 Advanced（Gate 未滿足：還沒有任何真實的 failure localization 結果）。
 
 Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/jingwenliu0113-afk/agent-gym），main 追蹤 origin/main；
@@ -13,7 +14,7 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 `d7241dc` Day 1 → `5c8ada4` Week 1 replay infrastructure → `c554735` keyless baseline adapter + attempt manifest →
 `638be6d` §6 failure localization infrastructure → `7a796f3` 付費 run 執行工具 + 計費修正 → SweepPlan 偵測力模擬（decision 011）→
 `b8c600f` 預先登記的分析工具 + README 示範（decision 015 / 016）→ `9baae38`…`63bde0b` 第七輪審查修正（decision 017）→
-第八輪審查修正（decision 018）。
+第八輪審查修正（decision 018）→ `7a94d24` 第九輪（decision 019）→ 第十輪（decision 020）。
 
 ## 上次完成（2026-10-08）
 
@@ -88,19 +89,28 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
    - 審查判定不成立而未處理：decision 011 的選項成本與 012 的上限依不同的 L 假設，數字不直接可比（兩者都是暫定值，dev sanity 後
      重估）；跨目錄累計的成本上限（改為印出先前花費）。
 
-測試：`uv run pytest` → 8617 passed、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 4 分鐘；`ruff check` 通過。
+10. **第十輪對抗式審查後的修正**（decision 020）：
+   - `--resume-from` 可重複給（原本重複給時只保留最後一個，依順序可能略過一個目錄而重複付費）。
+   - 續跑的血緣檢查：run.json 新增 `run_id` 與 `resumed_from`（sweep 格式 v5）。續跑前在相關目錄的上層目錄中，找出從給定目錄續跑過、
+     有 manifest、卻沒有被傳入的後續目錄 → 拒絕執行。原本漏給「較晚」的目錄（例如續跑被中斷後重下同一個指令）時會重複付費。
+   - analyze_sweep 驗證 run_id / resumed_from，同一個 run_id 出現在兩個目錄（複製的目錄）→ ValueError。
+   - rollout 0 的同時間檢查只看最早的時間，與傳入順序無關；目標目錄已存在時提示以 `--resume-from` 續跑。
 
-## 使用者決策（2026-10-08）
+測試：`uv run pytest` → 8644 passed、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 4–6 分鐘；`ruff check` 通過。
+
+## 使用者決策（2026-10-08 / 10-09）
 
 - 需要 `ANTHROPIC_API_KEY` 或其他付費 API 的正式 LLM run（baseline / eval / failure-localization sweep）**全部延後**；
   不要求 API key、不執行任何付費 API call。Claude Code Desktop 自身的 token 可自由用於開發、測試、review、commit、push。
 - 不得把 Claude Code Desktop 的內部模型當成正式 benchmark provider（除非使用者明確修改實驗設計）。
 - 只因需要真實 LLM API 而卡住的步驟標記 `deferred / blocked-by-paid-API`；其他 keyless Core 工作照常推進。
   所有 keyless Core infrastructure 完成、只剩 paid runs 時，才一次性回報需要的 paid runs、預估成本與順序。
+- （2026-10-09）使用者離開期間：需要使用者決策、批准、key、credential、sudo、人工標註、修改 frozen protocol、進 Advanced / Optional 的
+  事項不等待，記到下方「Blocked / 需要使用者」後跳過；只有所有可做的 Core 都完成或全部 blocked 時才停。
 
 ## 下一步
 
-### keyless Core（2026-10-08 完成）
+### keyless Core（2026-10-09 全部完成）
 
 1. 驟降判定可選擇（decision 015：`--criterion wilson95 | bonferroni95`，sweep 必須明確指定）。
 2. eval baseline 分析：`uv run python -m experiments.analyze_baseline runs/<eval-run> [runs/<rerun> ...] --out runs/<name>`
@@ -112,27 +122,37 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 4. README 首屏：以可重現的 synthetic 示範（`experiments/demo_synthetic.py`，明確標示不是 LLM 結果）展示
    Task → Agent actions → state changes → grader → replay from checkpoint；測試確保 README 與程式輸出同步。
 
-### deferred / blocked-by-paid-API（依序；全部等使用者日後決定）
+## Blocked / 需要使用者
 
-1. dev sanity：`uv run --extra llm python -m experiments.run_baseline --split dev --confirm-paid-run --max-cost-usd 10`；
+以下全部需要使用者決定或付費 API；keyless Core 已沒有其他可做的工作。程式不讀取、不保存任何 API key（由 SDK 從環境變數解析）。
+
+### A. 研究設計決策（paid runs 之前）
+
+1. 模型 `claude-opus-5-5`（decision 009）與各階段預算；credential 由環境變數提供，帳號必須可用 `thinking-binding-controls-2026-08-01` beta。
+2. eval rollout 數 R（提案 R = 3）。
+3. SweepPlan / 驟降判定（decision 011；依預先登記規則**沒有合格 plan**，不自行放寬）。選定後另立 decision log 記錄：
+   - A：`--criterion bonferroni95` + (2, 10, 48, 0.3)：cliff 偵測 0.83、gradual 誤判 0.03；估算 $213 – $3,241（唯一兩個門檻都達到的設定）
+   - B：`--criterion wilson95` + (2, 10, 32, 0.3)：0.83 / 0.14；$155 – $2,362
+   - C：`--criterion wilson95` + (2, 8, 24, 0.3)：0.64 / 0.15；$99 – $1,510
+4. Gate 判定的操作化（decision 012 §4 提案，尚未確認），包含「收尾」分支（多數 source 為 gradual 且彼此不同 → 正式報告「失敗是逐步累積」）
+   中「彼此不同」的定義；目前分析只機械化判定進 Advanced 的條件。
+
+### B. 付費 LLM runs（依序；每一步都需要使用者先確認預算並提供 credential）
+
+成本都是 dry-run request 大小推得的估計（`uv run python -m experiments.cost_estimate`；低 / 高情境見 decision 012），dev sanity 後以實測重估。
+
+1. dev sanity（估計 $0.42 – $6.78）：`uv run --extra llm python -m experiments.run_baseline --split dev --confirm-paid-run --max-cost-usd 10`；
    以實測 tokens / call 重估 eval 與 sweep 的成本，再請使用者確認預算。
-2. eval baseline（R rollouts，提案 R = 3）。被中斷或因預算停止時以新目錄重跑；之後所有指令的 baseline 都要列出**全部**目錄
-   （analyze_baseline 的位置參數、run_sweep / analyze_sweep 的 `--baseline-run`；decision 016 A1 / 019 §1）。
-3. 以 decision 012 / 019 的規則選 source → eval sweep：
+2. eval baseline（每輪 15 題估計 $1.16 – $18.51；R = 3 約 $3.5 – $56）。被中斷或因預算停止時以新目錄重跑；之後所有指令的 baseline
+   都要列出**全部**目錄（analyze_baseline 的位置參數、run_sweep / analyze_sweep 的 `--baseline-run`；decision 016 A1 / 019 §1）。
+3. 以 decision 012 / 019 的規則選 source → eval sweep（成本見 A.3）：
    `uv run --extra llm python -m experiments.run_sweep --baseline-run runs/<eval-run> [runs/<eval-rerun> ...] --plan S,NC,NF,T --criterion C --confirm-paid-run --max-cost-usd X`
    （plan 與 criterion 都沒有預設值；`--dry-run` 已驗證）。被中斷或因預算停止時續跑：
-   `... --run-name <新名稱> --resume-from runs/<第一個 sweep> [runs/<第二個 sweep> ...]`（列出**所有**先前的 sweep 目錄；
-   `--max-cost-usd` 是這一次的上限，先前花費會印出），分析時把所有 sweep 目錄一起傳給 analyze_sweep（decision 018 / 019）。
+   `... --run-name <新名稱> --resume-from runs/<第一個 sweep> [runs/<第二個 sweep> ...]`（列出**所有**先前的 sweep 目錄，較早與較晚的
+   都要；`--max-cost-usd` 是這一次的上限，先前花費會印出），分析時把所有 sweep 目錄一起傳給 analyze_sweep（decision 018 / 019 / 020）。
 4. 以真實結果跑 `analyze_baseline` / `analyze_sweep`，把 recoverability curve、trajectory safety、「最終成功但中途有
    forbidden action」案例、Gate 判定放進 README 的「結果」段（README 目前只有 synthetic 示範）。
-
-### 仍待使用者決定的研究設計（與 paid runs 一起回報）
-
-- 模型 `claude-opus-5-5` 與各階段預算；credential 由環境變數提供、帳號可用 `thinking-binding-controls-2026-08-01` beta。
-- eval rollout 數 R（提案 3）。
-- SweepPlan / 驟降判定：decision 011 的選項 A / B / C（依預先登記規則無合格 plan，不自行放寬）。
-- Gate 判定的操作化（decision 012 第 4 節），包含「收尾」分支（多數 source 為 gradual 且彼此不同 → 正式報告「失敗是逐步累積」）
-  中「彼此不同」的定義；目前分析只機械化判定進 Advanced 的條件。
+5. Gate 判定（需要使用者確認 A.4 之後才能判斷是否進 Advanced）。
 
 ## 分析前必須注意的已知限制（decision 003 / 004 / 005 / 007 / 009 / 011）
 
@@ -148,7 +168,8 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 - eval 中 `gen-escalate-label-s1` 與 `-s2` 的 instruction 文字相同（初始狀態不同）。
 - manifest 不支援並行寫入；付費 run 被手動中斷時，進行中的嘗試不會進 manifest（那次嘗試中已計費的 call 也不會出現在任何
   成本加總中），重跑必須用新目錄。分析工具可直接同時讀中斷的目錄與重跑的目錄（decision 017）；sweep 以 `--resume-from` 續跑
-  （decision 018 / 019，必須列出所有先前的 sweep 目錄）。中斷時還沒有任何嘗試寫入 manifest 的目錄沒有可分析的內容，不要傳入分析工具。
+  （decision 018 / 019 / 020，必須列出所有先前的 sweep 目錄）。續跑前的後代檢查只看相關目錄的上層目錄（不遞迴）：
+  搬到其他位置的後續 sweep 目錄偵測不到。沒有 `--resume-from` 的新 sweep 不做這個檢查（無法分辨刻意重新開始與忘了續跑）。中斷時還沒有任何嘗試寫入 manifest 的目錄沒有可分析的內容，不要傳入分析工具。
 - sweep 會為每個完成的 rerun 存一個 trajectory 檔（含前綴，約為 source 的大小）；付費 sweep 的 `runs/` 可能達數百 MB（gitignored）。
 - max_turns 混淆判定只看最大下降：被混淆時不改看其他下降（decision 017 §1，刻意保守）。
 - 偵測力模擬的情境是假設；真實曲線形狀未知。

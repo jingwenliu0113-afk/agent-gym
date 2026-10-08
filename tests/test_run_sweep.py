@@ -293,8 +293,8 @@ def test_unknown_criterion_is_rejected_without_running(eval_run: Path, tmp_path:
 # ---------------------------------------------------------------- rollout 存檔與格式（decision 017 §1 / §2）
 
 
-def test_sweep_output_format_is_v4() -> None:
-    assert SWEEP_SUMMARY_FORMAT == "agent-gym/sweep-run/v4"  # v3：skipped（decision 018）；v4：run.json（decision 019）
+def test_sweep_output_format_is_v5() -> None:
+    assert SWEEP_SUMMARY_FORMAT == "agent-gym/sweep-run/v5"  # v3：skipped（018）；v4：run.json（019）；v5：run_id / resumed_from（020）
 
 
 def test_dry_run_saves_every_completed_rollout_trajectory(eval_run: Path, tmp_path: Path) -> None:

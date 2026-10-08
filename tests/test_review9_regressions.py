@@ -127,6 +127,7 @@ def test_run_json_is_written_before_the_first_attempt(baselines: dict[str, Path]
         run_sweeps(sources, _Explode(), plan=PLAN, criterion="bonferroni95", run_dir=run_dir, clock=ZERO, skip=(EVAL_IDS[2],))
     assert not (run_dir / "manifest.jsonl").exists()
     data = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+    assert len(data.pop("run_id")) == 32 and data.pop("resumed_from") == []  # decision 020 §2
     assert data == {
         "format": SWEEP_SUMMARY_FORMAT,
         "plan": asdict(PLAN),
@@ -139,7 +140,7 @@ def test_run_json_is_written_before_the_first_attempt(baselines: dict[str, Path]
 
 
 def test_format_versions() -> None:
-    assert SWEEP_SUMMARY_FORMAT == "agent-gym/sweep-run/v4"  # v4：run.json（decision 019 §2）
+    assert SWEEP_SUMMARY_FORMAT == "agent-gym/sweep-run/v5"  # v4：run.json（decision 019 §2）；v5：run_id / resumed_from（020）
     assert SWEEP_ANALYSIS_FORMAT == "agent-gym/sweep-analysis/v3"  # v3：baseline_runs（019 §4）
 
 

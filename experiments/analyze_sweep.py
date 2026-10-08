@@ -28,6 +28,7 @@ from experiments.run_sweep import (
     SWEEP_SUMMARY_FORMAT,
     SweepRunSummary,
     baseline_directories,
+    is_run_id,
     run_description,
     select_sources,
 )
@@ -330,7 +331,8 @@ def analyze_sweep_runs(
 
     - source = ``run_sweep.select_sources(baseline_run_dirs)``（全部 eval task；eval baseline 的所有目錄，decision 019 §1）。
       每個 sweep 目錄必須存在且有 manifest；目錄以 device + inode 識別，不得重複，也不得是任何 baseline 目錄（decision 018 §4）。
-    - 每個目錄都必須有 ``run.json``（decision 019 §2）：key 與 format 正確；plan、criterion、config_id 合法；skipped 是有 source 的
+    - 每個目錄都必須有 ``run.json``（decision 019 §2 / 020 §2）：key 與 format 正確；run_id 是 32 位小寫 hex、各目錄不重複；
+      resumed_from 是排序、不重複、不含自己的 run_id；plan、criterion、config_id 合法；skipped 是有 source 的
       task（pool 順序）；sources 必須等於以這次的 baseline 目錄選出的 source。plan / criterion 與 skipped 取自 run.json（沒有 summary
       的目錄也一樣）；summary 的 plan、criterion、skipped 必須與 run.json 相同。
     - 每個目錄：每列都是某個 source 的 checkpoint rollout（task 與 source_trajectory_id 相符），所有目錄所有列的 (generator_version,
@@ -368,6 +370,7 @@ def analyze_sweep_runs(
     completed: dict[str, tuple[str, SweepResult, list[_Rollout]]] = {}
     partial_sweeps: list[dict[str, Any]] = []
     resumed: list[dict[str, Any]] = []
+    run_ids: set[str] = set()
     interrupted_runs: list[str] = []
     stopped: list[str] = []
     all_rows: list[tuple[str, AttemptRecord]] = []
@@ -386,7 +389,10 @@ def analyze_sweep_runs(
                 raise ValueError(f"{directory}: a manifest row used a different agent config")
         all_rows.extend((label, row) for row in rows)
         results = _read_sweep_files(directory)
-        run_plan, run_criterion, skipped = _check_run_file(directory, sources, config_ids)
+        run_id, run_plan, run_criterion, skipped = _check_run_file(directory, sources, config_ids)
+        if run_id in run_ids:
+            raise ValueError(f"{directory}: run_id {run_id} also belongs to another sweep directory (a copy?)")
+        run_ids.add(run_id)
         settings.add(canonical_json([asdict(run_plan), run_criterion]))
         if skipped:
             resumed.append({"run": label, "skipped": skipped})
@@ -572,15 +578,25 @@ def _read_sweep_summary(directory: Path) -> dict[str, Any] | None:
 
 def _check_run_file(
     directory: Path, sources: dict[str, Trajectory | None], config_ids: set[str]
-) -> tuple[SweepPlan, str, tuple[str, ...]]:
-    """decision 019 §2：``run.json`` 逐欄驗證，sources 必須等於這次選出的 source；回傳 (plan, criterion, skipped)。"""
+) -> tuple[str, SweepPlan, str, tuple[str, ...]]:
+    """decision 019 §2 / 020 §2：``run.json`` 逐欄驗證，sources 必須等於這次選出的 source；回傳 (run_id, plan, criterion, skipped)。"""
     path = directory / RUN_FILE
     data = _read_json(path) if path.exists() else None
     if not isinstance(data, dict) or data.get("format") != SWEEP_SUMMARY_FORMAT:
         raise ValueError(f"{directory} has no {RUN_FILE} of format {SWEEP_SUMMARY_FORMAT}; not a sweep run")
-    expected_keys = {"format", "plan", "criterion", "config_id", "skipped", "sources"}
+    expected_keys = {"format", "run_id", "resumed_from", "plan", "criterion", "config_id", "skipped", "sources"}
     if set(data) != expected_keys:
         raise ValueError(f"{directory}: {RUN_FILE} must have exactly the keys {sorted(expected_keys)}")
+    run_id, parents = data["run_id"], data["resumed_from"]
+    if not is_run_id(run_id):
+        raise ValueError(f"{directory}: {RUN_FILE} run_id must be 32 lowercase hex digits")
+    if (
+        not isinstance(parents, list)
+        or not all(is_run_id(parent) for parent in parents)
+        or parents != sorted(set(parents))
+        or run_id in parents
+    ):
+        raise ValueError(f"{directory}: {RUN_FILE} resumed_from must be sorted, distinct run ids other than its own")
     plan = _build(SweepPlan, _fields(data["plan"], SweepPlan, "plan"))
     criterion = data["criterion"]
     if criterion not in CLIFF_CRITERIA:
@@ -591,10 +607,12 @@ def _check_run_file(
     skipped = _str_list(data["skipped"], f"{RUN_FILE} skipped")
     if skipped != [task_id for task_id, source in sources.items() if task_id in set(skipped) and source is not None]:
         raise ValueError(f"{directory}: {RUN_FILE} skipped must list tasks with a source, in pool order")
-    expected = run_description(plan=plan, criterion=criterion, config_id=config_id, skipped=skipped, sources=sources)
+    expected = run_description(
+        run_id=run_id, resumed_from=parents, plan=plan, criterion=criterion, config_id=config_id, skipped=skipped, sources=sources
+    )
     if data["sources"] != expected["sources"]:
         raise ValueError(f"{directory}: {RUN_FILE} lists different sources than the given baseline runs select (decision 019 §1)")
-    return plan, criterion, tuple(skipped)
+    return run_id, plan, criterion, tuple(skipped)
 
 
 def _str_list(value: Any, what: str) -> list[str]:

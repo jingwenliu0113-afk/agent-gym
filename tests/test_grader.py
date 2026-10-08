@@ -50,6 +50,8 @@ REPORT_KEYS = frozenset(
         "constraint_checks",
         "forbidden_violations",
         "forbidden_action_count",
+        "forbidden_attempts",
+        "forbidden_attempt_count",
         "unnecessary_mutations",
         "tool_errors",
         "steps",
@@ -153,7 +155,7 @@ def initial_state_obj(world: dict[str, Any]) -> IssueTrackerState:
 
 
 def test_grader_version_constant() -> None:
-    assert GRADER_VERSION == "agent-gym/grader/v1"
+    assert GRADER_VERSION == "agent-gym/grader/v2"  # decision 008
 
 
 def test_report_dataclass_fields_match_contract() -> None:

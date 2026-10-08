@@ -1527,3 +1527,18 @@ def test_random_calls_validate_args_agrees_with_execute_tool(small_world):
             assert outcome == validation, (step, name, args)
         else:
             assert outcome[0] == "ok" or outcome[1] == "not_found", (step, name, args, outcome)
+
+
+# ---------------------------------------------------------------- TOOL_SPECS 版本鎖定（decision 006）
+
+# TOOL_SPECS 全文是 agent 的輸入，屬於 issue_tracker/v1。不符代表 spec 被改動：必須升 SCHEMA_VERSION
+# 並另立 decision log，不得直接改這裡的值。
+ISSUE_TRACKER_V1_TOOL_SPECS_HASH = "sha256:af361f63dc60bcc0941d7f0c0cfe6bb68b2eacd847dc79c9ebb65f1e11e6bfd9"
+
+
+def test_tool_specs_are_pinned_to_schema_version():
+    from apps.issue_tracker.schema import SCHEMA_VERSION
+    from env.hashing import sha256_of
+
+    assert SCHEMA_VERSION == "issue_tracker/v1"
+    assert sha256_of(list(TOOL_SPECS)) == ISSUE_TRACKER_V1_TOOL_SPECS_HASH

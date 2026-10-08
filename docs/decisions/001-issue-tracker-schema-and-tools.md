@@ -75,3 +75,5 @@ SPEC §1 只規定 entity 名稱（issues / users / comments / labels）與 5 �
 - search_issues 的 query 以 `str.casefold()` 子字串比對，不做 Unicode 正規化；label 篩選大小寫敏感。
 - user id 不可為保留字 `"unassigned"`。
 - tool 回傳值必須是 JSON-native（不含 tuple），確保 record 經 JSON 往返後完全相等。
+- （decision 006 補充）**TOOL_SPECS 全文（name、description、input_schema）也屬於 `issue_tracker/v1`**：
+  它是 agent 每個 turn 看到的輸入，任何改動（包括 description 措辭）都必須升 SCHEMA_VERSION；測試以 golden hash 釘住。

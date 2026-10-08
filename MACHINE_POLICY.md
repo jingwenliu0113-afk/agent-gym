@@ -28,6 +28,18 @@ Core 不需要 RTX 5070 Ti。
 
 遠端關機不影響 Core。
 
+## Docker
+
+目前 Core 階段，本 Project **不使用 Mac 上的 Docker Desktop**。
+
+不得執行：
+
+- Docker Desktop restart；
+- 全域 prune（例如 `docker system prune`、`docker volume prune`、`docker image prune -a`、`docker network prune`）；
+- 任何對其他 Project 的 container / volume / network / image 的操作（啟動、停止、刪除、修改）。
+
+若未來真的出現 Docker 的必要性，**先停下來向使用者提出理由**，經同意後才可導入；不得自行導入。
+
 ## Credential 安全
 
 若未來真的需要遠端，只使用：

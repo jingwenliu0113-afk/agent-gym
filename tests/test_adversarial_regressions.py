@@ -399,3 +399,202 @@ def test_escalate_security_v2_instruction_forbids_comments_and_grader_agrees():
     assert [c.index for c in report.constraint_violations] == [0]
     assert report.trajectory_safe is True
     assert len(report.unnecessary_mutations) == 1
+
+
+# ================================================================ Week 1 對抗式驗證回歸（decision 007）
+
+import sys  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+from agents.policy import MAX_MODEL_CONFIG_DEPTH, ModelMessage, PolicyStep, oracle_policy  # noqa: E402
+from replay.checkpoint import Checkpoint, CheckpointError, make_checkpoint  # noqa: E402
+from replay.runner import run_episode  # noqa: E402
+from replay.trajectory import Trajectory, TrajectoryError, Turn  # noqa: E402
+
+
+def _w1_trajectory(**policy_kwargs: Any) -> Trajectory:
+    task = get_smoke_task("smoke-assign-and-start")
+    policy = oracle_policy(REFERENCE_SOLUTIONS[task.task_id], **policy_kwargs)
+    return run_episode(task, policy, max_turns=10, clock=lambda: 0.0)
+
+
+def _w1_checkpoint() -> Checkpoint:
+    return make_checkpoint(_w1_trajectory(), 1)
+
+
+# ---------------------------------------------------------------- Usage：超出 float 範圍的 int
+
+
+@pytest.mark.parametrize("value", [10**400, -(10**400), 2**1024, 10**5000], ids=["1e400", "-1e400", "2^1024", "huge"])
+def test_usage_rejects_ints_outside_float_range(value):
+    with pytest.raises(ValueError):
+        Usage(latency_s=value)
+    with pytest.raises(ValueError):
+        Usage.from_dict({"input_tokens": None, "output_tokens": None, "latency_s": None, "cost_usd": value,
+                         "model_turns": None})
+    message = ModelMessage(text="", tool_calls=(), stop_reason=None)
+    with pytest.raises(ValueError):
+        PolicyStep(message=message, cost_usd=value)
+
+
+def test_usage_accepts_largest_float_range_int():
+    assert Usage(latency_s=int(sys.float_info.max)).latency_s == int(sys.float_info.max)
+
+
+def test_trajectory_load_with_huge_int_usage_raises_trajectory_error(tmp_path: Path):
+    traj = _w1_trajectory()
+    text = canonical_json(traj.to_dict()).replace('"latency_s":0.0', '"latency_s":' + "1" + "0" * 400, 1)
+    path = tmp_path / "t.json"
+    path.write_text(text, encoding="utf-8")
+    with pytest.raises(TrajectoryError):
+        Trajectory.load(path)
+
+
+def test_checkpoint_from_dict_with_huge_int_usage_raises_checkpoint_error():
+    d = _w1_checkpoint().to_dict()
+    d["turns"][0]["usage"]["cost_usd"] = 10**400
+    with pytest.raises(CheckpointError):
+        Checkpoint.from_dict(d)
+
+
+# ---------------------------------------------------------------- 深層巢狀 JSON
+
+
+def _deep(depth: int) -> Any:
+    value: Any = 1
+    for _ in range(depth):
+        value = [value]
+    return value
+
+
+_TRAJ_DEEP_SPOTS = {
+    "task_params": lambda d, v: d["task"]["params"].__setitem__("x", v),
+    "final_snapshot": lambda d, v: d["final_snapshot"].__setitem__("x", v),
+    "tool_result": lambda d, v: d["turns"][0]["tool_steps"][0]["result"].__setitem__("x", v),
+    "parent": lambda d, v: d.__setitem__("parent", {"trajectory_id": "t", "checkpoint_id": "c", "turn": v}),
+}
+
+
+@pytest.mark.parametrize("depth", [500, 900])
+@pytest.mark.parametrize("spot", sorted(_TRAJ_DEEP_SPOTS))
+def test_deeply_nested_trajectory_raises_trajectory_error(tmp_path: Path, spot: str, depth: int):
+    d = _w1_trajectory().to_dict()
+    _TRAJ_DEEP_SPOTS[spot](d, _deep(depth))
+    with pytest.raises(TrajectoryError):
+        Trajectory.from_dict(d)
+    path = tmp_path / "t.json"
+    path.write_text(json.dumps(d), encoding="utf-8")
+    with pytest.raises(TrajectoryError):
+        Trajectory.load(path)
+
+
+_CP_DEEP_SPOTS = {
+    "task_params": lambda d, v: d["task"]["params"].__setitem__("x", v),
+    "env_snapshot": lambda d, v: d["env_snapshot"].__setitem__("x", v),
+    "tool_result": lambda d, v: d["turns"][0]["tool_steps"][0]["result"].__setitem__("x", v),
+}
+
+
+@pytest.mark.parametrize("depth", [500, 900])
+@pytest.mark.parametrize("spot", sorted(_CP_DEEP_SPOTS))
+def test_deeply_nested_checkpoint_raises_checkpoint_error(tmp_path: Path, spot: str, depth: int):
+    d = _w1_checkpoint().to_dict()
+    _CP_DEEP_SPOTS[spot](d, _deep(depth))
+    with pytest.raises(CheckpointError):
+        Checkpoint.from_dict(d)
+    path = tmp_path / "c.json"
+    path.write_text(json.dumps(d), encoding="utf-8")
+    with pytest.raises(CheckpointError):
+        Checkpoint.load(path)
+
+
+def test_extremely_deep_json_file_is_rejected_by_both_loaders(tmp_path: Path):
+    path = tmp_path / "deep.json"
+    path.write_text("[" * 100_000 + "]" * 100_000, encoding="utf-8")
+    with pytest.raises(TrajectoryError):
+        Trajectory.load(path)
+    with pytest.raises(CheckpointError):
+        Checkpoint.load(path)
+
+
+def test_turn_from_dict_with_deep_result_raises_trajectory_error():
+    d = _w1_trajectory().to_dict()["turns"][0]
+    d["tool_steps"][0]["result"]["x"] = _deep(900)
+    with pytest.raises(TrajectoryError):
+        Turn.from_dict(d)
+
+
+def test_directly_constructed_trajectory_with_deep_task_fails_validate():
+    traj = _w1_trajectory()
+    task = copy.deepcopy(traj.task)
+    task["params"] = {"x": _deep(900)}
+    with pytest.raises(TrajectoryError):
+        dataclasses.replace(traj, task=task).validate()
+
+
+def test_legit_model_config_near_depth_limit_still_round_trips(tmp_path: Path):
+    traj = _w1_trajectory(final_text="done")
+    deep_config = dataclasses.replace(traj.agent)
+    object.__setattr__(deep_config, "model_config", {"x": _deep(MAX_MODEL_CONFIG_DEPTH - 2)})
+    deep_traj = dataclasses.replace(traj, agent=deep_config)
+    path = tmp_path / "t.json"
+    deep_traj.save(path)
+    assert canonical_json(Trajectory.load(path).to_dict()) == canonical_json(deep_traj.to_dict())
+
+
+# ---------------------------------------------------------------- 錯誤訊息中的超大 int
+
+
+def test_trajectory_from_dict_with_huge_turn_index_raises_trajectory_error():
+    d = _w1_trajectory().to_dict()
+    d["turns"][1]["index"] = HUGE
+    with pytest.raises(TrajectoryError):
+        Trajectory.from_dict(d)
+
+
+def test_trajectory_from_dict_with_huge_step_raises_trajectory_error():
+    d = _w1_trajectory().to_dict()
+    d["turns"][1]["tool_steps"][0]["step"] = HUGE
+    with pytest.raises(TrajectoryError):
+        Trajectory.from_dict(d)
+
+
+def test_checkpoint_from_dict_with_huge_step_raises_checkpoint_error():
+    d = _w1_checkpoint().to_dict()
+    d["turns"][0]["tool_steps"][0]["step"] = HUGE
+    with pytest.raises(CheckpointError):
+        Checkpoint.from_dict(d)
+
+
+# ---------------------------------------------------------------- tuple 與 list 在 canonical_json 下無法區分
+
+
+def test_checkpoint_with_tuple_in_env_snapshot_is_rejected():
+    cp = _w1_checkpoint()
+    snapshot = copy.deepcopy(cp.env_snapshot)
+    snapshot["state"]["comments"] = tuple(snapshot["state"]["comments"])
+    with pytest.raises(CheckpointError):
+        dataclasses.replace(cp, env_snapshot=snapshot).verify()
+    d = cp.to_dict()
+    d["env_snapshot"] = snapshot
+    with pytest.raises(CheckpointError):
+        Checkpoint.from_dict(d)
+
+
+def test_trajectory_with_tuple_in_tool_result_is_rejected():
+    traj = _w1_trajectory()
+    d = traj.to_dict()
+    d["turns"][0]["tool_steps"][0]["result"]["issue"]["labels"] = tuple(
+        d["turns"][0]["tool_steps"][0]["result"]["issue"]["labels"]
+    )
+    with pytest.raises(TrajectoryError):
+        Trajectory.from_dict(d)
+
+
+def test_verified_checkpoint_env_snapshot_is_always_restorable():
+    cp = _w1_checkpoint()
+    snapshot = copy.deepcopy(cp.env_snapshot)
+    snapshot["state"]["issues"][0]["labels"] = tuple(snapshot["state"]["issues"][0]["labels"])
+    bad = dataclasses.replace(cp, env_snapshot=snapshot)
+    with pytest.raises(CheckpointError):
+        bad.verify()

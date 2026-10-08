@@ -1732,3 +1732,54 @@ def test_record_from_dict_rejects_malformed_changes(mutate):
     mutate(data)
     with pytest.raises(ValueError):
         ToolCallRecord.from_dict(data)
+
+
+# ---------------------------------------------------------------- last_records（主 session 補充，供 runner 使用）
+
+
+def test_last_records_returns_last_n_in_order():
+    env = _new_env()
+    env.call_tool("get_issue", {"issue_id": 1})
+    env.call_tool("add_comment", {"issue_id": 1, "body": "x"})
+    env.call_tool("get_issue", {"issue_id": 99})
+    all_records = env.records
+    assert env.last_records(0) == ()
+    assert env.last_records(2) == all_records[1:]
+    assert env.last_records(3) == all_records
+    assert [r.step for r in env.last_records(2)] == [1, 2]
+
+
+def test_last_records_are_deep_copies():
+    env = _new_env()
+    env.call_tool("get_issue", {"issue_id": 1})
+    (record,) = env.last_records(1)
+    record.result["issue"]["title"] = "tampered"
+    record.args["issue_id"] = 2
+    assert env.last_records(1)[0].result["issue"]["title"] == "Crash on login"
+    assert env.last_records(1)[0].args == {"issue_id": 1}
+
+
+@pytest.mark.parametrize("count", [-1, 2, True, 1.0, "1", None])
+def test_last_records_rejects_invalid_count(count):
+    env = _new_env()
+    env.call_tool("get_issue", {"issue_id": 1})
+    with pytest.raises(ValueError):
+        env.last_records(count)
+
+
+def test_last_records_counts_since_restore():
+    env = _new_env()
+    env.call_tool("get_issue", {"issue_id": 1})
+    snap = env.snapshot()
+    env.restore(snap)
+    assert env.last_records(0) == ()
+    with pytest.raises(ValueError):
+        env.last_records(1)
+    env.call_tool("get_issue", {"issue_id": 2})
+    (record,) = env.last_records(1)
+    assert record.step == 1
+
+
+def test_last_records_requires_initialized_env():
+    with pytest.raises(RuntimeError):
+        IssueTrackerEnv().last_records(0)

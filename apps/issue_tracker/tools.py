@@ -47,6 +47,9 @@ JSON Schema 子集的適用規則：type 為 list 時符合任一即可；``inte
 （bool、float 都不算）；``string`` 為 str；``array`` 只接受 list；``null`` 只接受 None。
 enum 適用任何值；minLength 只作用於 str 值；minimum / maximum 只作用於 int 值；items 只作用於 list 值。
 
+TOOL_SPECS 全文（name、description、input_schema）是 agent 看得到的輸入，屬於 ``SCHEMA_VERSION`` 的一部分：
+任何改動（包括 description 措辭）都必須升版（decision 006；測試以 golden hash 釘住）。
+
 錯誤訊息模板（屬於 ``SCHEMA_VERSION`` 的一部分，修改須升版）::
 
     unknown_tool       unknown tool '{name}'

@@ -17,7 +17,8 @@ grader 的重放檢查才擋得下竄改 step 或錯配前綴；若該區段淨�
 
 Step 語義：``env.step`` 是自 reset 起累計的 tool call 數（restore 時取 ``snapshot["step"]``）。
 每次 call 的 ``record.step`` 等於該 call 之前的 ``env.step``；call 之後 ``env.step == record.step + 1``。
-從 checkpoint rerun 時，完整 trajectory = ``original_records[:snap["step"]] + env.records``。
+從 checkpoint rerun 一律使用 ``replay.checkpoint.rerun``（前綴由 checkpoint 保存並重放驗證，decision 006）；
+不得自行切 ``original_records[:k]``。
 
 Env 不保存 wall clock，ToolCallRecord 也不含時間。latency 等非決定性量測屬於 agent runner，
 在 grader 的 Usage 中傳入。
@@ -307,11 +308,7 @@ class IssueTrackerEnv:
         例外照常往外拋，env 的 state、step、records 都不變。
         """
         state = self._require_initialized()
-        if not isinstance(name, str):
-            raise TypeError(f"tool name must be a str, got {type(name).__name__}")
-        name.encode("utf-8")
-        _require_json_value(args)
-        canonical_json(args).encode("utf-8")
+        check_call_preconditions(name, args)
 
         recorded_args = copy.deepcopy(args)
         hash_before = state_hash_of(state, self._actor_id)
@@ -440,9 +437,34 @@ class IssueTrackerEnv:
         self._require_initialized()
         return copy.deepcopy(tuple(self._records))
 
+    def last_records(self, count: int) -> tuple[ToolCallRecord, ...]:
+        """自上次 reset / restore 以來最後 count 筆紀錄的深拷貝（依時間順序）。
+
+        ``type(count) is int`` 且 ``0 <= count <= len(records)``，否則 ValueError；未初始化 → RuntimeError。
+        供 runner 每個 turn 取得新紀錄，不必深拷貝整份 records。
+        """
+        self._require_initialized()
+        if type(count) is not int or not 0 <= count <= len(self._records):
+            raise ValueError(f"count must be an integer between 0 and {len(self._records)}")
+        if count == 0:
+            return ()
+        return copy.deepcopy(tuple(self._records[-count:]))
+
     def current_state(self) -> IssueTrackerState:
         """目前 state 的深拷貝。"""
         return self._require_initialized().copy()
+
+
+def check_call_preconditions(name: Any, args: Any) -> None:
+    """``call_tool`` 的前置條件（見其 docstring）；違反時 raise TypeError 或 ValueError。
+
+    公開給 agent 端（例如 ToolCall 驗證）使用，確保 policy 產生的 tool call 一定能被 env 記錄。
+    """
+    if not isinstance(name, str):
+        raise TypeError(f"tool name must be a str, got {type(name).__name__}")
+    name.encode("utf-8")
+    _require_json_value(args)
+    canonical_json(args).encode("utf-8")
 
 
 def _describe(value: Any) -> str:

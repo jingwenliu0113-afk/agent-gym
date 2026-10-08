@@ -304,3 +304,51 @@ def test_dry_run_saves_every_completed_rollout_trajectory(eval_run: Path, tmp_pa
             trajectory = Trajectory.load(run_dir / "rollouts" / task_id / f"k{r.k}-r{r.rollout_index}.json")
             assert trajectory.trajectory_id == rows[(task_id, r.k, r.rollout_index)].trajectory_id
             assert trajectory.parent["trajectory_id"] == sources[task_id].trajectory_id
+
+
+# ---------------------------------------------------------------- source 選取以 eval pool 為準（decision 017 §3）
+
+
+def test_select_sources_lists_every_eval_task_even_when_the_baseline_stopped_by_budget(tmp_path: Path) -> None:
+    run_dir = tmp_path / "stopped"
+    summary = run_split("eval", OracleFakeClient(week1_pool("eval")), run_dir=run_dir, max_cost_usd=40 * CALL_COST, clock=ZERO)
+    ran = [result.task_id for result in summary.results]
+    assert summary.stopped_by_budget is True and 0 < len(ran) < 15
+    sources = select_sources(run_dir)
+    assert list(sources) == EVAL_IDS  # eval pool 的順序
+    assert [t for t, source in sources.items() if source is not None] == ran
+    missing_families = {inst.task.family for inst in week1_pool("eval") if inst.task.task_id not in ran}
+    sweep = run_sweeps(sources, OracleFakeClient(week1_pool("eval")), plan=SMALL_PLAN, criterion="wilson95",
+                       run_dir=tmp_path / "sweep", clock=ZERO, replicates=50)
+    assert sweep.missing_sources == tuple(t for t in EVAL_IDS if t not in ran)
+    assert set(sweep.families.values()) >= missing_families
+    families_done = {sweep.families[t] for t in sweep.completed}
+    assert families_done != set(sweep.families.values())  # 前提：有 family 完全沒有 source
+    assert sweep.cliff_rate is None and sweep.mean_largest_drop is None  # 012 §1：不做 bootstrap
+
+
+@pytest.mark.parametrize(
+    "change",
+    [{"outcome": "banana"}, {"outcome": "agent_error"}, {"outcome": None}, {"rollout_index": "0"}],
+    ids=["unknown", "relabelled", "missing", "index-str"],
+)
+def test_select_sources_rejects_summaries_that_disagree_with_the_manifest(
+    change: dict[str, Any], eval_run: Path, tmp_path: Path
+) -> None:
+    copy = _copy(eval_run, tmp_path)
+    data = json.loads((copy / "summary.json").read_text(encoding="utf-8"))
+    data["results"][1].update(change)
+    (copy / "summary.json").write_text(canonical_json(data) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError):
+        select_sources(copy)
+
+
+def test_select_sources_reads_an_interrupted_baseline_without_summary(eval_run: Path, tmp_path: Path) -> None:
+    copy = _copy(eval_run, tmp_path)
+    (copy / "summary.json").unlink()
+    with_summary = select_sources(eval_run)
+    without = select_sources(copy)
+    assert list(without) == EVAL_IDS
+    assert {t: s.trajectory_id for t, s in without.items() if s is not None} == {
+        t: s.trajectory_id for t, s in with_summary.items() if s is not None
+    }

@@ -55,7 +55,7 @@ summary、不比對 manifest 與 eval pool。具體如下：
    中止的情況再分三種：
    - 最後一次嘗試是 agent_output 中止 → agent_error；
    - infrastructure 中止且已達 MAX_EPISODE_ATTEMPTS → aborted；
-   - infrastructure 中止但還沒用完嘗試 → **interrupted**（重試在中斷時進行中）。
+   - infrastructure 中止但還沒用完嘗試（重試在中斷時進行中），或 harness 中止（run 因此停止）→ **interrupted**。
 
    interrupted 的 rollout 不計入任何 rollout 指標，但會另外列出，它的成本與部分安全指標照常計入。報告中標示該目錄「中斷（沒有 summary）」。
    有 summary 的目錄不可能出現 interrupted（出現 → ValueError）。

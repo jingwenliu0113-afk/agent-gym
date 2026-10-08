@@ -1,4 +1,4 @@
-"""eval baseline 的預先登記分析（decision 005 / 009 / 016 A）。不連網、不呼叫任何 LLM。
+"""eval baseline 的預先登記分析（decision 005 / 009 / 016 A / 017 §4）。不連網、不呼叫任何 LLM。
 
 用法::
 
@@ -12,33 +12,36 @@ from __future__ import annotations
 import argparse
 import math
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
+from agents.baseline import MAX_EPISODE_ATTEMPTS
 from env.hashing import canonical_json
 from experiments.run_baseline import SUMMARY_FORMAT
-from replay.aborts import ERROR_CLASSES, AttemptRecord, read_manifest
+from replay.aborts import ERROR_CLASSES, AttemptRecord, read_manifest, utc_date
 from replay.localization import ROLLOUT_OUTCOMES, classify_rollout
 from replay.stats import BootstrapResult, stratified_task_bootstrap
 from replay.trajectory import Trajectory, TrajectoryError, load_strict_json
 from tasks.generator import week1_pool
 
-ANALYSIS_FORMAT = "agent-gym/baseline-analysis/v1"
+ANALYSIS_FORMAT = "agent-gym/baseline-analysis/v2"  # v2：decision 017 §4
 COMPLETED = ("success", "failure", "refusal")
+# interrupted：沒有 summary 的目錄中，最後一次嘗試是還沒用完嘗試的 infrastructure 中止（重試在中斷時進行中）或 harness 中止
+# （run 因此停止）；decision 017 §4.1
+RECORD_OUTCOMES: tuple[str, ...] = (*ROLLOUT_OUTCOMES, "interrupted")
 
 
 @dataclass(frozen=True)
 class RolloutRecord:
-    """一個 rollout 的最終結果（decision 016 A2）。安全欄位只在完成（COMPLETED）時有值，否則 None。"""
+    """一個 rollout 的最終結果（decision 016 A2 / 017 §4）。量測與安全欄位只在完成（COMPLETED）時有值，否則 None / ()。"""
 
-    run: str  # 輸出目錄名稱
+    run: str  # 目錄標籤（目錄名稱；名稱重複時為傳入的路徑字串）
     task_id: str
     family: str
     branch: str | None  # task.params["branch"]（conditional-assign），其他為 None
     rollout_index: int
     attempts: int
-    outcome: str  # replay.localization.ROLLOUT_OUTCOMES
+    outcome: str  # RECORD_OUTCOMES
     termination: str | None
     stopped_without_action: bool
     trajectory_safe: bool | None
@@ -47,26 +50,23 @@ class RolloutRecord:
     unnecessary_mutations: int | None
     constraint_violation: bool | None  # 任一 success constraint 未通過
     forbidden_steps: tuple[tuple[int, int], ...]  # success 且不安全時：(step, rule_index)；其他為 ()
-    partial_forbidden_action_count: int | None  # 中止時：最後一次嘗試的 manifest 欄位
-    partial_forbidden_attempt_count: int | None
     cost_usd: float  # 該 rollout 所有嘗試的 manifest cost_usd 總和
     unknown_cost_calls: int
     response_models: tuple[str, ...]  # 完成時：各 turn meta 的 response_model（去重、排序）；其他為 ()
     utc_date: str  # 最後一次嘗試的 manifest utc_time 的 UTC 日期（YYYY-MM-DD）
-    # 較早被中止（之後重試）的嘗試中，部分安全指標 > 0 者：(attempt, partial_forbidden_action_count, partial_forbidden_attempt_count)，
-    # None 記為 0；依 attempt 遞增（decision 016 A5：重試成功不得讓中止嘗試中的危險行為消失）
-    retried_attempt_partials: tuple[tuple[int, int, int], ...] = ()
-
-
-def load_rollouts(run_dirs: Sequence[str | Path]) -> tuple[RolloutRecord, ...]:
-    """讀取一或多個 run_baseline 輸出目錄（decision 016 A1–A2）。
-
-    - 每個目錄的 summary.json：format 必須是 run_baseline.SUMMARY_FORMAT、split 必須是 "eval"；results 的每一列必須對應
-      manifest 中同一 (task_id, rollout_index) 的最後一次嘗試（attempt 數相同），完成者必須有可 verify 的 trajectory 檔且 id 相符。
-    - 所有目錄的所有 manifest 列的 (generator_version, grader_version, schema_version, config_id, max_turns) 必須相同。
-    - 任何不一致 → ValueError。回傳依目錄順序、再依 summary results 的順序。
-    """
-    return _load(run_dirs)[0]
+    # decision 003 / SPEC §4（017 §4.6）：完成時取自 trajectory.grade()
+    outcome_correct: bool | None = None
+    tool_errors: int | None = None
+    steps: int | None = None
+    input_tokens: int | None = None  # 無法量測時 None
+    output_tokens: int | None = None
+    latency_s: float | None = None
+    # decision 008 / 009（017 §4.7）：完成時
+    blocked_attempts: tuple[tuple[int, int], ...] = ()  # effective == False 的 forbidden attempt：(step, rule_index)
+    multi_tool_turns: tuple[int, ...] = ()  # turn meta 的 tool_use_blocks > 1 的 turn index
+    # 每一個 aborted 嘗試（含之後重試成功者）：(attempt, partial_steps, partial_forbidden_action_count,
+    # partial_forbidden_attempt_count)，None 原樣保留；依 attempt 遞增（decision 016 A5 / 017 §4.4）
+    aborted_attempts: tuple[tuple[int, int | None, int | None, int | None], ...] = ()
 
 
 MERGE_FIELDS = ("generator_version", "grader_version", "schema_version", "config_id", "max_turns")
@@ -76,24 +76,53 @@ def _eval_tasks() -> dict[str, Any]:
     return {instance.task.task_id: instance.task for instance in week1_pool("eval")}
 
 
-def _load(run_dirs: Sequence[str | Path]) -> tuple[tuple[RolloutRecord, ...], dict[str, Any], list[AttemptRecord]]:
+@dataclass(frozen=True)
+class LoadedRuns:
+    records: tuple[RolloutRecord, ...]  # 依目錄順序；有 summary 時依 summary results 的順序，否則依 manifest 首次出現的順序
+    merge_key: dict[str, Any]
+    rows: tuple[AttemptRecord, ...]  # 所有目錄的所有 manifest 列
+    labels: tuple[str, ...]  # 每個目錄的標籤（與輸入順序相同）
+    interrupted_runs: tuple[str, ...]  # 沒有 summary.json 的目錄標籤
+    trajectories: dict[tuple[str, str, int], Trajectory]  # (標籤, task_id, rollout_index) → 完成的 trajectory（已 verify）
+
+
+def load_rollouts(run_dirs: Sequence[str | Path]) -> tuple[RolloutRecord, ...]:
+    """讀取一或多個 run_baseline 輸出目錄（decision 016 A1–A2、017 §4.1–4.3）；回傳 ``load_runs(run_dirs).records``。"""
+    return load_runs(run_dirs).records
+
+
+def load_runs(run_dirs: Sequence[str | Path]) -> LoadedRuns:
+    """讀取一或多個 run_baseline 輸出目錄。任何不一致 → ValueError。
+
+    - 同一個目錄（resolve 後相同）出現兩次 → ValueError。標籤 = 目錄名稱；名稱重複時改用傳入的路徑字串。
+    - 每個目錄都讀 manifest；所有 manifest 列的 (generator_version, grader_version, schema_version, config_id, max_turns) 必須相同，
+      且都不是 checkpoint rollout、task 都屬於 eval pool。
+    - 有 summary.json：format 必須是 run_baseline.SUMMARY_FORMAT、split 必須是 "eval"；results 的每一列（task_id 為 str、
+      rollout_index 為 int >= 0、不重複）必須對應 manifest 中同一 rollout 的所有嘗試（attempt 1..n 連續、attempts == n），
+      manifest 不得有 summary 沒列出的 rollout。完成者：trajectory 檔可 verify、trajectory_id 與 summary / manifest 相符、
+      ``classify_rollout(trajectory, 0) == (outcome, stopped_without_action)``、termination 與 trajectory / manifest 相同。
+      未完成者：outcome 必須是 "aborted"（最後一次嘗試為 infrastructure 且 attempt == MAX_EPISODE_ATTEMPTS）或
+      "agent_error"（agent_output），stopped_without_action 為 False。
+    - 沒有 summary.json（中斷的 run，decision 017 §4.1）：由 manifest 與 ``trajectories/`` 重建；最後一次嘗試完成 → 依 trajectory
+      分類；agent_output → "agent_error"；infrastructure 且已達 MAX_EPISODE_ATTEMPTS → "aborted"；infrastructure 但還沒用完、
+      或 harness 中止（run 因此停止）→ "interrupted"。
+    - 每個 rollout 較早的嘗試都必須是 infrastructure 中止（只有它會重試）。
+    """
     if isinstance(run_dirs, (str, Path)) or len(run_dirs) == 0:
         raise ValueError("run_dirs must be a non-empty sequence of run directories")
+    directories = [Path(run_dir) for run_dir in run_dirs]
+    resolved = [directory.resolve() for directory in directories]
+    if len(set(resolved)) != len(resolved):
+        raise ValueError("the same run directory was given more than once")
+    names = [directory.name for directory in directories]
+    labels = tuple(name if names.count(name) == 1 else str(directory) for name, directory in zip(names, directories))
     tasks = _eval_tasks()
     records: list[RolloutRecord] = []
     all_rows: list[AttemptRecord] = []
+    trajectories: dict[tuple[str, str, int], Trajectory] = {}
+    interrupted_runs: list[str] = []
     merge_key: dict[str, Any] | None = None
-    for run_dir in run_dirs:
-        directory = Path(run_dir)
-        run = directory.name
-        try:
-            summary = load_strict_json((directory / "summary.json").read_bytes())
-        except OSError as exc:
-            raise ValueError(f"cannot read {directory / 'summary.json'}: {exc}") from exc
-        if not isinstance(summary, dict) or summary.get("format") != SUMMARY_FORMAT:
-            raise ValueError(f"{directory} is not a baseline run")
-        if summary.get("split") != "eval":
-            raise ValueError(f"{directory} is not an eval run")
+    for directory, label in zip(directories, labels):
         rows = list(read_manifest(directory / "manifest.jsonl"))
         all_rows.extend(rows)
         for row in rows:
@@ -104,74 +133,182 @@ def _load(run_dirs: Sequence[str | Path]) -> tuple[tuple[RolloutRecord, ...], di
                 raise ValueError("runs with different generator / grader / schema / config / max_turns cannot be merged")
             if row.checkpoint_id is not None:
                 raise ValueError(f"{directory} contains checkpoint rollouts; not a baseline run")
+            if row.task_id not in tasks:
+                raise ValueError(f"{directory}: {row.task_id!r} is not an eval task")
         groups: dict[tuple[str, int], list[AttemptRecord]] = {}
         for row in rows:
             groups.setdefault((row.task_id, row.rollout_index), []).append(row)
-        results = summary.get("results")
-        if not isinstance(results, list):
-            raise ValueError(f"{directory}: summary.results must be a list")
-        seen: set[tuple[str, int]] = set()
-        for result in results:
-            if not isinstance(result, dict):
-                raise ValueError(f"{directory}: malformed summary result")
-            key2 = (result.get("task_id"), result.get("rollout_index"))
-            if key2 in seen:
-                raise ValueError(f"{directory}: duplicate rollout {key2}")
-            seen.add(key2)
-            attempts = sorted(groups.get(key2, []), key=lambda r: r.attempt)
-            records.append(_record(directory, run, result, attempts, tasks))
-        if set(groups) != seen:
-            raise ValueError(f"{directory}: the manifest has attempts that the summary does not list")
+        summary = _read_summary(directory)
+        if summary is None:
+            interrupted_runs.append(label)
+            keys = list(groups)
+            results: list[dict[str, Any] | None] = [None] * len(keys)
+        else:
+            keys, results = _summary_results(directory, summary)
+            if set(groups) != set(keys):
+                raise ValueError(f"{directory}: the manifest and the summary list different rollouts")
+        for key, result in zip(keys, results):
+            attempts = sorted(groups.get(key, []), key=lambda r: r.attempt)
+            record, trajectory = _record(directory, label, key, attempts, result, tasks)
+            records.append(record)
+            if trajectory is not None:
+                trajectories[(label, key[0], key[1])] = trajectory
     if merge_key is None:
         raise ValueError("no attempts in the manifests")
-    return tuple(records), merge_key, all_rows
+    return LoadedRuns(tuple(records), merge_key, tuple(all_rows), labels, tuple(interrupted_runs), trajectories)
 
 
-def _record(directory: Path, run: str, result: dict[str, Any], attempts: list[AttemptRecord], tasks: dict[str, Any]) -> RolloutRecord:
-    task_id = result["task_id"]
+def _read_summary(directory: Path) -> dict[str, Any] | None:
+    path = directory / "summary.json"
+    if not path.exists():
+        return None
+    try:
+        summary = load_strict_json(path.read_bytes())
+    except OSError as exc:
+        raise ValueError(f"cannot read {path}: {exc}") from exc
+    if not isinstance(summary, dict) or summary.get("format") != SUMMARY_FORMAT:
+        raise ValueError(f"{directory} is not a baseline run")
+    if summary.get("split") != "eval":
+        raise ValueError(f"{directory} is not an eval run")
+    return summary
+
+
+def _summary_results(directory: Path, summary: dict[str, Any]) -> tuple[list[tuple[str, int]], list[dict[str, Any] | None]]:
+    results = summary.get("results")
+    if not isinstance(results, list):
+        raise ValueError(f"{directory}: summary.results must be a list")
+    keys: list[tuple[str, int]] = []
+    for result in results:
+        if not isinstance(result, dict):
+            raise ValueError(f"{directory}: malformed summary result")
+        task_id, index = result.get("task_id"), result.get("rollout_index")
+        if not isinstance(task_id, str) or type(index) is not int or index < 0:
+            raise ValueError(f"{directory}: a summary result needs a str task_id and an int rollout_index >= 0")
+        if (task_id, index) in keys:
+            raise ValueError(f"{directory}: duplicate rollout {(task_id, index)}")
+        keys.append((task_id, index))
+    return keys, list(results)
+
+
+def _record(
+    directory: Path,
+    label: str,
+    key: tuple[str, int],
+    attempts: list[AttemptRecord],
+    result: dict[str, Any] | None,
+    tasks: dict[str, Any],
+) -> tuple[RolloutRecord, Trajectory | None]:
+    task_id, rollout_index = key
+    where = f"{directory}: {task_id} r{rollout_index}"
     if task_id not in tasks:
         raise ValueError(f"{directory}: {task_id!r} is not an eval task")
     task = tasks[task_id]
     if not attempts or [row.attempt for row in attempts] != list(range(1, len(attempts) + 1)):
-        raise ValueError(f"{directory}: rollout {task_id} r{result['rollout_index']} has no consistent attempts")
+        raise ValueError(f"{where} has no consistent attempts")
     last = attempts[-1]
-    if result.get("attempts") != last.attempt:
-        raise ValueError(f"{directory}: attempts of {task_id} r{result['rollout_index']} do not match the manifest")
-    outcome = result.get("outcome")
-    if outcome not in ROLLOUT_OUTCOMES:
-        raise ValueError(f"{directory}: unknown outcome {outcome!r}")
-    completed = outcome in COMPLETED
-    if completed != (last.outcome == "completed") or any(row.outcome == "completed" for row in attempts[:-1]):
-        raise ValueError(f"{directory}: completion of {task_id} r{result['rollout_index']} disagrees with the manifest")
-    safety: dict[str, Any] = dict(
-        trajectory_safe=None, forbidden_action_count=None, forbidden_attempt_count=None,
-        unnecessary_mutations=None, constraint_violation=None,
-    )
-    forbidden_steps: tuple[tuple[int, int], ...] = ()
-    models: tuple[str, ...] = ()
-    stopped = bool(result.get("stopped_without_action"))
+    if any(row.outcome == "completed" or row.error_class != "infrastructure" for row in attempts[:-1]):
+        raise ValueError(f"{where}: only infrastructure aborts may be retried")
+    completed = last.outcome == "completed"
     if completed:
-        path = directory / "trajectories" / f"{task_id}-r{result['rollout_index']}.json"
+        outcome = None  # 由 trajectory 決定
+    elif last.error_class == "agent_output":
+        outcome = "agent_error"
+    elif last.error_class == "infrastructure" and last.attempt >= MAX_EPISODE_ATTEMPTS:
+        outcome = "aborted"
+    else:  # 重試在中斷時進行中，或 harness 中止讓 run 停止：沒有 rollout 結果
+        outcome = "interrupted"
+    if result is not None:
+        if result.get("attempts") != last.attempt:
+            raise ValueError(f"{where}: attempts do not match the manifest")
+        if result.get("outcome") not in ROLLOUT_OUTCOMES:
+            raise ValueError(f"{where}: unknown outcome {result.get('outcome')!r}")
+        if (result["outcome"] in COMPLETED) != completed:
+            raise ValueError(f"{where}: completion disagrees with the manifest")
+        if not completed:
+            if outcome == "interrupted":
+                raise ValueError(f"{where}: an unfinished retry or a harness abort cannot appear in a completed run's summary")
+            if result["outcome"] != outcome or result.get("stopped_without_action") is not False:
+                raise ValueError(f"{where}: the summary outcome disagrees with the manifest's last attempt")
+            if result.get("termination") is not None or result.get("trajectory_id") is not None:
+                raise ValueError(f"{where}: an unfinished rollout has no trajectory")
+    measured: dict[str, Any] = {}
+    trajectory: Trajectory | None = None
+    termination: str | None = None
+    stopped = False
+    if completed:
+        path = directory / "trajectories" / f"{task_id}-r{rollout_index}.json"
         try:
             trajectory = Trajectory.load(path)
             trajectory.verify()
         except (OSError, TrajectoryError) as exc:
             raise ValueError(f"cannot load {path}: {exc}") from exc
-        if trajectory.trajectory_id != result.get("trajectory_id") or trajectory.trajectory_id != last.trajectory_id:
-            raise ValueError(f"{path} does not match the summary / manifest")
-        if classify_rollout(trajectory, 0) != (outcome, stopped):
-            raise ValueError(f"{path}: the recorded outcome does not match the trajectory")
-        report = trajectory.grade()
-        safety = dict(
-            trajectory_safe=report.trajectory_safe,
-            forbidden_action_count=report.forbidden_action_count,
-            forbidden_attempt_count=report.forbidden_attempt_count,
-            unnecessary_mutations=len(report.unnecessary_mutations),
-            constraint_violation=bool(report.constraint_violations),
-        )
-        if outcome == "success" and not report.trajectory_safe:
-            forbidden_steps = tuple((v.step, v.rule_index) for v in report.forbidden_violations)
-        models = tuple(
+        if trajectory.trajectory_id != last.trajectory_id or trajectory.task.get("task_id") != task_id:
+            raise ValueError(f"{path} does not match the manifest")
+        if trajectory.termination != last.termination:
+            raise ValueError(f"{path}: termination disagrees with the manifest")
+        outcome, stopped = classify_rollout(trajectory, 0)
+        termination = trajectory.termination
+        if result is not None:
+            if result.get("trajectory_id") != trajectory.trajectory_id:
+                raise ValueError(f"{path} does not match the summary")
+            if (result["outcome"], result.get("stopped_without_action")) != (outcome, stopped):
+                raise ValueError(f"{path}: the recorded outcome does not match the trajectory")
+            if result.get("termination") != termination:
+                raise ValueError(f"{path}: the recorded termination does not match the trajectory")
+        measured = _measure(trajectory, outcome)
+    record = RolloutRecord(
+        run=label,
+        task_id=task_id,
+        family=task.family,
+        branch=task.params.get("branch"),
+        rollout_index=rollout_index,
+        attempts=last.attempt,
+        outcome=outcome,
+        termination=termination,
+        stopped_without_action=stopped,
+        trajectory_safe=measured.get("trajectory_safe"),
+        forbidden_action_count=measured.get("forbidden_action_count"),
+        forbidden_attempt_count=measured.get("forbidden_attempt_count"),
+        unnecessary_mutations=measured.get("unnecessary_mutations"),
+        constraint_violation=measured.get("constraint_violation"),
+        forbidden_steps=measured.get("forbidden_steps", ()),
+        cost_usd=math.fsum(row.cost_usd for row in attempts),
+        unknown_cost_calls=sum(row.unknown_cost_calls for row in attempts),
+        response_models=measured.get("response_models", ()),
+        utc_date=utc_date(last.utc_time),
+        outcome_correct=measured.get("outcome_correct"),
+        tool_errors=measured.get("tool_errors"),
+        steps=measured.get("steps"),
+        input_tokens=measured.get("input_tokens"),
+        output_tokens=measured.get("output_tokens"),
+        latency_s=measured.get("latency_s"),
+        blocked_attempts=measured.get("blocked_attempts", ()),
+        multi_tool_turns=measured.get("multi_tool_turns", ()),
+        aborted_attempts=tuple(
+            (row.attempt, row.partial_steps, row.partial_forbidden_action_count, row.partial_forbidden_attempt_count)
+            for row in attempts
+            if row.outcome == "aborted"
+        ),
+    )
+    return record, trajectory
+
+
+def _measure(trajectory: Trajectory, outcome: str) -> dict[str, Any]:
+    report = trajectory.grade()
+    usage = report.usage
+    blocked = sorted({(attempt.step, attempt.rule_index) for attempt in report.forbidden_attempts if not attempt.effective})
+    return {
+        "trajectory_safe": report.trajectory_safe,
+        "forbidden_action_count": report.forbidden_action_count,
+        "forbidden_attempt_count": report.forbidden_attempt_count,
+        "unnecessary_mutations": len(report.unnecessary_mutations),
+        "constraint_violation": bool(report.constraint_violations),
+        "forbidden_steps": (
+            tuple((v.step, v.rule_index) for v in report.forbidden_violations)
+            if outcome == "success" and not report.trajectory_safe
+            else ()
+        ),
+        "response_models": tuple(
             sorted(
                 {
                     turn.meta["response_model"]
@@ -179,32 +316,20 @@ def _record(directory: Path, run: str, result: dict[str, Any], attempts: list[At
                     if isinstance(turn.meta, dict) and isinstance(turn.meta.get("response_model"), str)
                 }
             )
-        )
-    retried = tuple(
-        (row.attempt, row.partial_forbidden_action_count or 0, row.partial_forbidden_attempt_count or 0)
-        for row in attempts[:-1]
-        if row.outcome == "aborted" and ((row.partial_forbidden_action_count or 0) > 0 or (row.partial_forbidden_attempt_count or 0) > 0)
-    )
-    return RolloutRecord(
-        run=run,
-        task_id=task_id,
-        family=task.family,
-        branch=task.params.get("branch"),
-        rollout_index=result["rollout_index"],
-        attempts=last.attempt,
-        outcome=outcome,
-        termination=result.get("termination") if completed else None,
-        stopped_without_action=stopped,
-        forbidden_steps=forbidden_steps,
-        partial_forbidden_action_count=None if completed else last.partial_forbidden_action_count,
-        partial_forbidden_attempt_count=None if completed else last.partial_forbidden_attempt_count,
-        cost_usd=math.fsum(row.cost_usd for row in attempts),
-        unknown_cost_calls=sum(row.unknown_cost_calls for row in attempts),
-        response_models=models,
-        utc_date=datetime.fromisoformat(last.utc_time).astimezone(timezone.utc).date().isoformat(),
-        retried_attempt_partials=retried,
-        **safety,
-    )
+        ),
+        "outcome_correct": report.outcome_correct,
+        "tool_errors": len(report.tool_errors),
+        "steps": report.steps,
+        "input_tokens": usage.input_tokens,
+        "output_tokens": usage.output_tokens,
+        "latency_s": usage.latency_s,
+        "blocked_attempts": tuple(blocked),
+        "multi_tool_turns": tuple(
+            index
+            for index, turn in enumerate(trajectory.turns)
+            if isinstance(turn.meta, dict) and type(turn.meta.get("tool_use_blocks")) is int and turn.meta["tool_use_blocks"] > 1
+        ),
+    }
 
 
 @dataclass(frozen=True)
@@ -228,22 +353,27 @@ class GroupEstimate:
 class BaselineAnalysis:
     runs: tuple[str, ...]
     merge_key: dict[str, Any]  # generator_version / grader_version / schema_version / config_id / max_turns
-    n_rollouts: int
-    missing_tasks: tuple[str, ...]  # 沒有任何 rollout 的 eval task
+    n_rollouts: int  # 計入指標的 rollout 數（不含 interrupted）
+    missing_tasks: tuple[str, ...]  # 沒有任何（計入指標的）rollout 的 eval task
     metrics: tuple[MetricEstimate, ...]  # 依 METRIC_NAMES 的順序
     families: tuple[GroupEstimate, ...]  # 依 family 名稱排序
     branches: tuple[GroupEstimate, ...]  # conditional-assign 的 branch
     time_windows: tuple[GroupEstimate, ...]  # 依日期排序
-    outcome_counts: dict[str, int]  # ROLLOUT_OUTCOMES → rollout 數
+    outcome_counts: dict[str, int]  # RECORD_OUTCOMES → rollout 數
     attempt_counts: dict[str, int]  # "completed" 與各 error_class → manifest 列數
-    # 部分安全指標 > 0 的中止嘗試：每筆 {run, task_id, rollout_index, attempt, partial_forbidden_action_count,
-    # partial_forbidden_attempt_count}；依 rollouts 順序，同一 rollout 內依 attempt（retried_attempt_partials，
-    # 再加上最後一次嘗試——rollout 未完成且任一計數 > 0 時）
+    # 每一個 aborted 嘗試：{run, task_id, rollout_index, attempt, partial_steps, partial_forbidden_action_count,
+    # partial_forbidden_attempt_count}（None 原樣保留）；依 rollouts 順序，同一 rollout 內依 attempt
     partial_safety: tuple[dict[str, Any], ...]
     success_but_unsafe: tuple[dict[str, Any], ...]  # run、task_id、rollout_index、forbidden_steps
     response_models: dict[str, int]  # response_model → 出現該 model 的（完成的）rollout 數
     cost_usd: float
     unknown_cost_calls: int
+    # decision 017 §4
+    pooling_blocked: str | None = None  # 不報任何 pooled / 分組估計的原因（目前：response_model 不只一種）
+    interrupted: tuple[dict[str, Any], ...] = ()  # run、task_id、rollout_index、attempts
+    interrupted_runs: tuple[str, ...] = ()  # 沒有 summary.json 的目錄標籤（analyze_runs 填入）
+    multi_tool_turns: tuple[dict[str, Any], ...] = ()  # run、task_id、rollout_index、turn
+    blocked_attempts: tuple[dict[str, Any], ...] = ()  # run、task_id、rollout_index、step、rule_index
 
     def to_dict(self) -> dict[str, Any]:
         """``{"format": ANALYSIS_FORMAT, ...}``，JSON-native（dataclass 以欄位 dict 表示、tuple → list）。"""
@@ -261,11 +391,17 @@ def _jsonable(value: Any) -> Any:
 METRIC_NAMES: tuple[str, ...] = (
     "success_rate",  # 主指標：success / 全部 rollout
     "success_rate_completed",  # 敏感度：success / (success + failure)
-    "trajectory_safe_rate",  # 以下安全指標只在完成的 rollout 上
+    "outcome_correct_rate",  # 以下只在完成的 rollout 上（decision 003 / 017 §4.6 與安全指標）
+    "trajectory_safe_rate",
     "forbidden_action_count",
     "forbidden_attempt_count",
     "unnecessary_mutations",
     "constraint_violation_rate",
+    "tool_errors",
+    "steps",
+    "input_tokens",  # 無法量測（None）的 rollout 不適用
+    "output_tokens",
+    "latency_s",
     "refusal_rate",  # 以下在全部 rollout 上
     "agent_error_rate",
     "aborted_rate",
@@ -275,72 +411,124 @@ METRIC_NAMES: tuple[str, ...] = (
 
 
 def analyze(rollouts: Sequence[RolloutRecord], *, replicates: int = 10000, seed: int = 0) -> BaselineAnalysis:
-    """decision 016 A3–A10。rollouts 不可為空（ValueError）。每個指標：每個 task 的值 = 該 task 適用 rollout 的平均；
-    沒有適用 rollout 的 task 排除並列在 excluded_tasks；有 eval task 完全沒有 rollout（missing_tasks 非空）、或排除後任一 family
-    沒有 task → value 與 bootstrap 皆為 None。bootstrap 用 ``stratified_task_bootstrap(values, family, replicates, seed)``。
-    runs = rollouts 中出現的目錄名稱（依首次出現順序）；merge_key 與 attempt_counts 無法由 rollouts 得知 → 空 dict
-    （``analyze_runs`` 會填入）。
+    """decision 016 A3–A10 與 017 §4。rollouts 不可為空（ValueError）。
+
+    - interrupted 的 rollout 不計入任何指標、分組與 missing 判定的「有 rollout」，另列在 interrupted；成本與部分安全指標照計。
+    - 每個指標：每個 task 的值 = 該 task 適用 rollout 的平均；沒有適用 rollout 的 task 排除並列在 excluded_tasks；有 eval task
+      完全沒有 rollout（missing_tasks 非空）、或排除後任一 family 沒有 task → value 與 bootstrap 皆為 None。bootstrap 用
+      ``stratified_task_bootstrap(values, family, replicates, seed)``。
+    - 完成的 rollout 出現的 response_model 不只一種 → pooling_blocked 為原因字串，所有指標的 value / bootstrap 為 None，
+      families / branches / time_windows 為 ()（decision 009 §4 / 017 §4.5）。
+    - runs = rollouts 中出現的目錄標籤（依首次出現順序）；merge_key、attempt_counts、interrupted_runs 無法由 rollouts 得知 →
+      空值（``analyze_runs`` 會填入）。
     """
     rollouts = tuple(rollouts)
     if not rollouts:
         raise ValueError("rollouts must not be empty")
     tasks = _eval_tasks()
     for record in rollouts:
-        if not isinstance(record, RolloutRecord) or record.task_id not in tasks:
+        if not isinstance(record, RolloutRecord) or record.task_id not in tasks or record.outcome not in RECORD_OUTCOMES:
             raise ValueError("every rollout must be a RolloutRecord of an eval task")
+    counted = tuple(record for record in rollouts if record.outcome != "interrupted")
     families = {task_id: task.family for task_id, task in tasks.items()}
-    present = {record.task_id for record in rollouts}
+    present = {record.task_id for record in counted}
     missing = tuple(task_id for task_id in tasks if task_id not in present)
+    model_counts: dict[str, int] = {}
+    for record in counted:
+        for model in record.response_models:
+            model_counts[model] = model_counts.get(model, 0) + 1
+    blocked = None
+    if len(model_counts) > 1:
+        blocked = (
+            "completed rollouts report more than one response_model "
+            f"({', '.join(sorted(model_counts))}); decision 009 §4 forbids merging them"
+        )
     metrics = tuple(
-        _metric(name, rollouts, tasks, families, missing, replicates=replicates, seed=seed) for name in METRIC_NAMES
+        _metric(name, counted, tasks, families, missing, blocked=blocked is not None, replicates=replicates, seed=seed)
+        for name in METRIC_NAMES
     )
     runs: list[str] = []
     for record in rollouts:
         if record.run not in runs:
             runs.append(record.run)
-    model_counts: dict[str, int] = {}
-    for record in rollouts:
-        for model in record.response_models:
-            model_counts[model] = model_counts.get(model, 0) + 1
+    grouped = blocked is None
     return BaselineAnalysis(
         runs=tuple(runs),
         merge_key={},
-        n_rollouts=len(rollouts),
+        n_rollouts=len(counted),
         missing_tasks=missing,
         metrics=metrics,
-        families=tuple(_group(name, [r for r in rollouts if r.family == name]) for name in sorted({r.family for r in rollouts})),
+        families=tuple(_group(name, [r for r in counted if r.family == name]) for name in sorted({r.family for r in counted}))
+        if grouped
+        else (),
         branches=tuple(
-            _group(f"conditional-assign:{branch}", [r for r in rollouts if r.branch == branch])
-            for branch in sorted({r.branch for r in rollouts if r.branch is not None})
-        ),
-        time_windows=tuple(_window(date, [r for r in rollouts if r.utc_date == date]) for date in sorted({r.utc_date for r in rollouts})),
-        outcome_counts={name: sum(1 for r in rollouts if r.outcome == name) for name in ROLLOUT_OUTCOMES},
+            _group(f"conditional-assign:{branch}", [r for r in counted if r.branch == branch])
+            for branch in sorted({r.branch for r in counted if r.branch is not None})
+        )
+        if grouped
+        else (),
+        time_windows=tuple(_window(date, [r for r in counted if r.utc_date == date]) for date in sorted({r.utc_date for r in counted}))
+        if grouped
+        else (),
+        outcome_counts={name: sum(1 for r in rollouts if r.outcome == name) for name in RECORD_OUTCOMES},
         attempt_counts={},
-        partial_safety=tuple(entry for record in rollouts for entry in _partial_entries(record)),
+        partial_safety=tuple(
+            {
+                **_ident(record),
+                "attempt": attempt,
+                "partial_steps": steps,
+                "partial_forbidden_action_count": actions,
+                "partial_forbidden_attempt_count": attempted,
+            }
+            for record in rollouts
+            for attempt, steps, actions, attempted in record.aborted_attempts
+        ),
         success_but_unsafe=tuple(
-            {"run": r.run, "task_id": r.task_id, "rollout_index": r.rollout_index, "forbidden_steps": r.forbidden_steps}
-            for r in rollouts
+            {**_ident(r), "forbidden_steps": r.forbidden_steps}
+            for r in counted
             if r.outcome == "success" and r.trajectory_safe is False
         ),
         response_models=dict(sorted(model_counts.items())),
         cost_usd=math.fsum(r.cost_usd for r in rollouts),
         unknown_cost_calls=sum(r.unknown_cost_calls for r in rollouts),
+        pooling_blocked=blocked,
+        interrupted=tuple({**_ident(r), "attempts": r.attempts} for r in rollouts if r.outcome == "interrupted"),
+        interrupted_runs=(),
+        multi_tool_turns=tuple({**_ident(r), "turn": turn} for r in counted for turn in r.multi_tool_turns),
+        blocked_attempts=tuple(
+            {**_ident(r), "step": step, "rule_index": rule} for r in counted for step, rule in r.blocked_attempts
+        ),
     )
+
+
+def _ident(record: RolloutRecord) -> dict[str, Any]:
+    return {"run": record.run, "task_id": record.task_id, "rollout_index": record.rollout_index}
 
 
 def _completed(record: RolloutRecord) -> bool:
     return record.outcome in COMPLETED
 
 
+def _measured(name: str) -> tuple[Callable[[RolloutRecord], bool], Callable[[RolloutRecord], float]]:
+    """完成、且該量測不是 None 的 rollout 適用；值為該量測（bool → 0 / 1）。"""
+    return (lambda r: _completed(r) and getattr(r, name) is not None, lambda r: float(getattr(r, name)))
+
+
 # 每個指標：(這個 rollout 是否適用, 值)
 _METRIC_RULES: dict[str, tuple[Callable[[RolloutRecord], bool], Callable[[RolloutRecord], float]]] = {
     "success_rate": (lambda r: True, lambda r: float(r.outcome == "success")),
     "success_rate_completed": (lambda r: r.outcome in ("success", "failure"), lambda r: float(r.outcome == "success")),
+    "outcome_correct_rate": _measured("outcome_correct"),
     "trajectory_safe_rate": (_completed, lambda r: float(bool(r.trajectory_safe))),
     "forbidden_action_count": (_completed, lambda r: float(r.forbidden_action_count or 0)),
     "forbidden_attempt_count": (_completed, lambda r: float(r.forbidden_attempt_count or 0)),
     "unnecessary_mutations": (_completed, lambda r: float(r.unnecessary_mutations or 0)),
     "constraint_violation_rate": (_completed, lambda r: float(bool(r.constraint_violation))),
+    "tool_errors": _measured("tool_errors"),
+    "steps": _measured("steps"),
+    "input_tokens": _measured("input_tokens"),
+    "output_tokens": _measured("output_tokens"),
+    "latency_s": _measured("latency_s"),
     "refusal_rate": (lambda r: True, lambda r: float(r.outcome == "refusal")),
     "agent_error_rate": (lambda r: True, lambda r: float(r.outcome == "agent_error")),
     "aborted_rate": (lambda r: True, lambda r: float(r.outcome == "aborted")),
@@ -364,6 +552,7 @@ def _metric(
     families: dict[str, str],
     missing: tuple[str, ...],
     *,
+    blocked: bool,
     replicates: int,
     seed: int,
 ) -> MetricEstimate:
@@ -372,7 +561,7 @@ def _metric(
     present = {record.task_id for record in rollouts}
     excluded = tuple(task_id for task_id in tasks if task_id in present and task_id not in values)
     complete = not missing and {families[t] for t in values} == set(families.values())
-    if not complete:
+    if blocked or not complete:
         return MetricEstimate(name, None, None, len(values), excluded)
     strata = {task_id: families[task_id] for task_id in values}
     bootstrap = stratified_task_bootstrap(values, strata, replicates=replicates, seed=seed)
@@ -389,64 +578,50 @@ def _window(date: str, rollouts: Sequence[RolloutRecord]) -> GroupEstimate:
     return GroupEstimate(date, len({r.task_id for r in rollouts}), len(rollouts), successes / len(rollouts))
 
 
-def _partial_entries(record: RolloutRecord) -> list[dict[str, Any]]:
-    entries = [
-        {
-            "run": record.run,
-            "task_id": record.task_id,
-            "rollout_index": record.rollout_index,
-            "attempt": attempt,
-            "partial_forbidden_action_count": actions,
-            "partial_forbidden_attempt_count": attempted,
-        }
-        for attempt, actions, attempted in record.retried_attempt_partials
-    ]
-    if not _completed(record) and (
-        (record.partial_forbidden_action_count or 0) > 0 or (record.partial_forbidden_attempt_count or 0) > 0
-    ):
-        entries.append(
-            {
-                "run": record.run,
-                "task_id": record.task_id,
-                "rollout_index": record.rollout_index,
-                "attempt": record.attempts,
-                "partial_forbidden_action_count": record.partial_forbidden_action_count,
-                "partial_forbidden_attempt_count": record.partial_forbidden_attempt_count,
-            }
-        )
-    return entries
-
-
 def analyze_runs(run_dirs: Sequence[str | Path], *, replicates: int = 10000, seed: int = 0) -> BaselineAnalysis:
-    """``load_rollouts`` + ``analyze``，並填入 runs、merge_key、attempt_counts（所有 manifest 列）。"""
-    records, merge_key, rows = _load(run_dirs)
-    analysis = analyze(records, replicates=replicates, seed=seed)
-    counts = {"completed": sum(1 for row in rows if row.outcome == "completed")}
-    counts.update({name: sum(1 for row in rows if row.error_class == name) for name in ERROR_CLASSES})
+    """``load_runs`` + ``analyze``，並填入 runs（每個目錄的標籤，依輸入順序）、merge_key、attempt_counts（所有 manifest 列）、
+    interrupted_runs。"""
+    loaded = load_runs(run_dirs)
+    analysis = analyze(loaded.records, replicates=replicates, seed=seed)
+    counts = {"completed": sum(1 for row in loaded.rows if row.outcome == "completed")}
+    counts.update({name: sum(1 for row in loaded.rows if row.error_class == name) for name in ERROR_CLASSES})
     return BaselineAnalysis(
         **{
             **{field: getattr(analysis, field) for field in BaselineAnalysis.__dataclass_fields__},
-            "runs": tuple(Path(d).name for d in run_dirs),
-            "merge_key": merge_key,
+            "runs": loaded.labels,
+            "merge_key": loaded.merge_key,
             "attempt_counts": counts,
+            "interrupted_runs": loaded.interrupted_runs,
         }
     )
 
 
+def _count(value: int | None, steps: int | None) -> str:
+    if value is not None:
+        return str(value)
+    return "未知（部分評分失敗）" if steps is not None else "—（沒有部分軌跡）"
+
+
 def render_markdown(analysis: BaselineAnalysis) -> str:
-    """人讀的報告：主指標與敏感度（含 95% CI）、安全指標、其他比例、per-family、branch、時間窗、中止的部分安全指標、
-    「最終成功但中途有 forbidden action」案例（附 to_values 限制註記）、response_model、成本，以及「15 題只能當初步觀察」的註記。"""
+    """人讀的報告：主指標與敏感度（含 95% CI）、decision 003 指標、安全指標、其他比例、per-family、branch、時間窗、中斷的目錄與
+    rollout、中止嘗試的部分安全指標（None 顯示為「未知」）、multi-tool turn、被擋下的 forbidden attempt、「最終成功但中途有
+    forbidden action」案例（附 to_values 限制註記）、response_model（不只一種時說明不報 pooled 的原因）、成本，以及
+    「15 題只能當初步觀察」的註記。"""
     a = analysis
     lines = [
-        "# eval baseline 分析（decision 005 / 009 / 016）",
+        "# eval baseline 分析（decision 005 / 009 / 016 / 017）",
         "",
         "> eval 只有 15 題：以下只能當 infrastructure validation / 初步觀察，不得宣稱統計上的泛化。",
         "",
-        f"- runs：{', '.join(a.runs)}；rollouts：{a.n_rollouts}",
+        f"- runs：{', '.join(a.runs)}；計入指標的 rollouts：{a.n_rollouts}",
         f"- merge key：`{canonical_json(a.merge_key)}`",
     ]
+    if a.interrupted_runs:
+        lines.append(f"- **中斷的 run（沒有 summary，由 manifest 重建）**：{', '.join(a.interrupted_runs)}")
     if a.missing_tasks:
         lines.append(f"- **沒有任何 rollout 的 eval task**（不報 pooled 與 CI）：{', '.join(a.missing_tasks)}")
+    if a.pooling_blocked:
+        lines.append(f"- **不報任何 pooled / 分組估計**：{a.pooling_blocked}。請把不同 model 的目錄分開分析。")
     lines += ["", "## 指標（task 等權平均；95% CI = family 分層 task-level bootstrap）", "", "| metric | value | 95% CI | n tasks | excluded |", "|---|---|---|---|---|"]
     for m in a.metrics:
         value = "—" if m.value is None else f"{m.value:.3f}"
@@ -455,7 +630,7 @@ def render_markdown(analysis: BaselineAnalysis) -> str:
     lines += [
         "",
         "success_rate 為主指標（refusal、agent_error、aborted 計為未成功）；success_rate_completed 為敏感度分析。"
-        "安全指標（trajectory_safe_rate … constraint_violation_rate）只在完成的 rollout 上計算。",
+        "outcome_correct_rate … latency_s 只在完成的 rollout 上計算（token / latency 無法量測的 rollout 不計入該項）。",
         "",
         "## per-family / branch（點估計與 n，不報 CI）",
         "",
@@ -476,15 +651,23 @@ def render_markdown(analysis: BaselineAnalysis) -> str:
     for g in a.time_windows:
         lines.append(f"| {g.group} | {g.n_tasks} | {g.n_rollouts} | {g.success_rate:.3f} |")
     lines += ["", "## 結果與嘗試計數", "", f"- outcomes：`{canonical_json(a.outcome_counts)}`", f"- attempts：`{canonical_json(a.attempt_counts)}`", ""]
-    lines += ["## 中止嘗試的部分安全指標（不併入上面的平均，但不得省略）", ""]
-    if a.partial_safety:
-        for entry in a.partial_safety:
-            lines.append(
-                f"- {entry['run']} / {entry['task_id']} r{entry['rollout_index']} attempt {entry['attempt']}："
-                f"forbidden actions {entry['partial_forbidden_action_count']}、forbidden attempts {entry['partial_forbidden_attempt_count']}"
-            )
-    else:
+    lines += ["## 中斷時重試仍在進行的 rollout（不計入指標；成本與部分安全指標照計）", ""]
+    lines += [f"- {e['run']} / {e['task_id']} r{e['rollout_index']}（已記錄 {e['attempts']} 次嘗試）" for e in a.interrupted] or ["- （無）"]
+    lines += ["", "## 中止嘗試的部分安全指標（每個中止嘗試一筆；不併入上面的平均，但不得省略）", ""]
+    for entry in a.partial_safety:
+        steps = entry["partial_steps"]
+        lines.append(
+            f"- {entry['run']} / {entry['task_id']} r{entry['rollout_index']} attempt {entry['attempt']}："
+            f"partial steps {'—' if steps is None else steps}、"
+            f"forbidden actions {_count(entry['partial_forbidden_action_count'], steps)}、"
+            f"forbidden attempts {_count(entry['partial_forbidden_attempt_count'], steps)}"
+        )
+    if not a.partial_safety:
         lines.append("- （無）")
+    lines += ["", "## 被擋下（effective == False）的 forbidden attempt（完成的 rollout）", ""]
+    lines += [f"- {e['run']} / {e['task_id']} r{e['rollout_index']}：step {e['step']} (rule {e['rule_index']})" for e in a.blocked_attempts] or ["- （無）"]
+    lines += ["", f"## multi-tool turn（tool_use_blocks > 1；這種 turn 內部不是合法 checkpoint）：{len(a.multi_tool_turns)}", ""]
+    lines += [f"- {e['run']} / {e['task_id']} r{e['rollout_index']} turn {e['turn']}" for e in a.multi_tool_turns] or ["- （無）"]
     lines += ["", "## 最終成功但中途有 forbidden action", ""]
     if a.success_but_unsafe:
         for entry in a.success_but_unsafe:
@@ -499,8 +682,8 @@ def render_markdown(analysis: BaselineAnalysis) -> str:
         "## response_model 與成本",
         "",
         f"- response_model（出現該 model 的完成 rollout 數）：`{canonical_json(a.response_models)}`"
-        + ("　**注意：不只一種 response_model**" if len(a.response_models) > 1 else ""),
-        f"- 成本（manifest 加總，含中止的嘗試）：${a.cost_usd:.4f}；成本無法量測的已計費 call：{a.unknown_cost_calls}",
+        + ("　**不只一種：依 decision 009 §4 不合併**" if len(a.response_models) > 1 else ""),
+        f"- 成本（manifest 加總，含中止與中斷的嘗試）：${a.cost_usd:.4f}；成本無法量測的已計費 call：{a.unknown_cost_calls}",
         "",
     ]
     return "\n".join(lines)

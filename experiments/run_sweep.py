@@ -27,8 +27,8 @@ from typing import Any, Mapping
 from agents.baseline import AnthropicPolicy, baseline_agent_config, make_anthropic_client
 from agents.policy import AgentConfig
 from env.hashing import canonical_json
+from experiments.analyze_baseline import load_runs
 from experiments.run_baseline import (
-    SUMMARY_FORMAT,
     CostMeter,
     Ledger,
     OracleFakeClient,
@@ -38,7 +38,7 @@ from experiments.run_baseline import (
 from replay.localization import CLIFF_CRITERIA, SweepPlan, SweepResult, sweep
 from replay.runner import Clock
 from replay.stats import BootstrapResult, stratified_task_bootstrap
-from replay.trajectory import Trajectory, TrajectoryError, load_strict_json
+from replay.trajectory import Trajectory
 from tasks.generator import week1_pool
 
 COMPLETED_OUTCOMES = ("success", "failure", "refusal")
@@ -51,50 +51,22 @@ class BudgetExceeded(RuntimeError):
 
 
 def select_sources(baseline_run_dir: str | Path) -> dict[str, Trajectory | None]:
-    """decision 012 §3：讀 ``summary.json``（format 必須是 experiments.run_baseline.SUMMARY_FORMAT、split 必須是 "eval"）；
-    依 summary 中 task 首次出現的順序，每個 task 取 rollout_index == 0 的結果：outcome 為 success / failure / refusal（完成）→
-    載入 ``trajectories/<task_id>-r0.json`` 並 verify，trajectory_id 必須與 summary 相符；否則（agent_error / aborted /
-    rollout 0 不存在）→ None。任何檔案不一致 → ValueError。
+    """decision 012 §3 / 017 §3：以 ``experiments.analyze_baseline.load_runs`` 讀一個 eval baseline 目錄（summary、manifest、
+    trajectory 交叉核對；沒有 summary 的中斷目錄由 manifest 重建），回傳**全部** eval task（依 eval pool 的順序）→
+    rollout_index 0 完成（success / failure / refusal）的 trajectory（已 verify）；沒有 rollout 0、或 rollout 0 未完成
+    （agent_error / aborted / interrupted）→ None。任何檔案不一致 → ValueError。
     """
-    run_dir = Path(baseline_run_dir)
-    try:
-        summary = load_strict_json((run_dir / "summary.json").read_bytes())
-    except OSError as exc:
-        raise ValueError(f"cannot read {run_dir / 'summary.json'}: {exc}") from exc
-    if not isinstance(summary, dict) or summary.get("format") != SUMMARY_FORMAT:
-        raise ValueError("not a baseline run summary")
-    if summary.get("split") != "eval":
-        raise ValueError("sweep sources must come from an eval baseline run")
-    results = summary.get("results")
-    if not isinstance(results, list):
-        raise ValueError("summary.results must be a list")
-    order: list[str] = []
-    first: dict[str, dict[str, Any]] = {}
-    for result in results:
-        if not isinstance(result, dict) or not isinstance(result.get("task_id"), str):
-            raise ValueError("malformed summary result")
-        task_id = result["task_id"]
-        if task_id not in order:
-            order.append(task_id)
-        if result.get("rollout_index") == 0:
-            if task_id in first:
-                raise ValueError(f"task {task_id} has more than one rollout 0")
-            first[task_id] = result
+    loaded = load_runs([baseline_run_dir])
+    label = loaded.labels[0]
+    records = {(record.task_id, record.rollout_index): record for record in loaded.records}
     sources: dict[str, Trajectory | None] = {}
-    for task_id in order:
-        result = first.get(task_id)
-        if result is None or result.get("outcome") not in COMPLETED_OUTCOMES:
+    for instance in week1_pool("eval"):
+        task_id = instance.task.task_id
+        record = records.get((task_id, 0))
+        if record is None or record.outcome not in COMPLETED_OUTCOMES:
             sources[task_id] = None
-            continue
-        path = run_dir / "trajectories" / f"{task_id}-r0.json"
-        try:
-            trajectory = Trajectory.load(path)
-            trajectory.verify()
-        except (OSError, TrajectoryError) as exc:
-            raise ValueError(f"cannot load the source trajectory {path}: {exc}") from exc
-        if trajectory.trajectory_id != result.get("trajectory_id") or trajectory.task.get("task_id") != task_id:
-            raise ValueError(f"{path} does not match the run summary")
-        sources[task_id] = trajectory
+        else:
+            sources[task_id] = loaded.trajectories[(label, task_id, 0)]
     return sources
 
 

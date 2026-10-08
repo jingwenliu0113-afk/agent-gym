@@ -66,3 +66,14 @@ SPEC Gate：「至少一種跨多條 trajectory 重複出現的 recoverability �
 3. eval rollout 數 R（提案 3）與 b、c 的預算（a 完成後重估）。
 4. SweepPlan：decision 011 依預先登記的門檻**沒有任何候選 plan 合格**，需要使用者在其中列出的選項中決定。
 5. 第 4 節 Gate 判定的操作化。
+
+## 放棄的替代方案
+
+- 一次跑完 dev、eval、sweep：實測 tokens 之前的估算誤差可達一個數量級，分段確認才能控制費用。
+- 對每個 task 挑「最有趣」的 rollout 當 source：會偏向有 cliff 的軌跡。
+- 沒有成本上限的付費模式：一次異常（例如大量截斷）就可能超支。
+
+## 對實驗的影響
+
+- 所有付費 run 都經過 manifest 與成本上限；source 選取與 Gate 判定在看結果前固定（Gate 操作化待使用者確認）。
+- 依 2026-10-08 使用者決策，所有付費 run 目前 deferred / blocked-by-paid-API。

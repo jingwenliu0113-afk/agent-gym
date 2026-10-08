@@ -22,6 +22,16 @@
 5. `run_split` / `run_sweeps`：給了 `max_cost_usd` 時，模型必須在 PRICING 中（否則 ValueError，不執行）；執行中只要出現
    成本無法量測的已計費 call，就在下一次嘗試開始前停止排程（`stopped_by_budget = True`），寧可保守。
 
+## 為什麼
+
+- 成本上限的目的就是防止超支；最貴的回應（截斷）不被計入，上限就沒有作用。
+- 報告的成本必須能由 manifest 逐列稽核，包括中止的嘗試。
+
+## 放棄的替代方案
+
+- CostMeter 改包 client.create：會讓 policy 介面之外的物件也要知道計費，且 CountingPolicy（manifest）仍會漏算。
+- 只在 summary 記錄總成本：harness 中止時 summary 不寫，成本就無法稽核。
+
 ## 對實驗的影響
 
 - 付費 run 的成本上限現在涵蓋所有已計費的 call；報告的成本可由 manifest 逐列加總稽核（含中止的嘗試）。

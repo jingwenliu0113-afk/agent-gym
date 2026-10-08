@@ -60,6 +60,17 @@ family 分層 task-level percentile bootstrap 偏保守（模擬涵蓋率 0.90 �
 （superpopulation），在 5 個 family × 3 題的設計下涵蓋率只有約 0.86，低於名目 0.95 與 decision 010 §5 的 0.88 門檻
 （每層只有 3 題時 percentile bootstrap 低估變異）。這與「15 題 eval 不得宣稱統計上的泛化」一致；測試以 strict xfail 記錄這個已知限制。
 
+## 為什麼
+
+- 規格與程式不一致時，先記錄再處理（CLAUDE.md），而且必須在任何真實結果之前完成，才不算「看結果改協定」。
+- 反覆 refine 讓 cliff 的位置一定落在連續的 checkpoint 上，Gate 的「cliff turn」才有意義。
+
+## 放棄的替代方案
+
+- Δ* 只看連續 k、不再加密：未加密 gap 中的真正 cliff 會被漏掉。
+- 保留浮點比較並在文件註明：剛好等於門檻的下降會隨 n 不同而時算時不算，結果不可解釋。
+- checkpoint_truth 對 off-policy 前綴回傳「規則值」：那不是真正的機率，會讓涵蓋率測試失去意義。
+
 ## 對實驗的影響
 
 - decision 011 的偵測力模擬依第 1、2 點重跑，結果更新在 011。

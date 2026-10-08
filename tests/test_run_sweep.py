@@ -275,3 +275,32 @@ def test_unknown_criterion_is_rejected_without_running(eval_run: Path, tmp_path:
     with pytest.raises(ValueError):
         run_sweeps(select_sources(eval_run), client, plan=SMALL_PLAN, criterion="other", run_dir=tmp_path / "s", clock=ZERO)
     assert client.requests == []
+
+
+# ---------------------------------------------------------------- rollout 存檔與格式（decision 017 §1 / §2）
+
+
+def test_sweep_output_format_is_v2() -> None:
+    assert SWEEP_SUMMARY_FORMAT == "agent-gym/sweep-run/v2"
+
+
+def test_dry_run_saves_every_completed_rollout_trajectory(eval_run: Path, tmp_path: Path) -> None:
+    sources = select_sources(eval_run)
+    run_dir = tmp_path / "sweep"
+    summary = run_sweeps(sources, OracleFakeClient(week1_pool("eval")), plan=SMALL_PLAN, criterion="wilson95", run_dir=run_dir,
+                         clock=ZERO, replicates=50)
+    rows = {
+        (row.task_id, row.checkpoint_turn, row.rollout_index): row
+        for row in read_manifest(run_dir / "manifest.jsonl")
+        if row.outcome == "completed"
+    }
+    saved = sorted(path.relative_to(run_dir / "rollouts").as_posix() for path in (run_dir / "rollouts").rglob("*.json"))
+    assert saved == sorted(f"{task_id}/k{k}-r{i}.json" for task_id, k, i in rows)
+    for task_id in summary.completed:
+        result = summary.results[task_id]
+        assert result.max_turns_confounded is False
+        assert json.loads((run_dir / "sweeps" / f"{task_id}.json").read_text(encoding="utf-8"))["max_turns_confounded"] is False
+        for r in result.rollouts:
+            trajectory = Trajectory.load(run_dir / "rollouts" / task_id / f"k{r.k}-r{r.rollout_index}.json")
+            assert trajectory.trajectory_id == rows[(task_id, r.k, r.rollout_index)].trajectory_id
+            assert trajectory.parent["trajectory_id"] == sources[task_id].trajectory_id

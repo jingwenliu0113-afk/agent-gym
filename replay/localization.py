@@ -91,8 +91,9 @@ class SweepResult:
     refined_intervals: tuple[tuple[int, int], ...]  # 所有 refine 輪次標記過的區間（decision 013 §2），去重、依 a 遞增
     largest_drop: float  # 相鄰已估計 checkpoint 的最大 p̂(k) − p̂(k')；少於兩點時 0.0
     largest_drop_k: int | None  # 最大下降的前一點 k
-    is_cliff: bool  # largest_drop >= drop_threshold 且兩點的 Wilson CI（依 criterion）不重疊
+    is_cliff: bool  # assess_drop 的 is_cliff：下降合格（門檻 + CI）且非 max_turns 混淆（decision 006 / 017 §1）
     criterion: str = DEFAULT_CLIFF_CRITERION  # CLIFF_CRITERIA 之一（decision 015）
+    max_turns_confounded: bool = False  # 下降合格但 max_turns 比例上升 → 不認定為 cliff（decision 006 / 017 §1）
 
 
 def valid_checkpoints(trajectory: Trajectory) -> list[int]:
@@ -170,15 +171,28 @@ def _meets_threshold(drop: Fraction, drop_threshold: float) -> bool:
     return drop >= Fraction(repr(float(drop_threshold)))
 
 
-def detect_cliff(
+@dataclass(frozen=True)
+class DropAssessment:
+    largest_drop: float  # 相鄰已估計 checkpoint 的最大 p̂(k) − p̂(k')；少於兩點時 0.0
+    largest_drop_k: int | None  # 最大下降的前一點 k
+    separated: bool  # largest_drop >= drop_threshold 且兩點的 CI（依 criterion）不重疊
+    max_turns_confounded: bool  # separated 且後一點的 max_turns 比例嚴格大於前一點（decision 006 / 017 §1）
+    is_cliff: bool  # separated 且非 max_turns_confounded
+
+
+def _max_turns_rate(estimate: CheckpointEstimate) -> Fraction:
+    return Fraction(estimate.max_turns_terminations, estimate.n) if estimate.n else Fraction(0)
+
+
+def assess_drop(
     estimates: tuple[CheckpointEstimate, ...], drop_threshold: float, *, criterion: str = DEFAULT_CLIFF_CRITERION
-) -> tuple[float, int | None, bool]:
-    """回傳 (largest_drop, largest_drop_k, is_cliff)；見 SweepResult 欄位說明。同大小時取 k 較小者。
-    estimates 必須依 k 嚴格遞增、criterion 必須在 CLIFF_CRITERIA 中，否則 ValueError。
-    is_cliff：wilson95 → 兩點的 ci_low > ci_high（95% Wilson）；bonferroni95 → 以 z = Φ⁻¹(1 − 0.025 / m)（m = len(estimates) − 1）
+) -> DropAssessment:
+    """最大下降的判定（decision 010 / 013 / 015 / 017 §1）。同大小時取 k 較小者；只看最大下降（被 max_turns 混淆時
+    不改看其他下降）。estimates 必須依 k 嚴格遞增、criterion 必須在 CLIFF_CRITERIA 中，否則 ValueError。
+    separated：wilson95 → 兩點的 ci_low > ci_high（95% Wilson）；bonferroni95 → 以 z = Φ⁻¹(1 − 0.025 / m)（m = len(estimates) − 1）
     重算兩點的 Wilson 區間後 low > high。兩點時兩者相同。
-    下降以精確有理數 successes / n 計算、比較（同大小與 ``>= drop_threshold`` 都不受浮點捨入影響，見 _meets_threshold）；
-    largest_drop 回傳該精確值最接近的 float。
+    下降與 max_turns 比例都以精確有理數計算、比較（同大小與 ``>= drop_threshold`` 都不受浮點捨入影響，見 _meets_threshold）；
+    largest_drop 回傳該精確值最接近的 float。少於兩點 → DropAssessment(0.0, None, False, False, False)。
     """
     if criterion not in CLIFF_CRITERIA:
         raise ValueError(f"criterion must be one of {CLIFF_CRITERIA}")
@@ -186,7 +200,7 @@ def detect_cliff(
     if any(b <= a for a, b in zip(ks, ks[1:])):
         raise ValueError("estimates must be sorted by strictly increasing k")
     if len(estimates) < 2:
-        return 0.0, None, False
+        return DropAssessment(0.0, None, False, False, False)
     exact = [_exact_p_hat(estimate) for estimate in estimates]
     drops = [before - after for before, after in zip(exact, exact[1:])]
     best_index = 0
@@ -196,12 +210,21 @@ def detect_cliff(
     best_drop = drops[best_index]
     before, after = estimates[best_index], estimates[best_index + 1]
     if criterion == "wilson95":
-        separated = before.ci_low > after.ci_high
+        ci_separated = before.ci_low > after.ci_high
     else:
         z = NormalDist().inv_cdf(1 - 0.025 / (len(estimates) - 1))
-        separated = wilson_interval(before.successes, before.n, z)[0] > wilson_interval(after.successes, after.n, z)[1]
-    is_cliff = _meets_threshold(best_drop, drop_threshold) and separated
-    return float(best_drop), before.k, is_cliff
+        ci_separated = wilson_interval(before.successes, before.n, z)[0] > wilson_interval(after.successes, after.n, z)[1]
+    separated = _meets_threshold(best_drop, drop_threshold) and ci_separated
+    confounded = separated and _max_turns_rate(after) > _max_turns_rate(before)
+    return DropAssessment(float(best_drop), before.k, separated, confounded, separated and not confounded)
+
+
+def detect_cliff(
+    estimates: tuple[CheckpointEstimate, ...], drop_threshold: float, *, criterion: str = DEFAULT_CLIFF_CRITERION
+) -> tuple[float, int | None, bool]:
+    """``assess_drop`` 的 (largest_drop, largest_drop_k, is_cliff)；is_cliff 已排除 max_turns 混淆（decision 017 §1）。"""
+    assessed = assess_drop(estimates, drop_threshold, criterion=criterion)
+    return assessed.largest_drop, assessed.largest_drop_k, assessed.is_cliff
 
 
 def pending_intervals(estimates: Mapping[int, CheckpointEstimate], plan: SweepPlan) -> tuple[tuple[int, int], ...]:
@@ -283,6 +306,7 @@ def sweep(
     log_path: str | Path,
     clock: Clock = time.perf_counter,
     criterion: str = DEFAULT_CLIFF_CRITERION,
+    rollout_dir: str | Path | None = None,
 ) -> SweepResult:
     """對 source 執行 coarse → refine 掃描。
 
@@ -294,11 +318,17 @@ def sweep(
     - 排程與 refine 一律由 ``run_protocol(last, plan, ...)`` 決定（coarse → 反覆 refine，decision 013 §2）。
     - run_logged 的事前檢查錯誤（例如 manifest 已有相同的嘗試）原樣往外拋。
     - 驟降判定依 criterion（CLIFF_CRITERIA，decision 015），在執行任何 rollout 之前檢查（不合法 → ValueError）。
+      largest_drop / largest_drop_k / is_cliff / max_turns_confounded 取自 ``assess_drop``（decision 017 §1）。
+    - rollout_dir（decision 017 §2）：給定時，每個完成的 rerun trajectory 存成 ``rollout_dir/k<k>-r<i>.json``；
+      必須不存在或為空目錄（否則 ValueError，不執行），不存在時建立。
     """
     if not isinstance(plan, SweepPlan):
         raise ValueError("plan must be a SweepPlan")
     if criterion not in CLIFF_CRITERIA:
         raise ValueError(f"criterion must be one of {CLIFF_CRITERIA}")
+    save_dir = None if rollout_dir is None else Path(rollout_dir)
+    if save_dir is not None and save_dir.exists() and (not save_dir.is_dir() or any(save_dir.iterdir())):
+        raise ValueError(f"{save_dir} already exists and is not an empty directory")
     last = valid_checkpoints(source)[-1]
     task = Task.from_dict(source.task)
     config_id = source.agent.config_id
@@ -325,6 +355,9 @@ def sweep(
             log_path=log_path,
         )
         if retried.trajectory is not None:
+            if save_dir is not None:
+                save_dir.mkdir(parents=True, exist_ok=True)
+                retried.trajectory.save(save_dir / f"k{k}-r{rollout_index}.json")
             outcome, stopped = classify_rollout(retried.trajectory, k)
             result = RolloutOutcome(k, rollout_index, outcome, retried.trajectory.termination, stopped, retried.attempts)
         else:
@@ -334,7 +367,7 @@ def sweep(
 
     protocol = run_protocol(last, plan, run_one)
     estimates = tuple(estimate_checkpoint(k, list(protocol.outcomes[k])) for k in sorted(protocol.outcomes))
-    largest_drop, largest_drop_k, is_cliff = detect_cliff(estimates, plan.drop_threshold, criterion=criterion)
+    assessed = assess_drop(estimates, plan.drop_threshold, criterion=criterion)
     return SweepResult(
         task_id=task.task_id,
         source_trajectory_id=source_id,
@@ -342,9 +375,10 @@ def sweep(
         estimates=estimates,
         rollouts=protocol.order,
         refined_intervals=protocol.refined_intervals,
-        largest_drop=largest_drop,
-        largest_drop_k=largest_drop_k,
-        is_cliff=is_cliff,
+        largest_drop=assessed.largest_drop,
+        largest_drop_k=assessed.largest_drop_k,
+        is_cliff=assessed.is_cliff,
         criterion=criterion,
+        max_turns_confounded=assessed.max_turns_confounded,
     )
 

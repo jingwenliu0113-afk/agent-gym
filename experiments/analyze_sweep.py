@@ -55,7 +55,7 @@ def sweep_result_from_dict(data: Any) -> SweepResult:
 _SCALAR_TYPES: dict[type, dict[str, tuple[type, ...]]] = {
     SweepResult: {
         "task_id": (str,), "source_trajectory_id": (str,), "largest_drop": (int, float), "largest_drop_k": (int, type(None)),
-        "is_cliff": (bool,), "criterion": (str,),
+        "is_cliff": (bool,), "criterion": (str,), "max_turns_confounded": (bool,),
     },
     SweepPlan: {"coarse_stride": (int,), "n_coarse": (int,), "n_fine": (int,), "drop_threshold": (int, float)},
     CheckpointEstimate: {

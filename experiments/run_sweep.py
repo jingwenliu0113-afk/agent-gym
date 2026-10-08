@@ -10,7 +10,8 @@
         真正呼叫 Anthropic API；只能在使用者確認 SweepPlan 與預算之後執行。credential 由 SDK 自行解析，本腳本不讀取任何 key。
 
 SweepPlan 與驟降判定（--criterion）都沒有預設值：必須明確給定（decision 011 / 015 的選擇屬於使用者決策）。
-輸出（gitignored）：``runs/<name>/`` 下 ``manifest.jsonl``、``sweeps/<task_id>.json``（每個 source 的 SweepResult）、``summary.json``。
+輸出（gitignored）：``runs/<name>/`` 下 ``manifest.jsonl``、``sweeps/<task_id>.json``（每個 source 的 SweepResult）、
+``rollouts/<task_id>/k<k>-r<i>.json``（每個完成的 rerun trajectory，decision 017 §2）、``summary.json``。
 """
 
 from __future__ import annotations
@@ -42,7 +43,7 @@ from tasks.generator import week1_pool
 
 COMPLETED_OUTCOMES = ("success", "failure", "refusal")
 
-SWEEP_SUMMARY_FORMAT = "agent-gym/sweep-run/v1"
+SWEEP_SUMMARY_FORMAT = "agent-gym/sweep-run/v2"  # v2：SweepResult.max_turns_confounded、rollout 存檔（decision 017）
 
 
 class BudgetExceeded(RuntimeError):
@@ -166,7 +167,8 @@ def run_sweeps(
       ``CostMeter(AnthropicPolicy(client, agent_config), ledger)``（ledger 跨所有 source 共用）。
     - BudgetExceeded → 停止（stopped_by_budget = True）：該 source 的部分 sweep 不計入 completed（rollouts 仍在 manifest 中），
       後面的 source 不再執行。
-    - 每個完成的 sweep 寫入 ``sweeps/<task_id>.json``（canonical_json）。
+    - 每個完成的 sweep 寫入 ``sweeps/<task_id>.json``（canonical_json）；每個完成的 rerun trajectory 存成
+      ``rollouts/<task_id>/k<k>-r<i>.json``（sweep 的 rollout_dir）。
     - 彙總：completed 的 task 依 family（source.task["family"]）分層 bootstrap（seed 0、``replicates``）。
     - 正常結束或因預算停止都寫 ``summary.json`` 並回傳；harness 例外原樣往外拋。
     """
@@ -207,7 +209,15 @@ def run_sweeps(
         if source is None:
             continue
         try:
-            result = sweep(source, policy_factory, plan=plan, log_path=log_path, clock=clock, criterion=criterion)
+            result = sweep(
+                source,
+                policy_factory,
+                plan=plan,
+                log_path=log_path,
+                clock=clock,
+                criterion=criterion,
+                rollout_dir=run_dir / "rollouts" / task_id,
+            )
         except BudgetExceeded:
             stopped = True
             break

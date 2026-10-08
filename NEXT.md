@@ -2,63 +2,81 @@
 
 ## 目前位置
 
-Core / SPEC「Day 1」完成；「Week 1」中不需要 API key 的項目已完成（#1–#4、#6、#7、#8）。
-剩下 **Week 1 #5 baseline agent**（真正呼叫 LLM 需要使用者在環境變數提供 `ANTHROPIC_API_KEY`）。
-尚未進 Advanced（Gate 未滿足：還沒有任何 failure localization 結果）。
+Core：Day 1 完成；Week 1 除「#5 baseline 真正跑完整 task」以外都完成；#5 與 SPEC §6 中**不需要 API key 的部分全部完成**。
+剩下的 Core 工作都必須真正呼叫 LLM（dev sanity、eval baseline、eval 上的 failure localization sweep），
+因此停在 **blocker：需要使用者確認模型 / 成本 / SweepPlan，並以環境變數提供 credential**（見下）。
+尚未進 Advanced（Gate 未滿足：還沒有任何真實的 failure localization 結果）。
 
-Git：獨立 repo，分支 `main`。`d7241dc chore: establish core baseline`（Day 1）；
-Week 1 generator / Recorder / checkpoint-replay / Docker 規則 / forbidden attempt 指標以 `feat: complete week 1 replay infrastructure` commit。
+Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/jingwenliu0113-afk/agent-gym），main 追蹤 origin/main；
+測試通過的 commit 一律 push（不 force push、不改寫 history）。
+`d7241dc` Day 1 → `5c8ada4` Week 1 replay infrastructure → `c554735` keyless baseline adapter + attempt manifest →
+`638be6d` §6 failure localization infrastructure → `7a796f3` 付費 run 執行工具 + 計費修正 → SweepPlan 偵測力模擬（decision 011）。
 
 ## 上次完成（2026-10-08）
 
-Week 1（TDD：契約 stub → 4 角度契約審查 → 5 個 agent 先寫測試、確認紅燈 → 實作轉綠 → 4 角度對抗式驗證）：
+全程 TDD（契約 stub → 測試紅燈 → 實作 → 對抗式審查 → 回歸測試 → 修正）。只用 Mac CPU；沒有使用 Mac heavy lock、遠端 RTX、Docker，
+沒有呼叫任何 LLM、沒有讀取或保存任何 credential。
 
-1. **#4 parameterized task generator**：`tasks/generator.py`（decision 005）
-   - 5 個題型 × seeds {0,1,2,3} = 20 instances；dev = seed 0（5 題，含 noop 分支），eval = seeds 1–3（15 題）。
-   - 每個 instance 附 oracle 與具名 negatives（錯誤解），生成時自我檢查「正解成功且安全、每個錯誤解都被判出」。
-   - 決定性：字串 seed、只用 `rng.random()`、跨 PYTHONHASHSEED 一致；20 題的 golden hash 已在任何 agent run 前錄製。
-   - 統計協定已預先登記：eval 等權、family 分層 task-level bootstrap（B=10000、95% percentile CI）。
-2. **#6 Recorder**：`agents/policy.py`、`replay/trajectory.py`、`replay/runner.py`（decision 006）
-   - 無狀態 policy 介面 + `ScriptedPolicy`；trajectory 保存每個 turn 的 model message、tool calls、env 紀錄（含 state hash）、usage，
-     以及 task、prompts、prompt version、model config、final snapshot。
-   - TOOL_SPECS 全文已納入 `issue_tracker/v1` 並以 golden hash 釘住。
-3. **#8 checkpoint / restore / rerun**：`replay/checkpoint.py`（decision 006）
-   - checkpoint 自帶前綴並在載入時重放驗證（解決 decision 004 的前綴錯配）；`verify_lineage` 以來源 trajectory 與呼叫端的 checkpoint 為錨點。
-   - 已驗證 SPEC §5 核心 invariant：save / load 後 restore 的 conversation 與原 episode 中 policy 實際收到的逐 byte 相同、
-     env 一致、決定性 rerun 逐 byte 重現（smoke 5 題 + generator 20 題的每個 checkpoint）。
-4. 對抗式驗證修正（decision 007）：超大 int 的 `OverflowError`、深層巢狀 JSON 的 `RecursionError`、tuple 被 canonical_json 掩蓋、
-   錯誤訊息格式化超大 int。並記錄 3 項已知限制（見下）。
-5. MACHINE_POLICY.md 新增 Docker 規則（Core 不使用 Docker Desktop）。
-6. **新增 safety 指標 `forbidden_attempt_count`**（decision 008，grader 升 `agent-gym/grader/v2`）：從 trajectory 的每筆 tool call
-   推導 attempted change，被 tool 拒絕或沒有造成 mutation 的危險嘗試也會記錄；`forbidden_action_count` 與 `trajectory_safe` 語意不變。
+1. **Week 1 #5 keyless**（decision 009）
+   - 固定 baseline 設定：`claude-opus-5-5`、adaptive thinking（display summarized、block_binding error）、effort medium、
+     一則訊息最多一個 tool call、max_turns 20、prompt `baseline/v1`、SDK 重試 4 次 / timeout 600 秒、adapter 不另外重試。
+   - trajectory / checkpoint 升 v2：保存 provider 原生 content blocks（含 thinking signature）與每個 turn 的量測 meta，
+     restore 後送出的 request 與原 episode 逐 byte 相同。
+   - `agents/baseline.py`：可注入 client 的 Anthropic adapter（忠實歷史檢查、stop_reason 規則、成本含 1h cache 價差），fake client 完整測試。
+   - `replay/aborts.py`：每次嘗試都寫入 manifest；例外分三類（infrastructure / agent_output / harness），只重試 infrastructure（上限 2）；
+     中止前已發生步驟的安全指標（PartialEpisode）；`run_with_retries` 集中重試規則。
+   - 對抗式審查確認並修正 6 項（深層輸入漏出 RecursionError、文件深度上限前後不一致、例外欄位無法編碼等）。
+2. **SPEC §6 failure localization infrastructure**（decision 010）
+   - `agents/synthetic.py`：解析解已知的 synthetic policy（P(success | k) = (1 − q)^(n − r + 1)，犯過不可逆錯誤後為 0）。
+   - `replay/stats.py`：Wilson CI、family 分層 task-level bootstrap（B = 10000）。
+   - `replay/localization.py`：coarse → **反覆** refine（`run_protocol`，sweep 與模擬共用）、round-robin、P(success | checkpoint) 估計、
+     cliff 判定（門檻以精確有理數比較），全部經 manifest。
+   - synthetic 驗證：Wilson CI 對解析解的涵蓋率 >= 0.85、cliff 定位到 k* = m、沒有犯錯的 source 不被標為 cliff。
+   - 測試 critic 與對抗式審查後的協定修正（decision 013，在任何真實結果之前）：refine 反覆到沒有「未加密的大下降」、Δ* 不截斷、
+     `checkpoint_truth` 只對 on-policy 軌跡有定義、bootstrap 的 estimand = 15 個固定 eval instance（superpopulation 涵蓋率約 0.86，
+     以 strict xfail 記錄）。
+3. **SweepPlan 偵測力模擬**（decision 011，`experiments/sweep_power.py`，依 decision 013 修正後重跑）：依預先登記的規則，
+   108 個候選 plan **沒有任何一個合格**（gradual 曲線約 14–17% 被誤判為 cliff）。已整理 A / B / C 三個選項與成本，**待使用者決定**
+   （建議 A：Bonferroni 校正 + (2, 10, 48, 0.3)，偵測 0.83 / 誤判 0.03）。
+4. **付費 run 的執行工具**（decision 012，提案）：`experiments/run_baseline.py`（dry-run、成本上限、不覆寫既有 run）、
+   `experiments/run_sweep.py`（依 decision 012 選 source、跨 source 共用預算、family 分層 bootstrap 彙總 cliff 比例與最大下降）、
+   `experiments/cost_estimate.py`（以 dry-run 的實際 request 大小估算成本）。dev / eval 的 dry-run 全部成功且安全。
+5. **計費修正**（decision 014，審查確認的高嚴重度問題）：API 已回傳但被 adapter 拒絕的回應（例如 max_tokens 截斷）原本不記帳，
+   成本上限可被繞過。現在一律記帳；manifest 升 `attempt/v2`，每列記錄該次嘗試的已計費 call 數與成本；有上限時模型必須在 PRICING。
 
-測試：`uv run pytest` → 6100 passed（約 15 秒）。資源：全程只用 Mac；未使用 Mac heavy lock、遠端 RTX、Docker 或任何 API key。
+測試：`uv run pytest` → 8260 passed、1 xfailed（已知限制的特徵測試），約 70 秒；`ruff check` 通過。
 
-## 下一步（建議依序）
+## 下一步（需要使用者先決定，依序）
 
-1. **Week 1 #5 baseline agent（先做不需要 key 的部分）**。開始前先寫 decision log，在任何 eval run 之前固定：
-   prompt 內容與 `prompt_version`、model 與 sampling 參數、`max_turns`（含理由）、是否允許一則訊息多個 tool call、
-   暫時性錯誤的重試上限、例外中止的紀錄方式（decision 006）。
-   - Anthropic adapter 以可注入的 client 實作 `Policy` 介面；不得啟用需要原樣回傳 provider block 的功能（例如 extended thinking）。
-   - 用假的 client 做單元測試（不需要 key）；真正呼叫 LLM 的 dev sanity run 等使用者提供環境變數。
-2. **SPEC §6 failure localization 工具**（不需要 key）：rerun sweep（先少量掃描、再對疑似變化處加密取樣）、
-   P(success | checkpoint) 估計、family 分層 task-level bootstrap、每個 checkpoint 同時報告 `termination == "max_turns"` 的比例。
-   開始前寫 decision log；可考慮用「已知真實 recoverability 的合成 policy」先驗證估計流程（需在 decision log 說明）。
-3. 有真實結果後，再寫 README 首屏（Task → Agent actions → state changes → grader → replay from checkpoint）。
+1. **使用者確認**（decision 012「待使用者確認的事項」）：
+   - 模型 `claude-opus-5-5` 與 dev sanity 上限 $10；
+   - 在環境變數提供 `ANTHROPIC_API_KEY`（程式不讀取、不保存；由 SDK 解析），確認帳號可用 `thinking-binding-controls-2026-08-01` beta；
+   - eval rollout 數 R（提案 3）；SweepPlan 選項（decision 011：A / B / C）；Gate 判定的操作化（decision 012 第 4 節）。
+   - 若選 A：另立 decision log，把 Bonferroni 判定正式實作到 `replay.localization`（目前只在模擬程式中，標為探索）並測試，再重跑模擬確認。
+2. dev sanity：`uv run --extra llm python -m experiments.run_baseline --split dev --confirm-paid-run --max-cost-usd 10`；
+   以實測 tokens / call 重新估算 eval 與 sweep 的成本，再請使用者確認預算。
+3. eval baseline（R rollouts）→ 以 decision 012 的規則選 source → 依選定的 SweepPlan 實作 / 測試（若選 A，先另立 decision log 並實作
+   Bonferroni 判定、重跑 decision 011 模擬）→ eval sweep：
+   `uv run --extra llm python -m experiments.run_sweep --baseline-run runs/<eval-run> --plan S,NC,NF,T --confirm-paid-run --max-cost-usd X`
+   （plan 沒有預設值；`--dry-run` 已驗證）。
+4. 有真實結果後：recoverability curve、trajectory safety、「最終成功但中途有 forbidden action」案例、Gate 判定，再寫 README 首屏。
 
 ## Blocked / 需要使用者
 
-- **真正呼叫 LLM 的 baseline run**：需要使用者在環境變數提供 `ANTHROPIC_API_KEY`（依指示本 session 未要求、未處理）。
-  上面的第 1、2 步在 Mac 上都能先完成，不受影響。
+- **所有真正呼叫 LLM 的步驟**：需要上面第 1 點的確認與 credential（依指示本 session 未要求、未處理任何 key）。
+- **SweepPlan**：decision 011 依預先登記規則無合格 plan，依規則不自行放寬，等使用者選擇。
 
-## 分析前必須注意的已知限制（decision 003 / 004 / 005 / 007）
+## 分析前必須注意的已知限制（decision 003 / 004 / 005 / 007 / 009 / 011）
 
 - 嘗試但失敗的危險操作不計入 `forbidden_action_count`，改由 `forbidden_attempt_count` 記錄（decision 008）；兩者單位不同
-  （call vs Change），比較時用 step 集合。無法解讀的 call（非 dict args、issue_id 型別錯誤、未知 tool、spec 外參數）不計入 attempt。
+  （call vs Change），比較時用 step 集合。無法解讀的 call 不計入 attempt。
 - scope 內的反覆修改不計為 unnecessary。
 - `to_values` 型 forbid rule 只看變更後的值：挑選「最終成功但中途有 forbidden action」展示案例前，必須人工確認被標記的不是「改回原狀」。
 - generator v1 的背景 labels 可能與指令語義衝突（eval 8/15 的 target 帶 `wontfix` 或 `needs-info`）：只能描述，不得事後分層當主要結論。
 - `forbidden_action_count = 0` 不代表全面安全：部分 forbid rule 是低觸發率安全網。
-- Week 1 eval 只有 15 題，結果只能當基礎設施驗證與初步觀察。
+- Week 1 eval 只有 15 題，結果只能當基礎設施驗證與初步觀察，不得宣稱統計上的泛化；不得因此擴充題庫。
 - smoke tasks（handwritten/v2）只用於回歸測試與 sanity run，不得計入任何統計。
 - instruction 以「名字 (id)」引用 user（SPEC 只有 5 個 tools，沒有 user 查詢 tool）。
+- eval 中 `gen-escalate-label-s1` 與 `-s2` 的 instruction 文字相同（初始狀態不同）。
+- manifest 不支援並行寫入；付費 run 被手動中斷時，進行中的嘗試不會進 manifest，重跑必須用新目錄並在報告列出所有目錄。
+- 偵測力模擬的情境是假設；真實曲線形狀未知。

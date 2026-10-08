@@ -1,0 +1,35 @@
+# Python / tooling
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+*.egg-info/
+build/
+dist/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Secrets：credential 一律由環境變數提供（例如 ANTHROPIC_API_KEY），不得進 repo
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# 實驗產物：rollout / trajectory / checkpoint / 報告輸出一律寫到下列目錄，不進 repo
+runs/
+artifacts/
+checkpoints/
+experiments/outputs/
+*.log
+*.sqlite
+*.db
+*.parquet

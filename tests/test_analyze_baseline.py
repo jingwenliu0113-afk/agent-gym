@@ -1587,3 +1587,120 @@ def test_interrupted_records_are_excluded_from_metrics_and_groups() -> None:
 
 def test_analysis_format_is_v2() -> None:
     assert ANALYSIS_FORMAT == "agent-gym/baseline-analysis/v2"
+
+
+# ================================================================ decision 018 §3 / §4：summary 全欄核對、目錄識別
+
+
+def _drop_rollout(run_dir: Path, task_id: str, r: int) -> None:
+    """把一個 rollout 從 manifest、summary 與 trajectories/ 中一起刪掉（其餘三者仍彼此一致）。"""
+    _rewrite_manifest(run_dir, lambda rows: [row for row in rows if (row["task_id"], row["rollout_index"]) != (task_id, r)])
+    path = run_dir / "trajectories" / f"{task_id}-r{r}.json"
+    if path.exists():
+        path.unlink()
+
+    def edit(data: dict[str, Any]) -> None:
+        data["results"] = [x for x in data["results"] if (x["task_id"], x["rollout_index"]) != (task_id, r)]
+
+    _edit_summary(run_dir, edit)
+
+
+def _result(data: dict[str, Any], key: str, r: int) -> dict[str, Any]:
+    return next(x for x in data["results"] if (x["task_id"], x["rollout_index"]) == (T[key], r))
+
+
+SUMMARY_TAMPERS: dict[str, Callable[[dict[str, Any]], Any]] = {
+    "config-id": lambda d: d.update(config_id="sha256:" + "0" * 64),
+    "n-tasks": lambda d: d.update(n_tasks=99),
+    "rollouts": lambda d: d.update(rollouts=7),
+    "rollouts-bool": lambda d: d.update(rollouts=True),
+    "stopped-type": lambda d: d.update(stopped_by_budget="no"),
+    "stopped-true": lambda d: d.update(stopped_by_budget=True),  # results 是完整排程，但宣稱因預算停止：仍是合法前綴 → 見下方另測
+    "spent": lambda d: d.update(spent_usd=d["spent_usd"] + 1.0),
+    "spent-type": lambda d: d.update(spent_usd="lots"),
+    "model-calls": lambda d: d.update(model_calls=d["model_calls"] + 1),
+    "unknown-calls": lambda d: d.update(unknown_cost_calls=d["unknown_cost_calls"] + 1),
+    "extra-key": lambda d: d.update(note="x"),
+    "missing-key": lambda d: d.pop("n_tasks") and None,
+    "results-order": lambda d: d.update(results=[d["results"][1], d["results"][0], *d["results"][2:]]),
+    "result-extra-key": lambda d: d["results"][0].update(note="x"),
+    "result-family": lambda d: _result(d, "A1", 0).update(family="gen/close-duplicate"),
+    "result-safe": lambda d: _result(d, "A1", 0).update(trajectory_safe=True),
+    "result-forbidden": lambda d: _result(d, "C1", 0).update(forbidden_action_count=9),
+    "result-attempt-count": lambda d: _result(d, "C1", 0).update(forbidden_attempt_count=9),
+    "result-cost": lambda d: _result(d, "C1", 0).update(cost_usd=42.0),
+    "result-turns": lambda d: _result(d, "C1", 0).update(model_turns=77),
+    "unfinished-with-safety": lambda d: _result(d, "E2", 0).update(trajectory_safe=True),
+    "unfinished-with-cost": lambda d: _result(d, "R1", 0).update(cost_usd=0.5),
+}
+
+
+@pytest.mark.parametrize("change", sorted(c for c in SUMMARY_TAMPERS if c != "stopped-true"))
+def test_every_summary_field_is_checked(change: str, runs: Runs, tmp_path: Path) -> None:
+    run_dir = _copy(runs.mixed, tmp_path)
+    _edit_summary(run_dir, SUMMARY_TAMPERS[change])
+    with pytest.raises(ValueError):
+        load_rollouts([run_dir])
+
+
+def test_dropping_a_failed_rollout_everywhere_is_detected(runs: Runs, tmp_path: Path) -> None:
+    """decision 018 §3：未因預算停止的 run，results 必須是完整的排程；刪掉失敗的 rollout（三處一致地刪）會改變主指標。"""
+    run_dir = _copy(runs.mixed, tmp_path)
+    _drop_rollout(run_dir, T["C2"], 1)
+    with pytest.raises(ValueError):
+        load_rollouts([run_dir])
+
+
+def test_a_budget_stopped_baseline_is_a_prefix_of_the_schedule(tmp_path: Path) -> None:
+    run_dir = tmp_path / "stopped"
+    summary = run_split("eval", OracleFakeClient(EVAL), run_dir=run_dir, rollouts=2, max_cost_usd=80 * CALL_COST, clock=ZERO)  # 一輪 15 題約 61 次 call
+    assert summary.stopped_by_budget and 15 < len(summary.results) < 30
+    assert len(load_rollouts([run_dir])) == len(summary.results)
+    _edit_summary(run_dir, lambda d: d.update(stopped_by_budget=False))  # 宣稱沒停卻少了 rollout
+    with pytest.raises(ValueError):
+        load_rollouts([run_dir])
+    _edit_summary(run_dir, lambda d: d.update(stopped_by_budget=True, results=d["results"][1:]))  # 不是排程的前綴
+    with pytest.raises(ValueError):
+        load_rollouts([run_dir])
+
+
+def test_a_full_run_may_still_say_it_stopped_by_budget(runs: Runs, tmp_path: Path) -> None:
+    """預算剛好在最後一個 episode 之後用完：results 是完整排程（前綴的特例），stopped_by_budget 可以是 True。"""
+    run_dir = _copy(runs.clean, tmp_path)
+    _edit_summary(run_dir, SUMMARY_TAMPERS["stopped-true"])
+    assert len(load_rollouts([run_dir])) == 15
+
+
+@pytest.mark.parametrize("kind", ["missing", "loop", "file", "no-manifest", "summary-only"])
+def test_unusable_run_directories_are_value_errors(kind: str, runs: Runs, tmp_path: Path) -> None:
+    target = tmp_path / "target"
+    if kind == "loop":
+        target.symlink_to(target)
+    elif kind == "file":
+        target.write_text("x", encoding="utf-8")
+    elif kind == "no-manifest":
+        target.mkdir()
+    elif kind == "summary-only":
+        target.mkdir()
+        shutil.copyfile(runs.clean / "summary.json", target / "summary.json")
+    for dirs in ([target], [runs.clean, target]):
+        with pytest.raises(ValueError):
+            load_rollouts(dirs)
+
+
+def test_the_same_directory_through_a_symlink_or_another_case_is_rejected(runs: Runs, tmp_path: Path) -> None:
+    link = tmp_path / "link"
+    link.symlink_to(runs.clean)
+    with pytest.raises(ValueError):
+        load_rollouts([runs.clean, link])
+    variant = runs.clean.parent / runs.clean.name.upper()
+    if variant.exists() and variant.samefile(runs.clean):  # macOS 預設不分大小寫
+        with pytest.raises(ValueError):
+            load_rollouts([runs.clean, variant])
+
+
+def test_run_baseline_usage_lists_only_existing_options() -> None:
+    import experiments.run_baseline as module
+
+    assert "--estimate" not in (module.__doc__ or "")
+    assert "experiments.cost_estimate" in (module.__doc__ or "")

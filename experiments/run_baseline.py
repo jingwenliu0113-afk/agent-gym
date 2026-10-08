@@ -5,8 +5,8 @@
     uv run python -m experiments.run_baseline --split dev --dry-run
         不連網、不需要任何 credential：以 oracle 劇本的 OracleFakeClient 走完整條流程
         （AnthropicPolicy → runner → manifest → grader → summary），只用來驗證 harness。
-    uv run python -m experiments.run_baseline --split dev --estimate
-        印出付費 run 的成本估算（不連網）。
+    uv run python -m experiments.cost_estimate
+        印出付費 run 的成本估算（不連網；另一個入口）。
     uv run --extra llm python -m experiments.run_baseline --split dev --max-cost-usd 5 --confirm-paid-run
         真正呼叫 Anthropic API。只能在使用者確認模型與成本之後執行；credential 由 SDK 自行從環境變數解析，
         本腳本不讀取、不檢查、不記錄任何 key。

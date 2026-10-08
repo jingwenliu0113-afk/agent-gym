@@ -5,14 +5,15 @@
 Core：Day 1 完成；Week 1 除「#5 baseline 真正跑完整 task」以外都完成；#5 與 SPEC §6 中**不需要 API key 的部分全部完成**。
 需要真正呼叫 LLM 的步驟（dev sanity、eval baseline、eval 上的 failure localization sweep）依使用者決策 **deferred / blocked-by-paid-API**；
 keyless Core infrastructure（含分析工具、驟降判定選項、README 示範）已完成；第七輪對抗式審查找出的 keyless 缺口
-（已登記但漏實作的規則、只信任 summary 的分析）已依 decision 017 補齊。
+（已登記但漏實作的規則、只信任 summary 的分析）已依 decision 017 補齊；第八輪審查（017 的實作）找出的缺口已依 decision 018 補齊。
 尚未進 Advanced（Gate 未滿足：還沒有任何真實的 failure localization 結果）。
 
 Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/jingwenliu0113-afk/agent-gym），main 追蹤 origin/main；
 測試通過的 commit 一律 push（不 force push、不改寫 history）。
 `d7241dc` Day 1 → `5c8ada4` Week 1 replay infrastructure → `c554735` keyless baseline adapter + attempt manifest →
 `638be6d` §6 failure localization infrastructure → `7a796f3` 付費 run 執行工具 + 計費修正 → SweepPlan 偵測力模擬（decision 011）→
-`b8c600f` 預先登記的分析工具 + README 示範（decision 015 / 016）→ `9baae38`…`31e5344` 第七輪審查修正（decision 017）。
+`b8c600f` 預先登記的分析工具 + README 示範（decision 015 / 016）→ `9baae38`…`63bde0b` 第七輪審查修正（decision 017）→
+第八輪審查修正（decision 018）。
 
 ## 上次完成（2026-10-08）
 
@@ -63,7 +64,20 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
    - 審查判定不成立而未處理的兩項：Gate「收尾」分支（多數 gradual 且彼此不同）的機械化判定——其操作化屬於 decision 012 §4
      待使用者確認的部分；README 加一個 scripted 的「最終成功但不安全」示範——不是 SPEC 要求的 Core 項目。
 
-測試：`uv run pytest` → 8525 passed、1 xfailed（已知限制的特徵測試），約 160 秒；`ruff check` 通過。
+8. **第八輪對抗式審查後的修正**（decision 018）：
+   - sweep 續跑：`run_sweep ... --resume-from runs/<舊目錄>` 只執行尚未完成的 source（不重複付費），summary 記錄 skipped
+     （sweep 格式 v3）；`run_sweeps` 的 sources 必須涵蓋全部 eval task，自己的彙總以 eval pool 的全部 family 判定。
+   - sweep summary 的語意核對（sources = 全部 eval task、completed / skipped / 預算停止的關係），以及所有 manifest 列（含未完成的 sweep）
+     的嘗試序列與 checkpoint 身分核對。
+   - baseline summary 全欄核對（排程、計數、成本、每列的安全 / 成本欄位）：刪掉失敗的 rollout 不再能改變主指標。
+   - 目錄以 device + inode 識別（macOS 不分大小寫、symlink）；不存在、symlink loop、沒有 manifest 的目錄一律 ValueError。
+   - response_model 不只一種時 sweep 也不報時間窗；sweep 報告列出 multi-tool turn；部分安全指標標示含前綴；run_baseline 的
+     說明文字移除不存在的 `--estimate`。
+   - 審查判定不成立而未處理：sweep 部分安全指標改成只算 rerun 自己的步驟（數值語意不變，只加註）；中止嘗試保存完整部分軌跡
+     （decision 006 / 009 已登記只記計數）；以 dev run 實測 tokens 重估成本的專用 CLI（屬於付費步驟 a 的一部分，現有 API 已足夠）；
+     極端數值（1e308 美元、10^400 tokens）的加總溢位。
+
+測試：`uv run pytest` → 8589 passed、1 xfailed（已知限制的特徵測試），約 4 分鐘；`ruff check` 通過。
 
 ## 使用者決策（2026-10-08）
 
@@ -94,7 +108,8 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 2. eval baseline（R rollouts，提案 R = 3）。
 3. 以 decision 012 的規則選 source → eval sweep：
    `uv run --extra llm python -m experiments.run_sweep --baseline-run runs/<eval-run> --plan S,NC,NF,T --criterion C --confirm-paid-run --max-cost-usd X`
-   （plan 與 criterion 都沒有預設值；`--dry-run` 已驗證）。
+   （plan 與 criterion 都沒有預設值；`--dry-run` 已驗證）。被中斷或因預算停止時，以新目錄加 `--resume-from runs/<舊目錄>` 續跑，
+   分析時把所有目錄一起傳給 analyze_sweep（decision 018）。
 4. 以真實結果跑 `analyze_baseline` / `analyze_sweep`，把 recoverability curve、trajectory safety、「最終成功但中途有
    forbidden action」案例、Gate 判定放進 README 的「結果」段（README 目前只有 synthetic 示範）。
 
@@ -119,7 +134,8 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 - instruction 以「名字 (id)」引用 user（SPEC 只有 5 個 tools，沒有 user 查詢 tool）。
 - eval 中 `gen-escalate-label-s1` 與 `-s2` 的 instruction 文字相同（初始狀態不同）。
 - manifest 不支援並行寫入；付費 run 被手動中斷時，進行中的嘗試不會進 manifest（那次嘗試中已計費的 call 也不會出現在任何
-  成本加總中），重跑必須用新目錄。分析工具可直接同時讀中斷的目錄與重跑的目錄（decision 017）。
+  成本加總中），重跑必須用新目錄。分析工具可直接同時讀中斷的目錄與重跑的目錄（decision 017）；sweep 以 `--resume-from` 續跑
+  （decision 018）。中斷時還沒有任何嘗試寫入 manifest 的目錄沒有可分析的內容，不要傳入分析工具。
 - sweep 會為每個完成的 rerun 存一個 trajectory 檔（含前綴，約為 source 的大小）；付費 sweep 的 `runs/` 可能達數百 MB（gitignored）。
 - max_turns 混淆判定只看最大下降：被混淆時不改看其他下降（decision 017 §1，刻意保守）。
 - 偵測力模擬的情境是假設；真實曲線形狀未知。

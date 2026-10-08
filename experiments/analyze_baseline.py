@@ -10,14 +10,17 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import math
+import os
+import stat
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
 from agents.baseline import MAX_EPISODE_ATTEMPTS
 from env.hashing import canonical_json
-from experiments.run_baseline import SUMMARY_FORMAT
+from experiments.run_baseline import SUMMARY_FORMAT, EpisodeResult, RunSummary
 from replay.aborts import ERROR_CLASSES, AttemptRecord, read_manifest, utc_date
 from replay.localization import ROLLOUT_OUTCOMES, classify_rollout
 from replay.stats import BootstrapResult, stratified_task_bootstrap
@@ -94,15 +97,19 @@ def load_rollouts(run_dirs: Sequence[str | Path]) -> tuple[RolloutRecord, ...]:
 def load_runs(run_dirs: Sequence[str | Path]) -> LoadedRuns:
     """讀取一或多個 run_baseline 輸出目錄。任何不一致 → ValueError。
 
-    - 同一個目錄（resolve 後相同）出現兩次 → ValueError。標籤 = 目錄名稱；名稱重複時改用傳入的路徑字串。
-    - 每個目錄都讀 manifest；所有 manifest 列的 (generator_version, grader_version, schema_version, config_id, max_turns) 必須相同，
+    - 每個目錄必須存在、是目錄且有 ``manifest.jsonl``（decision 018 §4）；同一個目錄（以 device + inode 判定，不比較路徑字串）
+      出現兩次 → ValueError。標籤 = 目錄名稱；名稱重複時改用傳入的路徑字串。
+    - 所有 manifest 列的 (generator_version, grader_version, schema_version, config_id, max_turns) 必須相同，
       且都不是 checkpoint rollout、task 都屬於 eval pool。
-    - 有 summary.json：format 必須是 run_baseline.SUMMARY_FORMAT、split 必須是 "eval"；results 的每一列（task_id 為 str、
-      rollout_index 為 int >= 0、不重複）必須對應 manifest 中同一 rollout 的所有嘗試（attempt 1..n 連續、attempts == n），
-      manifest 不得有 summary 沒列出的 rollout。完成者：trajectory 檔可 verify、trajectory_id 與 summary / manifest 相符、
-      ``classify_rollout(trajectory, 0) == (outcome, stopped_without_action)``、termination 與 trajectory / manifest 相同。
+    - 有 summary.json（decision 017 §4.3 / 018 §3）：key 剛好是 run_split 寫出的欄位；format、split = "eval"、n_tasks = eval pool 大小、
+      rollouts 為 int >= 1、config_id 與 manifest 相同、stopped_by_budget 為 bool；spent_usd / model_calls / unknown_cost_calls 與
+      manifest 的 cost_usd / billed_calls / unknown_cost_calls 加總相符。results 的 (task_id, rollout_index) 依序等於 run_split 的排程
+      （rollout_index 外層、eval pool 順序內層）：未因預算停止時是全部，否則是前綴。每一列的 key 剛好是 EpisodeResult 的欄位、
+      family 等於 eval pool，並對應 manifest 中同一 rollout 的所有嘗試（attempt 1..n 連續、attempts == n）。完成者：trajectory
+      檔可 verify、trajectory_id 與 summary / manifest 相符、``classify_rollout(trajectory, 0) == (outcome, stopped_without_action)``、
+      termination 與 trajectory / manifest 相同、trajectory_safe / forbidden 計數 / cost_usd / model_turns 與 grade() / usage() 相同。
       未完成者：outcome 必須是 "aborted"（最後一次嘗試為 infrastructure 且 attempt == MAX_EPISODE_ATTEMPTS）或
-      "agent_error"（agent_output），stopped_without_action 為 False。
+      "agent_error"（agent_output），stopped_without_action 為 False，其餘量測欄位為 None。
     - 沒有 summary.json（中斷的 run，decision 017 §4.1）：由 manifest 與 ``trajectories/`` 重建；最後一次嘗試完成 → 依 trajectory
       分類；agent_output → "agent_error"；infrastructure 且已達 MAX_EPISODE_ATTEMPTS → "aborted"；infrastructure 但還沒用完、
       或 harness 中止（run 因此停止）→ "interrupted"。
@@ -111,8 +118,8 @@ def load_runs(run_dirs: Sequence[str | Path]) -> LoadedRuns:
     if isinstance(run_dirs, (str, Path)) or len(run_dirs) == 0:
         raise ValueError("run_dirs must be a non-empty sequence of run directories")
     directories = [Path(run_dir) for run_dir in run_dirs]
-    resolved = [directory.resolve() for directory in directories]
-    if len(set(resolved)) != len(resolved):
+    identities = [directory_identity(directory) for directory in directories]
+    if len(set(identities)) != len(identities):
         raise ValueError("the same run directory was given more than once")
     names = [directory.name for directory in directories]
     labels = tuple(name if names.count(name) == 1 else str(directory) for name, directory in zip(names, directories))
@@ -144,6 +151,7 @@ def load_runs(run_dirs: Sequence[str | Path]) -> LoadedRuns:
             keys = list(groups)
             results: list[dict[str, Any] | None] = [None] * len(keys)
         else:
+            _check_summary(directory, summary, rows, tasks)
             keys, results = _summary_results(directory, summary)
             if set(groups) != set(keys):
                 raise ValueError(f"{directory}: the manifest and the summary list different rollouts")
@@ -156,6 +164,76 @@ def load_runs(run_dirs: Sequence[str | Path]) -> LoadedRuns:
     if merge_key is None:
         raise ValueError("no attempts in the manifests")
     return LoadedRuns(tuple(records), merge_key, tuple(all_rows), labels, tuple(interrupted_runs), trajectories)
+
+
+def directory_identity(directory: Path) -> tuple[int, int]:
+    """run 目錄的檔案系統身分 (st_dev, st_ino)（decision 018 §4）：必須存在、是目錄且有 manifest.jsonl；stat 失敗（不存在、
+    symlink loop、權限…）→ ValueError。"""
+    try:
+        info = os.stat(directory)
+        has_manifest = (directory / "manifest.jsonl").is_file()
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise ValueError(f"cannot use the run directory {directory}: {exc}") from exc
+    if not stat.S_ISDIR(info.st_mode):
+        raise ValueError(f"{directory} is not a directory")
+    if not has_manifest:
+        raise ValueError(f"{directory} has no manifest.jsonl")
+    return info.st_dev, info.st_ino
+
+
+def _same(value: Any, expected: Any) -> bool:
+    """型別與值都相同（True 不等於 1、1.0 不等於 1）。"""
+    return type(value) is type(expected) and value == expected
+
+
+def _is_finite(value: Any) -> bool:
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
+
+
+SUMMARY_KEYS = frozenset({"format", *(field.name for field in dataclasses.fields(RunSummary))})
+RESULT_KEYS = frozenset(field.name for field in dataclasses.fields(EpisodeResult))
+
+
+def _check_summary(directory: Path, summary: dict[str, Any], rows: list[AttemptRecord], tasks: dict[str, Any]) -> None:
+    """decision 017 §4.3 / 018 §3 的頂層欄位與排程核對（每一列與 manifest / trajectory 的核對在 _record）。"""
+    if set(summary) != SUMMARY_KEYS:
+        raise ValueError(f"{directory}: summary.json must have exactly the keys {sorted(SUMMARY_KEYS)}")
+    if not isinstance(summary["config_id"], str) or any(row.config_id != summary["config_id"] for row in rows):
+        raise ValueError(f"{directory}: summary.config_id disagrees with the manifest")
+    if not _same(summary["n_tasks"], len(tasks)):
+        raise ValueError(f"{directory}: summary.n_tasks must be the size of the eval pool")
+    rollouts = summary["rollouts"]
+    if type(rollouts) is not int or rollouts < 1:
+        raise ValueError(f"{directory}: summary.rollouts must be an int >= 1")
+    stopped = summary["stopped_by_budget"]
+    if not isinstance(stopped, bool):
+        raise ValueError(f"{directory}: summary.stopped_by_budget must be a bool")
+    spent = summary["spent_usd"]
+    if isinstance(spent, bool) or not isinstance(spent, (int, float)) or not _is_finite(spent):
+        raise ValueError(f"{directory}: summary.spent_usd must be a finite number")
+    if not math.isclose(spent, math.fsum(row.cost_usd for row in rows), rel_tol=1e-9, abs_tol=1e-12):
+        raise ValueError(f"{directory}: summary.spent_usd disagrees with the manifest")
+    for name, total in (("model_calls", sum(row.billed_calls for row in rows)),
+                        ("unknown_cost_calls", sum(row.unknown_cost_calls for row in rows))):
+        if not _same(summary[name], total):
+            raise ValueError(f"{directory}: summary.{name} disagrees with the manifest")
+    results = summary["results"]
+    if not isinstance(results, list):
+        raise ValueError(f"{directory}: summary.results must be a list")
+    order = list(tasks)
+    if not stopped and len(results) != rollouts * len(order):
+        raise ValueError(f"{directory}: a run that was not stopped by its budget must list every scheduled rollout")
+    for position, result in enumerate(results):
+        if not isinstance(result, dict) or set(result) != RESULT_KEYS:
+            raise ValueError(f"{directory}: each summary result must have exactly the keys {sorted(RESULT_KEYS)}")
+        expected = (order[position % len(order)], position // len(order))
+        if position // len(order) >= rollouts or (result["task_id"], result["rollout_index"]) != expected:
+            raise ValueError(f"{directory}: summary.results do not follow run_split's schedule")
+        if result["family"] != tasks[expected[0]].family:
+            raise ValueError(f"{directory}: summary family of {expected[0]} is wrong")
 
 
 def _read_summary(directory: Path) -> dict[str, Any] | None:
@@ -218,7 +296,7 @@ def _record(
     else:  # 重試在中斷時進行中，或 harness 中止讓 run 停止：沒有 rollout 結果
         outcome = "interrupted"
     if result is not None:
-        if result.get("attempts") != last.attempt:
+        if not _same(result.get("attempts"), last.attempt):
             raise ValueError(f"{where}: attempts do not match the manifest")
         if result.get("outcome") not in ROLLOUT_OUTCOMES:
             raise ValueError(f"{where}: unknown outcome {result.get('outcome')!r}")
@@ -229,8 +307,10 @@ def _record(
                 raise ValueError(f"{where}: an unfinished retry or a harness abort cannot appear in a completed run's summary")
             if result["outcome"] != outcome or result.get("stopped_without_action") is not False:
                 raise ValueError(f"{where}: the summary outcome disagrees with the manifest's last attempt")
-            if result.get("termination") is not None or result.get("trajectory_id") is not None:
-                raise ValueError(f"{where}: an unfinished rollout has no trajectory")
+            unfinished = ("termination", "trajectory_id", "forbidden_action_count", "forbidden_attempt_count", "trajectory_safe",
+                          "cost_usd", "model_turns")
+            if any(result.get(name) is not None for name in unfinished):
+                raise ValueError(f"{where}: an unfinished rollout has no trajectory or measurements")
     measured: dict[str, Any] = {}
     trajectory: Trajectory | None = None
     termination: str | None = None
@@ -256,6 +336,17 @@ def _record(
             if result.get("termination") != termination:
                 raise ValueError(f"{path}: the recorded termination does not match the trajectory")
         measured = _measure(trajectory, outcome)
+        if result is not None:
+            usage = trajectory.usage()
+            recorded = {
+                "trajectory_safe": measured["trajectory_safe"],
+                "forbidden_action_count": measured["forbidden_action_count"],
+                "forbidden_attempt_count": measured["forbidden_attempt_count"],
+                "cost_usd": usage.cost_usd,
+                "model_turns": usage.model_turns,
+            }
+            if any(not _same(result.get(name), value) for name, value in recorded.items()):
+                raise ValueError(f"{path}: the summary's safety / cost / turn fields do not match the trajectory")
     record = RolloutRecord(
         run=label,
         task_id=task_id,

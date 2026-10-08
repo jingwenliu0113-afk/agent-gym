@@ -20,6 +20,7 @@ from typing import Any, Sequence
 
 from agents.baseline import MAX_EPISODE_ATTEMPTS
 from env.hashing import canonical_json
+from experiments.analyze_baseline import directory_identity
 from experiments.run_sweep import SWEEP_SUMMARY_FORMAT, SweepRunSummary, select_sources
 from replay.aborts import AttemptRecord, read_manifest, utc_date
 from replay.localization import (
@@ -35,6 +36,7 @@ from replay.localization import (
     run_protocol,
 )
 from replay.stats import BootstrapResult, stratified_task_bootstrap
+from replay.checkpoint import make_checkpoint
 from replay.trajectory import Trajectory, TrajectoryError, load_strict_json
 from tasks.generator import week1_pool
 
@@ -249,13 +251,16 @@ class SweepAnalysis:
     missing_sources: tuple[str, ...]  # 沒有 source 的 eval task（decision 012 §3）
     not_completed: tuple[str, ...]  # 有 source 但沒有任何目錄完成 sweep
     partial_sweeps: tuple[dict[str, Any], ...]  # 有 rollout 但沒有完成的 sweep：run、task_id、rollouts（不同 (k, i) 數）
+    resumed: tuple[dict[str, Any], ...]  # summary 有 skipped 的目錄：run、skipped（decision 018 §1）
     max_turns_confounded: tuple[str, ...]  # 下降合格但 max_turns 比例上升 → 不是 cliff（decision 006 / 017 §1）
     cliff_rate: BootstrapResult | None  # family 分層 bootstrap；任一 eval family 沒有完成的 sweep 或 pooling_blocked → None
     mean_largest_drop: BootstrapResult | None
     gate: GateAssessment | None  # pooling_blocked → None（不評估）
     pooling_blocked: str | None  # response_model 不只一種（decision 009 §4）
     response_models: dict[str, int]  # response_model → 出現該 model 的完成 sweep rollout 數（只看 k 之後的 turns）
-    time_windows: tuple[WindowEstimate, ...]  # 依日期排序
+    time_windows: tuple[WindowEstimate, ...]  # 依日期排序；pooling_blocked → ()（decision 018 §5）
+    source_multi_tool_turns: tuple[dict[str, Any], ...]  # 完成曲線的 source 中 tool_use_blocks > 1 的 turn：task_id、turn
+    multi_tool_turns: tuple[dict[str, Any], ...]  # sweep rollout 在 k 之後的 multi-tool turn：run、task_id、k、rollout_index、turn
     # 每一個 aborted 嘗試：run、task_id、k、rollout_index、attempt、partial_steps、partial_forbidden_action_count、
     # partial_forbidden_attempt_count（None 原樣保留）；依目錄、manifest 順序
     partial_safety: tuple[dict[str, Any], ...]
@@ -293,22 +298,35 @@ def analyze_sweep_run(
 
 @dataclass(frozen=True)
 class _Rollout:
+    run: str
     task_id: str
+    k: int
+    rollout_index: int
     outcome: str
     date: str
     models: tuple[str, ...]
+    multi_tool_turns: tuple[int, ...]  # k 之後 tool_use_blocks > 1 的 turn index
 
 
 def analyze_sweep_runs(
-    sweep_run_dirs: Sequence[str | Path], baseline_run_dir: str | Path, *, replicates: int = 10000
+    sweep_run_dirs: Sequence[str | Path],
+    baseline_run_dir: str | Path,
+    *,
+    replicates: int = 10000,
+    plan: SweepPlan | None = None,
+    criterion: str | None = None,
 ) -> SweepAnalysis:
-    """decision 016 B 與 017 §5。任何不一致 → ValueError。
+    """decision 016 B、017 §5 與 018。任何不一致 → ValueError。
 
-    - source = ``run_sweep.select_sources(baseline_run_dir)``（全部 eval task）。sweep 目錄不得重複（resolve 後），也不得是 baseline。
-    - 每個目錄：manifest 必須存在；每列都是某個 source 的 checkpoint rollout（task 與 source_trajectory_id 相符），
-      所有目錄所有列的 (generator_version, grader_version, schema_version, config_id, max_turns) 相同，且 config_id 與 source 相同。
-      ``sweeps/*.json`` 為完成的 sweep。summary.json 可以沒有（中斷）；有的話逐欄驗證型別並與檔案、source 核對（cliff_rate 等彙總值
-      只檢查型別，不採用）。所有目錄的 plan 與 criterion 必須相同；同一個 source 只能在一個目錄完成。
+    - source = ``run_sweep.select_sources(baseline_run_dir)``（全部 eval task）。每個 sweep 目錄必須存在且有 manifest；目錄以
+      device + inode 識別，不得重複，也不得是 baseline 目錄（decision 018 §4）。
+    - 每個目錄：每列都是某個 source 的 checkpoint rollout（task 與 source_trajectory_id 相符），所有目錄所有列的 (generator_version,
+      grader_version, schema_version, config_id, max_turns) 相同，且 config_id 與 source 相同。每個 (task, k, rollout_index) 的嘗試
+      為 1..n 連續、只有 infrastructure 中止會重試、k 在 source 的合法範圍、checkpoint_id 等於 ``make_checkpoint(source, k)``
+      （decision 018 §2，含未完成的 sweep）。``sweeps/*.json`` 為完成的 sweep。summary.json 可以沒有（中斷）；有的話逐欄驗證並與
+      檔案、source 核對（018 §2：sources = 全部 eval task、completed 與 skipped 的語意、不得有 harness 中止、未用完的重試只能出現在
+      因預算停止的目錄；cliff_rate 等彙總值只檢查型別，不採用）。所有目錄的 plan 與 criterion 必須相同（給了 plan / criterion
+      時也必須與它們相同，供 run_sweep 的續跑使用）；同一個 source 只能在一個目錄完成。
     - 每個完成的 sweep 以 manifest 與 ``rollouts/<task_id>/k<k>-r<i>.json`` 重算核對（rollout 的嘗試數、完成與否與標籤、
       trajectory verify / parent / classify_rollout / termination、run_protocol 重現的排程與 refine 區間、estimate_checkpoint、
       assess_drop）。
@@ -317,8 +335,8 @@ def analyze_sweep_runs(
     if isinstance(sweep_run_dirs, (str, Path)) or len(sweep_run_dirs) == 0:
         raise ValueError("sweep_run_dirs must be a non-empty sequence of sweep run directories")
     directories = [Path(d) for d in sweep_run_dirs]
-    resolved = [d.resolve() for d in directories]
-    if len(set(resolved)) != len(resolved) or Path(baseline_run_dir).resolve() in resolved:
+    identities = [directory_identity(d) for d in directories]
+    if len(set(identities)) != len(identities) or directory_identity(Path(baseline_run_dir)) in identities:
         raise ValueError("each sweep directory must be given once and must differ from the baseline run")
     names = [d.name for d in directories]
     labels = tuple(name if names.count(name) == 1 else str(d) for name, d in zip(names, directories))
@@ -329,17 +347,20 @@ def analyze_sweep_runs(
     config_ids = {source.agent.config_id for source in sources.values() if source is not None}
 
     settings: set[str] = set()  # canonical [plan, criterion]
+    if plan is not None or criterion is not None:
+        if not isinstance(plan, SweepPlan) or criterion not in CLIFF_CRITERIA:
+            raise ValueError("plan and criterion must be given together")
+        settings.add(canonical_json([asdict(plan), criterion]))
+    checkpoint_ids: dict[tuple[str, int], str] = {}
     completed: dict[str, tuple[str, SweepResult, list[_Rollout]]] = {}
     partial_sweeps: list[dict[str, Any]] = []
+    resumed: list[dict[str, Any]] = []
     interrupted_runs: list[str] = []
     stopped: list[str] = []
     all_rows: list[tuple[str, AttemptRecord]] = []
     merge_key: str | None = None
     for directory, label in zip(directories, labels):
-        manifest = directory / "manifest.jsonl"
-        if not manifest.is_file():
-            raise ValueError(f"{directory} has no manifest; not a sweep run")
-        rows = read_manifest(manifest)
+        rows = read_manifest(directory / "manifest.jsonl")
         for row in rows:
             key = canonical_json({name: getattr(row, name) for name in MERGE_FIELDS})
             if merge_key is None:
@@ -353,16 +374,34 @@ def analyze_sweep_runs(
         all_rows.extend((label, row) for row in rows)
         results = _read_sweep_files(directory)
         summary = _read_sweep_summary(directory)
+        stopped_by_budget = False
+        skipped: tuple[str, ...] = ()
         if summary is None:
             interrupted_runs.append(label)
         else:
-            plan, criterion, stopped_by_budget = _check_summary(directory, summary, results, sources, pool_families, config_ids)
-            settings.add(canonical_json([asdict(plan), criterion]))
+            dir_plan, dir_criterion, stopped_by_budget, skipped = _check_summary(
+                directory, summary, results, sources, pool_families, config_ids
+            )
+            settings.add(canonical_json([asdict(dir_plan), dir_criterion]))
             if stopped_by_budget:
                 stopped.append(label)
-        groups: dict[tuple[str, int, int], list[AttemptRecord]] = {}
+            if skipped:
+                resumed.append({"run": label, "skipped": skipped})
+        groups: dict[tuple[str, Any, int], list[AttemptRecord]] = {}
         for row in rows:
             groups.setdefault((row.task_id, row.checkpoint_turn, row.rollout_index), []).append(row)
+        for (task_id, k, i), attempts in groups.items():
+            source = sources[task_id]
+            assert source is not None  # 上面已確認每列屬於某個 source
+            _check_attempts(directory, task_id, k, i, attempts, source, checkpoint_ids)
+            last = max(attempts, key=lambda row: row.attempt)
+            if task_id in skipped:
+                raise ValueError(f"{directory}: {task_id} is skipped in this directory but has rollouts in its manifest")
+            if summary is not None and (
+                last.error_class == "harness"
+                or (last.error_class == "infrastructure" and last.attempt < MAX_EPISODE_ATTEMPTS and not stopped_by_budget)
+            ):
+                raise ValueError(f"{directory}: rollout {task_id} k={k} r{i} never finished, yet the run wrote a summary")
         for task_id, result in results.items():
             settings.add(canonical_json([asdict(result.plan), result.criterion]))
             if task_id in completed:
@@ -370,7 +409,7 @@ def analyze_sweep_runs(
             source = sources.get(task_id)
             if source is None:
                 raise ValueError(f"{directory}: {task_id} has no source in the baseline run")
-            completed[task_id] = (label, result, _verify(directory, result, source, groups))
+            completed[task_id] = (label, result, _verify(directory, label, result, source, groups))
         swept = {task_id for task_id, _, _ in groups}
         for task_id in sorted(swept - set(results), key=pool_order.index):
             n = len({(k, i) for t, k, i in groups if t == task_id})
@@ -379,10 +418,12 @@ def analyze_sweep_runs(
         raise ValueError("the sweep directories used different plans or criteria (or none could be determined)")
     plan_data, criterion = load_strict_json(next(iter(settings)).encode("utf-8"))
     plan = SweepPlan(**plan_data)
+    assert criterion is not None
 
     curves: list[SourceCurve] = []
     rollouts: list[_Rollout] = []
     source_models: set[str] = set()
+    source_multi: list[dict[str, Any]] = []
     for task_id in pool_order:
         if task_id not in completed:
             continue
@@ -405,6 +446,7 @@ def analyze_sweep_runs(
         )
         rollouts.extend(verified)
         source_models.update(_models(source, 0))
+        source_multi.extend({"task_id": task_id, "turn": turn} for turn in _multi_tool_turns(source, 0))
     model_counts: dict[str, int] = {}
     for rollout in rollouts:
         for model in rollout.models:
@@ -429,7 +471,7 @@ def analyze_sweep_runs(
         )
     gate = None if blocked else assess_gate(tuple(curves), data_complete=not missing and not not_completed)
     windows: dict[str, list[_Rollout]] = {}
-    for rollout in rollouts:
+    for rollout in rollouts if blocked is None else ():  # 時間窗也是跨 rollout 的合併（decision 018 §5）
         windows.setdefault(rollout.date, []).append(rollout)
     return SweepAnalysis(
         plan=plan,
@@ -441,6 +483,7 @@ def analyze_sweep_runs(
         missing_sources=missing,
         not_completed=not_completed,
         partial_sweeps=tuple(partial_sweeps),
+        resumed=tuple(resumed),
         max_turns_confounded=tuple(c.task_id for c in curves if c.result.max_turns_confounded),
         cliff_rate=cliff_rate,
         mean_largest_drop=mean_drop,
@@ -455,6 +498,12 @@ def analyze_sweep_runs(
                 sum(1 for r in items if r.outcome == "success") / len(items),
             )
             for date, items in sorted(windows.items())
+        ),
+        source_multi_tool_turns=tuple(source_multi),
+        multi_tool_turns=tuple(
+            {"run": r.run, "task_id": r.task_id, "k": r.k, "rollout_index": r.rollout_index, "turn": turn}
+            for r in rollouts
+            for turn in r.multi_tool_turns
         ),
         partial_safety=tuple(
             {
@@ -518,8 +567,8 @@ def _check_summary(
     sources: dict[str, Trajectory | None],
     pool_families: dict[str, str],
     config_ids: set[str],
-) -> tuple[SweepPlan, str, bool]:
-    """decision 017 §5.1：summary.json 逐欄驗證並與檔案、source 核對；回傳 (plan, criterion, stopped_by_budget)。"""
+) -> tuple[SweepPlan, str, bool, tuple[str, ...]]:
+    """decision 017 §5.1 / 018 §2：summary.json 逐欄驗證並與檔案、source 核對；回傳 (plan, criterion, stopped_by_budget, skipped)。"""
     expected_keys = {"format", *(field.name for field in dataclasses.fields(SweepRunSummary))}
     if set(summary) != expected_keys:
         raise ValueError(f"{directory}: summary.json must have exactly the keys {sorted(expected_keys)}")
@@ -527,17 +576,26 @@ def _check_summary(
     criterion = summary["criterion"]
     if criterion not in CLIFF_CRITERIA:
         raise ValueError(f"{directory}: summary.criterion must be one of {CLIFF_CRITERIA}")
-    if summary["config_id"] not in config_ids:
+    if not isinstance(summary["config_id"], str) or summary["config_id"] not in config_ids:
         raise ValueError(f"{directory}: summary.config_id differs from the sources' agent config")
     listed = _str_list(summary["sources"], "sources")
     missing = _str_list(summary["missing_sources"], "missing_sources")
+    skipped = _str_list(summary["skipped"], "skipped")
     done = _str_list(summary["completed"], "completed")
-    if any(task_id not in pool_families for task_id in listed):
-        raise ValueError(f"{directory}: summary.sources lists a task outside the eval pool")
+    if listed != list(pool_families):
+        raise ValueError(f"{directory}: summary.sources must be every eval task in pool order")
     if missing != [task_id for task_id in listed if sources[task_id] is None]:
         raise ValueError(f"{directory}: summary.missing_sources disagrees with the baseline run")
-    if set(done) != set(results) or not set(done) <= set(listed) - set(missing):
+    if skipped != [task_id for task_id in listed if task_id in set(skipped)] or set(skipped) & set(missing):
+        raise ValueError(f"{directory}: summary.skipped must list tasks with a source, in pool order")
+    to_run = [task_id for task_id in listed if task_id not in set(missing) | set(skipped)]
+    if set(done) != set(results):
         raise ValueError(f"{directory}: summary.completed disagrees with the sweep files")
+    stopped = summary["stopped_by_budget"]
+    if not isinstance(stopped, bool):
+        raise ValueError(f"{directory}: summary.stopped_by_budget must be a bool")
+    if done != (to_run[: len(done)] if stopped else to_run):
+        raise ValueError(f"{directory}: summary.completed must be every source to run (or, when stopped by budget, a prefix)")
     stored = summary["results"]
     if not isinstance(stored, dict) or set(stored) != set(done):
         raise ValueError(f"{directory}: summary.results must hold exactly the completed sweeps")
@@ -555,9 +613,7 @@ def _check_summary(
     for name in ("model_calls", "unknown_cost_calls"):
         if type(summary[name]) is not int or summary[name] < 0:
             raise ValueError(f"{directory}: summary.{name} must be an int >= 0")
-    if not isinstance(summary["stopped_by_budget"], bool):
-        raise ValueError(f"{directory}: summary.stopped_by_budget must be a bool")
-    return plan, criterion, summary["stopped_by_budget"]
+    return plan, criterion, stopped, tuple(skipped)
 
 
 def _models(trajectory: Trajectory, start: int) -> tuple[str, ...]:
@@ -572,11 +628,48 @@ def _models(trajectory: Trajectory, start: int) -> tuple[str, ...]:
     )
 
 
+def _multi_tool_turns(trajectory: Trajectory, start: int) -> tuple[int, ...]:
+    return tuple(
+        index
+        for index, turn in enumerate(trajectory.turns)
+        if index >= start
+        and isinstance(turn.meta, dict)
+        and type(turn.meta.get("tool_use_blocks")) is int
+        and turn.meta["tool_use_blocks"] > 1
+    )
+
+
+def _check_attempts(
+    directory: Path,
+    task_id: str,
+    k: Any,
+    i: int,
+    attempts: list[AttemptRecord],
+    source: Trajectory,
+    checkpoint_ids: dict[tuple[str, int], str],
+) -> None:
+    """decision 018 §2：一個 (task, k, rollout_index) 的嘗試序列與 checkpoint 身分。"""
+    where = f"{directory}: rollout {task_id} k={k} r{i}"
+    if type(k) is not int or not 0 <= k < len(source.turns):
+        raise ValueError(f"{where}: k is not a checkpoint of the source")
+    numbers = sorted(row.attempt for row in attempts)
+    if numbers != list(range(1, len(attempts) + 1)):
+        raise ValueError(f"{where} has inconsistent attempts")
+    ordered = sorted(attempts, key=lambda row: row.attempt)
+    if any(row.outcome == "completed" or row.error_class != "infrastructure" for row in ordered[:-1]):
+        raise ValueError(f"{where}: only infrastructure aborts may be retried")
+    if (task_id, k) not in checkpoint_ids:
+        checkpoint_ids[(task_id, k)] = make_checkpoint(source, k).checkpoint_id
+    if any(row.checkpoint_id != checkpoint_ids[(task_id, k)] for row in attempts):
+        raise ValueError(f"{where}: checkpoint_id is not the source's checkpoint at k")
+
+
 def _verify(
     directory: Path,
+    label: str,
     result: SweepResult,
     source: Trajectory,
-    groups: dict[tuple[str, int, int], list[AttemptRecord]],
+    groups: dict[tuple[str, Any, int], list[AttemptRecord]],
 ) -> list[_Rollout]:
     """decision 017 §5.2：完成的 sweep 與 manifest、存檔的 rollout 重算核對；回傳每個 rollout 的 outcome、UTC 日期與 models。"""
     task_id = result.task_id
@@ -599,6 +692,7 @@ def _verify(
         if rollout.attempts != last.attempt or not 0 <= k < len(source.turns):
             raise ValueError(f"{where}: rollout k={k} r{i} disagrees with the manifest")
         models: tuple[str, ...] = ()
+        multi: tuple[int, ...] = ()
         if last.outcome == "completed":
             path = directory / "rollouts" / task_id / f"k{k}-r{i}.json"
             try:
@@ -614,6 +708,7 @@ def _verify(
             if classify_rollout(trajectory, k) != (rollout.outcome, rollout.stopped_without_action):
                 raise ValueError(f"{path}: the recorded outcome does not match the trajectory")
             models = _models(trajectory, k)
+            multi = _multi_tool_turns(trajectory, k)
         else:
             if last.error_class == "agent_output":
                 expected = "agent_error"
@@ -623,7 +718,7 @@ def _verify(
                 raise ValueError(f"{where}: rollout k={k} r{i} never finished; the sweep cannot be complete")
             if (rollout.outcome, rollout.termination, rollout.stopped_without_action) != (expected, None, False):
                 raise ValueError(f"{where}: rollout k={k} r{i} is labelled differently from the manifest")
-        verified.append(_Rollout(task_id, rollout.outcome, utc_date(last.utc_time), models))
+        verified.append(_Rollout(label, task_id, k, i, rollout.outcome, utc_date(last.utc_time), models, multi))
 
     def replay(k: int, i: int) -> RolloutOutcome:
         if (k, i) not in by_key:
@@ -727,6 +822,8 @@ def render_markdown(analysis: SweepAnalysis) -> str:
         f"- 缺漏的 source：{', '.join(a.missing_sources) or '—'}；未完成的 sweep：{', '.join(a.not_completed) or '—'}",
         "- 部分完成（不進曲線，成本與部分安全指標照計）："
         + (", ".join(f"{e['run']} / {e['task_id']}（{e['rollouts']} rollouts）" for e in a.partial_sweeps) or "—"),
+        "- 續跑時略過（已在其他目錄完成；沒有在任何分析的目錄完成者列為未完成）："
+        + ("; ".join(f"{e['run']}：{', '.join(e['skipped'])}" for e in a.resumed) or "—"),
     ]
     if a.pooling_blocked:
         lines.append(f"- **不報彙總、不評估 Gate**：{a.pooling_blocked}")
@@ -779,7 +876,23 @@ def render_markdown(analysis: SweepAnalysis) -> str:
     ]
     for w in a.time_windows:
         lines.append(f"| {w.date} | {w.n_sources} | {w.n_rollouts} | {w.success_rate:.3f} |")
-    lines += ["", "## 中止嘗試的部分安全指標（每個中止嘗試一筆；partial steps 含 checkpoint 前綴）", ""]
+    if a.pooling_blocked:
+        lines.append("| （不報：response_model 不只一種，decision 009 §4） | | | |")
+    lines += [
+        "",
+        f"## multi-tool turn（tool_use_blocks > 1；這種 turn 內部不是合法 checkpoint）：source {len(a.source_multi_tool_turns)}、"
+        f"sweep rollout {len(a.multi_tool_turns)}",
+        "",
+    ]
+    lines += [f"- source / {e['task_id']} turn {e['turn']}" for e in a.source_multi_tool_turns]
+    lines += [f"- {e['run']} / {e['task_id']} k={e['k']} r{e['rollout_index']} turn {e['turn']}" for e in a.multi_tool_turns]
+    if not a.source_multi_tool_turns and not a.multi_tool_turns:
+        lines.append("- （無）")
+    lines += [
+        "",
+        "## 中止嘗試的部分安全指標（每個中止嘗試一筆；partial steps 與 forbidden 計數都含 checkpoint 前綴，也就是 source 自己的步驟）",
+        "",
+    ]
     for e in a.partial_safety:
         steps = e["partial_steps"]
         lines.append(

@@ -731,6 +731,7 @@ def test_analysis_has_one_curve_per_completed_source(runs: _Runs, cache: dict[Pa
     assert analysis.missing_sources == MISSING
     assert analysis.not_completed == () and analysis.partial_sweeps == ()
     assert analysis.runs == ("sweep",) and analysis.interrupted_runs == () and analysis.stopped_by_budget == ()
+    assert analysis.resumed == () and analysis.multi_tool_turns == () and analysis.source_multi_tool_turns == ()
     rows = read_manifest(runs.sweep / "manifest.jsonl")
     assert analysis.cost_usd == pytest.approx(sum(row.cost_usd for row in rows)) == pytest.approx(summary.spent_usd)
     assert analysis.unknown_cost_calls == 0 and analysis.pooling_blocked is None and analysis.max_turns_confounded == ()
@@ -1013,6 +1014,11 @@ def test_analysis_format_is_v2() -> None:
     assert [f.name for f in dataclasses.fields(WindowEstimate)] == ["date", "n_sources", "n_rollouts", "success_rate"]
 
 
+def _only(*keep: str) -> tuple[str, ...]:
+    """skip = 有 source、但不在 keep 中的 task（decision 018 §1：sources 必須涵蓋全部 eval task，其他的以 skip 略過）。"""
+    return tuple(t for t in COMPLETED if t not in keep)
+
+
 def _copy_sweep(runs: _Runs, tmp_path: Path, name: str = "sweep") -> Path:
     target = tmp_path / name
     shutil.copytree(runs.sweep, target)
@@ -1045,21 +1051,23 @@ def test_unrun_tasks_of_a_budget_stopped_baseline_are_missing_sources(tmp_path: 
 
 
 def test_sources_that_were_never_swept_are_not_completed(runs: _Runs, tmp_path: Path) -> None:
-    subset = {t: runs.sources[t] for t in (T_ORACLE_AAS, T_EXTRA_COMMENT, T_ORACLE_CA)}
+    keep = (T_ORACLE_AAS, T_EXTRA_COMMENT, T_ORACLE_CA)
     sweep = tmp_path / "subset"
-    run_sweeps(subset, _SweepClient(), plan=PLAN, criterion="wilson95", run_dir=sweep, clock=ZERO, replicates=REPLICATES)
+    run_sweeps(runs.sources, _SweepClient(), plan=PLAN, criterion="wilson95", run_dir=sweep, clock=ZERO, replicates=REPLICATES,
+               skip=_only(*keep))
     analysis = analyze_sweep_run(sweep, runs.baseline, replicates=REPLICATES)
-    assert tuple(curve.task_id for curve in analysis.curves) == (T_ORACLE_AAS, T_EXTRA_COMMENT, T_ORACLE_CA)
+    assert tuple(curve.task_id for curve in analysis.curves) == keep
     assert analysis.missing_sources == MISSING
-    assert analysis.not_completed == tuple(t for t in COMPLETED if t not in subset)
+    assert analysis.not_completed == _only(*keep)  # skipped 但沒有在任何目錄完成 → not_completed
+    assert analysis.resumed == ({"run": "subset", "skipped": _only(*keep)},)
     assert analysis.cliff_rate is None and analysis.gate is not None and analysis.gate.data_complete is False
 
 
 def test_two_directories_complete_the_sweep_together(runs: _Runs, cache: dict[Path, SweepAnalysis], tmp_path: Path) -> None:
     first, second = COMPLETED[:7], COMPLETED[7:]
     for name, part in (("part-a", first), ("part-b", second)):
-        run_sweeps({t: runs.sources[t] for t in part}, _SweepClient(SWEEP_OVERRIDES), plan=PLAN, criterion="wilson95",
-                   run_dir=tmp_path / name, clock=ZERO, replicates=REPLICATES)
+        run_sweeps(runs.sources, _SweepClient(SWEEP_OVERRIDES), plan=PLAN, criterion="wilson95",
+                   run_dir=tmp_path / name, clock=ZERO, replicates=REPLICATES, skip=_only(*part))
     analysis = analyze_sweep_runs([tmp_path / "part-a", tmp_path / "part-b"], runs.baseline, replicates=REPLICATES)
     full = _analysis(runs, cache)
     assert analysis.runs == ("part-a", "part-b")
@@ -1082,11 +1090,11 @@ def test_a_source_completed_in_two_directories_is_rejected(runs: _Runs, tmp_path
 
 def test_directories_with_different_plans_or_criteria_are_rejected(runs: _Runs, budget_runs: _Runs, tmp_path: Path) -> None:
     other = tmp_path / "other"
-    run_sweeps({T_ORACLE_CA: runs.sources[T_ORACLE_CA]}, _SweepClient(), plan=PLAN, criterion="bonferroni95", run_dir=other,
-               clock=ZERO, replicates=REPLICATES)
+    run_sweeps(runs.sources, _SweepClient(), plan=PLAN, criterion="bonferroni95", run_dir=other,
+               clock=ZERO, replicates=REPLICATES, skip=_only(T_ORACLE_CA))
     wilson = tmp_path / "wilson"
-    run_sweeps({T_ORACLE_AAS: runs.sources[T_ORACLE_AAS]}, _SweepClient(), plan=PLAN, criterion="wilson95", run_dir=wilson,
-               clock=ZERO, replicates=REPLICATES)
+    run_sweeps(runs.sources, _SweepClient(), plan=PLAN, criterion="wilson95", run_dir=wilson,
+               clock=ZERO, replicates=REPLICATES, skip=_only(T_ORACLE_AAS))
     analyze_sweep_runs([wilson], runs.baseline, replicates=REPLICATES)  # 單獨一個目錄是一致的
     # 各對目錄完成的 source 都不重疊，所以拒絕的原因只能是 plan（BUDGET_PLAN ≠ PLAN）或 criterion 不同
     assert T_ORACLE_CA not in budget_runs.summary.completed and T_ORACLE_AAS not in budget_runs.summary.completed
@@ -1114,8 +1122,8 @@ class _InterruptAfter:
 def test_an_interrupted_sweep_directory_is_listed_and_billed(runs: _Runs, cache: dict[Path, SweepAnalysis], tmp_path: Path) -> None:
     interrupted = tmp_path / "interrupted"
     with pytest.raises(KeyboardInterrupt):
-        run_sweeps({T_EXTRA_COMMENT: runs.sources[T_EXTRA_COMMENT]}, _InterruptAfter(_SweepClient(), 6), plan=PLAN,
-                   criterion="wilson95", run_dir=interrupted, clock=ZERO, replicates=REPLICATES)
+        run_sweeps(runs.sources, _InterruptAfter(_SweepClient(), 6), plan=PLAN, criterion="wilson95", run_dir=interrupted,
+                   clock=ZERO, replicates=REPLICATES, skip=_only(T_EXTRA_COMMENT))
     rows = read_manifest(interrupted / "manifest.jsonl")
     assert rows and not (interrupted / "summary.json").exists() and not (interrupted / "sweeps" / f"{T_EXTRA_COMMENT}.json").exists()
     analysis = analyze_sweep_runs([interrupted, runs.sweep], runs.baseline, replicates=REPLICATES)
@@ -1252,8 +1260,8 @@ class _LoopClient(_SweepClient):
 def test_a_max_turns_confounded_drop_is_listed_and_is_not_a_cliff(runs: _Runs, tmp_path: Path) -> None:
     sweep = tmp_path / "loop"
     plan = SweepPlan(coarse_stride=1, n_coarse=4, n_fine=4, drop_threshold=0.5)
-    run_sweeps({T_ORACLE_AAS: runs.sources[T_ORACLE_AAS]}, _LoopClient(), plan=plan, criterion="wilson95", run_dir=sweep,
-               clock=ZERO, replicates=REPLICATES)
+    run_sweeps(runs.sources, _LoopClient(), plan=plan, criterion="wilson95", run_dir=sweep,
+               clock=ZERO, replicates=REPLICATES, skip=_only(T_ORACLE_AAS))
     analysis = analyze_sweep_run(sweep, runs.baseline, replicates=REPLICATES)
     (curve,) = analysis.curves
     by_k = {e.k: e for e in curve.result.estimates}
@@ -1282,12 +1290,13 @@ ALT_MODEL = "claude-opus-5-5-preview"
 
 def test_more_than_one_response_model_blocks_aggregates_and_gate(runs: _Runs, tmp_path: Path) -> None:
     sweep = tmp_path / "alt"
-    subset = {t: runs.sources[t] for t in (T_EXTRA_COMMENT, T_ORACLE_CA)}
-    run_sweeps(subset, _ModelSwapClient(), plan=PLAN, criterion="wilson95", run_dir=sweep, clock=ZERO, replicates=REPLICATES)
+    run_sweeps(runs.sources, _ModelSwapClient(), plan=PLAN, criterion="wilson95", run_dir=sweep, clock=ZERO, replicates=REPLICATES,
+               skip=_only(T_EXTRA_COMMENT, T_ORACLE_CA))
     analysis = analyze_sweep_run(sweep, runs.baseline, replicates=REPLICATES)
     assert analysis.pooling_blocked is not None and ALT_MODEL in analysis.pooling_blocked
     assert set(analysis.response_models) == {"claude-opus-5-5", ALT_MODEL}
     assert analysis.cliff_rate is None and analysis.mean_largest_drop is None and analysis.gate is None
+    assert analysis.time_windows == ()  # decision 018 §5：時間窗也是跨 model 的合併
     assert len(analysis.curves) == 2  # 曲線照列
     md = render_markdown(analysis)
     assert "009 §4" in md and ALT_MODEL in md
@@ -1338,3 +1347,184 @@ def test_partial_safety_lists_every_aborted_sweep_attempt(runs: _Runs, cache: di
         }
         for row in rows
     )
+
+
+# ================================================================ decision 018：summary 語意、manifest 列、目錄識別、multi-tool turn
+
+
+def _rows(path: Path) -> list[dict[str, Any]]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+
+
+def _write_rows(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.write_text("".join(canonical_json(row) + "\n" for row in rows), encoding="utf-8")
+
+
+def _partial_row(sweep: Path, budget: SweepRunSummary) -> tuple[list[dict[str, Any]], int]:
+    rows = _rows(sweep / "manifest.jsonl")
+    index = next(i for i, row in enumerate(rows) if row["task_id"] not in budget.completed)
+    return rows, index
+
+
+def test_budget_fixture_has_a_partial_sweep(budget_runs: _Runs, cache: dict[Path, SweepAnalysis]) -> None:
+    analysis = _analysis(budget_runs, cache)
+    assert analysis.partial_sweeps and analysis.partial_sweeps[0]["task_id"] == COMPLETED[1]
+
+
+def _tamper_partial_rows(change: str, sweep: Path, budget: SweepRunSummary) -> None:
+    rows, i = _partial_row(sweep, budget)
+    row = rows[i]
+    if change == "duplicate":
+        rows.insert(i + 1, dict(row))
+    elif change == "attempt-gap":
+        rows[i] = {**row, "attempt": 2}
+    elif change == "k-out-of-range":
+        rows[i] = {**row, "checkpoint_turn": 999}
+    elif change == "k-none":
+        rows[i] = {**row, "checkpoint_turn": None}
+    elif change == "checkpoint-id":
+        rows[i] = {**row, "checkpoint_id": "sha256:" + "1" * 64}
+    elif change == "harness":
+        rows[i] = {**row, "outcome": "aborted", "error_class": "harness", "trajectory_id": None, "termination": None,
+                   "exception_type": "builtins.RuntimeError", "message": "x"}
+    elif change == "completed-then-retry":
+        rows.insert(i + 1, {**row, "attempt": 2})
+    _write_rows(sweep / "manifest.jsonl", rows)
+
+
+@pytest.mark.parametrize(
+    "change", ["duplicate", "attempt-gap", "k-out-of-range", "k-none", "checkpoint-id", "harness", "completed-then-retry"]
+)
+def test_rows_of_unfinished_sweeps_are_validated(change: str, budget_runs: _Runs, tmp_path: Path) -> None:
+    sweep = tmp_path / "budget"
+    shutil.copytree(budget_runs.sweep, sweep)
+    _tamper_partial_rows(change, sweep, budget_runs.summary)
+    with pytest.raises(ValueError):
+        analyze_sweep_run(sweep, budget_runs.baseline, replicates=REPLICATES)
+
+
+def test_an_unfinished_retry_is_allowed_only_when_the_budget_stopped_it(budget_runs: _Runs, tmp_path: Path) -> None:
+    sweep = tmp_path / "budget"
+    shutil.copytree(budget_runs.sweep, sweep)
+    rows, i = _partial_row(sweep, budget_runs.summary)
+    rows[i] = {**rows[i], "outcome": "aborted", "error_class": "infrastructure", "trajectory_id": None, "termination": None,
+               "exception_type": "anthropic.APIConnectionError", "message": "x"}
+    _write_rows(sweep / "manifest.jsonl", rows)
+    analysis = analyze_sweep_run(sweep, budget_runs.baseline, replicates=REPLICATES)  # 預算擋下了重試：可以
+    assert analysis.stopped_by_budget == ("budget",)
+    _rewrite(sweep / "summary.json", lambda d: d.update(stopped_by_budget=False))
+    with pytest.raises(ValueError):  # 沒有因預算停止卻少跑、且重試沒做
+        analyze_sweep_run(sweep, budget_runs.baseline, replicates=REPLICATES)
+
+
+SUMMARY_SEMANTICS: dict[str, Callable[[dict[str, Any]], Any]] = {
+    "sources-subset": lambda d: d.update(sources=d["sources"][:5], families={t: d["families"][t] for t in d["sources"][:5]}),
+    "sources-reordered": lambda d: d.update(sources=list(reversed(d["sources"]))),
+    "sources-empty": lambda d: d.update(sources=[], missing_sources=[], families={}),
+    "missing-reordered": lambda d: d.update(missing_sources=list(reversed(d["missing_sources"]))),
+    "not-stopped-but-short": lambda d: d.update(stopped_by_budget=False),
+    "skipped-with-rows": lambda d: d.update(skipped=[COMPLETED[1]]),  # 部分完成、manifest 有 rollout 的 source
+    "skipped-missing-source": lambda d: d.update(skipped=[d["missing_sources"][0]]),
+    "skipped-not-a-list": lambda d: d.update(skipped="x"),
+    "config-unhashable": lambda d: d.update(config_id=[]),
+    "config-dict": lambda d: d.update(config_id={"a": 1}),
+}
+
+
+@pytest.mark.parametrize("change", sorted(SUMMARY_SEMANTICS))
+def test_sweep_summary_semantics_are_checked(change: str, budget_runs: _Runs, tmp_path: Path) -> None:
+    sweep = tmp_path / "budget"
+    shutil.copytree(budget_runs.sweep, sweep)
+    _rewrite(sweep / "summary.json", SUMMARY_SEMANTICS[change])
+    with pytest.raises(ValueError):
+        analyze_sweep_run(sweep, budget_runs.baseline, replicates=REPLICATES)
+
+
+def _case_insensitive(path: Path) -> bool:
+    variant = path.parent / path.name.swapcase()
+    return path.name != path.name.swapcase() and variant.exists() and variant.samefile(path)
+
+
+def test_the_same_directory_through_another_spelling_is_rejected(runs: _Runs, tmp_path: Path) -> None:
+    link = tmp_path / "link"
+    link.symlink_to(runs.sweep)
+    for dirs in ([runs.sweep, link], [link, runs.sweep]):
+        with pytest.raises(ValueError):
+            analyze_sweep_runs(dirs, runs.baseline, replicates=REPLICATES)
+    baseline_link = tmp_path / "baseline-link"
+    baseline_link.symlink_to(runs.baseline)
+    with pytest.raises(ValueError):  # baseline 本身（換個路徑）也不能當 sweep 目錄
+        analyze_sweep_runs([baseline_link], runs.baseline, replicates=REPLICATES)
+    upper = runs.sweep.parent / runs.sweep.name.upper()
+    if _case_insensitive(runs.sweep):  # macOS 預設不分大小寫：resolve() 不會正規化大小寫
+        with pytest.raises(ValueError):
+            analyze_sweep_runs([runs.sweep, upper], runs.baseline, replicates=REPLICATES)
+
+
+@pytest.mark.parametrize("kind", ["missing", "loop", "file", "no-manifest"])
+def test_unusable_sweep_directories_are_value_errors(kind: str, runs: _Runs, tmp_path: Path) -> None:
+    target = tmp_path / "target"
+    if kind == "loop":
+        target.symlink_to(target)
+    elif kind == "file":
+        target.write_text("x", encoding="utf-8")
+    elif kind == "no-manifest":
+        target.mkdir()
+    with pytest.raises(ValueError):
+        analyze_sweep_runs([target], runs.baseline, replicates=REPLICATES)
+    with pytest.raises(ValueError):
+        analyze_sweep_runs([runs.sweep], target, replicates=REPLICATES)
+
+
+class _DoubleReadClient:
+    """T_DOUBLE：照 oracle，做完後一個 turn 同時讀兩個 issue（tool_use_blocks = 2），再結束；其他 task 交給 OracleFakeClient。
+    baseline 與 sweep 共用（t = request 中的 assistant 訊息數，前綴與續跑照同一個劇本）。"""
+
+    def __init__(self) -> None:
+        self._inner = OracleFakeClient(POOL)
+        self.beta = self
+        self.messages = self
+
+    def create(self, **request: Any) -> Any:
+        if request["messages"][0]["content"] != BY_ID[T_DOUBLE].task.instruction:
+            return self._inner.create(**request)
+        t = sum(1 for message in request["messages"] if message["role"] == "assistant")
+        oracle = BY_ID[T_DOUBLE].oracle_calls
+        signature = f"dbl|{t}"
+        if t < len(oracle):
+            return _respond(oracle, signature, t)
+        if t == len(oracle):
+            first, second = sorted(issue["id"] for issue in BY_ID[T_DOUBLE].task.initial_state["issues"])[:2]
+            return FakeResponse(
+                content=[thinking_block(signature), tool_use_block("toolu_a", "get_issue", {"issue_id": first}),
+                         tool_use_block("toolu_b", "get_issue", {"issue_id": second})],
+                stop_reason="tool_use",
+                usage=_usage(),
+            )
+        return _respond((), signature, 0)
+
+
+T_DOUBLE = "gen-escalate-label-s3"
+
+
+def test_multi_tool_turns_of_sources_and_sweep_rollouts_are_listed(tmp_path: Path) -> None:
+    baseline = tmp_path / "baseline"
+    run_split("eval", _DoubleReadClient(), run_dir=baseline, clock=ZERO)
+    sources = select_sources(baseline)
+    n = len(BY_ID[T_DOUBLE].oracle_calls)
+    assert sources[T_DOUBLE] is not None and len(sources[T_DOUBLE].turns) == n + 2
+    sweep = tmp_path / "sweep"
+    plan = SweepPlan(coarse_stride=1, n_coarse=1, n_fine=1, drop_threshold=0.5)
+    run_sweeps(sources, _DoubleReadClient(), plan=plan, criterion="wilson95", run_dir=sweep, clock=ZERO, replicates=REPLICATES,
+               skip=tuple(t for t in IDS if t != T_DOUBLE))
+    analysis = analyze_sweep_run(sweep, baseline, replicates=REPLICATES)
+    assert analysis.source_multi_tool_turns == ({"task_id": T_DOUBLE, "turn": n},)
+    (curve,) = analysis.curves
+    expected = tuple(
+        {"run": "sweep", "task_id": T_DOUBLE, "k": r.k, "rollout_index": r.rollout_index, "turn": n}
+        for r in curve.result.rollouts
+        if r.k <= n  # k 之後才有 rerun 自己的 turn；k = n + 1 的前綴已含那個 turn
+    )
+    assert analysis.multi_tool_turns == expected and len(expected) == n + 1
+    md = render_markdown(analysis)
+    assert "multi-tool" in md and f"turn {n}" in md

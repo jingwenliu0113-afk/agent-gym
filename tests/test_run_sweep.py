@@ -202,7 +202,8 @@ def test_source_from_another_agent_is_rejected(eval_run: Path, tmp_path: Path) -
 
 @pytest.mark.parametrize(
     "change",
-    ["plan", "empty", "budget-zero", "budget-nan", "budget-bool", "run-dir"],
+    ["plan", "empty", "budget-zero", "budget-nan", "budget-bool", "run-dir", "subset", "extra-task", "skip-missing", "skip-unknown",
+     "skip-str"],
 )
 def test_bad_arguments_are_rejected_without_running(change: str, eval_run: Path, tmp_path: Path) -> None:
     sources: Any = select_sources(eval_run)
@@ -217,6 +218,17 @@ def test_bad_arguments_are_rejected_without_running(change: str, eval_run: Path,
         kwargs["max_cost_usd"] = math.nan
     elif change == "budget-bool":
         kwargs["max_cost_usd"] = True
+    elif change == "subset":  # decision 018 §1：sources 必須剛好涵蓋全部 eval task
+        sources = {t: sources[t] for t in EVAL_IDS[:3]}
+    elif change == "extra-task":
+        sources = {**sources, "gen-assign-and-start-s0": None}
+    elif change == "skip-missing":  # skip 只能包含有 source 的 task
+        sources = {**sources, EVAL_IDS[0]: None}
+        kwargs["skip"] = (EVAL_IDS[0],)
+    elif change == "skip-unknown":
+        kwargs["skip"] = ("not-a-task",)
+    elif change == "skip-str":
+        kwargs["skip"] = EVAL_IDS[0]
     else:
         (tmp_path / "s").mkdir()
         (tmp_path / "s" / "x").write_text("x", encoding="utf-8")
@@ -244,6 +256,7 @@ def test_summary_fields_are_stable() -> None:
         "config_id",
         "sources",
         "missing_sources",
+        "skipped",
         "completed",
         "results",
         "families",
@@ -280,8 +293,8 @@ def test_unknown_criterion_is_rejected_without_running(eval_run: Path, tmp_path:
 # ---------------------------------------------------------------- rollout 存檔與格式（decision 017 §1 / §2）
 
 
-def test_sweep_output_format_is_v2() -> None:
-    assert SWEEP_SUMMARY_FORMAT == "agent-gym/sweep-run/v2"
+def test_sweep_output_format_is_v3() -> None:
+    assert SWEEP_SUMMARY_FORMAT == "agent-gym/sweep-run/v3"  # v3：skipped（decision 018）
 
 
 def test_dry_run_saves_every_completed_rollout_trajectory(eval_run: Path, tmp_path: Path) -> None:
@@ -352,3 +365,77 @@ def test_select_sources_reads_an_interrupted_baseline_without_summary(eval_run: 
     assert {t: s.trajectory_id for t, s in without.items() if s is not None} == {
         t: s.trajectory_id for t, s in with_summary.items() if s is not None
     }
+
+
+# ---------------------------------------------------------------- 續跑（decision 018 §1）
+
+
+def test_skipped_sources_are_not_run_and_are_recorded(eval_run: Path, tmp_path: Path) -> None:
+    sources = select_sources(eval_run)
+    skip = tuple(reversed(EVAL_IDS[3:]))  # 順序不影響：summary 依 eval pool 的順序
+    run_dir = tmp_path / "s"
+    summary = run_sweeps(sources, OracleFakeClient(week1_pool("eval")), plan=SMALL_PLAN, criterion="wilson95", run_dir=run_dir,
+                         clock=ZERO, replicates=50, skip=skip)
+    assert summary.skipped == tuple(EVAL_IDS[3:]) and summary.completed == tuple(EVAL_IDS[:3])
+    assert summary.sources == tuple(EVAL_IDS)
+    assert {row.task_id for row in read_manifest(run_dir / "manifest.jsonl")} == set(EVAL_IDS[:3])
+    assert summary.cliff_rate is None and summary.mean_largest_drop is None  # 012 §1：以 eval pool 的全部 family 判定
+    data = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+    assert data["skipped"] == list(EVAL_IDS[3:])
+
+
+class _InterruptAfter:
+    def __init__(self, inner: Any, n: int) -> None:
+        self._inner = inner
+        self._left = n
+        self.beta = self
+        self.messages = self
+
+    def create(self, **request: Any) -> Any:
+        if self._left == 0:
+            raise KeyboardInterrupt
+        self._left -= 1
+        return self._inner.create(**request)
+
+
+def test_cli_resume_runs_only_the_sources_not_completed_before(
+    eval_run: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from experiments.analyze_sweep import analyze_sweep_runs
+    from experiments.run_sweep import main
+
+    monkeypatch.chdir(tmp_path)
+    old = tmp_path / "runs" / "old"
+    with pytest.raises(KeyboardInterrupt):
+        run_sweeps(select_sources(eval_run), _InterruptAfter(OracleFakeClient(week1_pool("eval")), 40), plan=SMALL_PLAN,
+                   criterion="wilson95", run_dir=old, clock=ZERO, replicates=50)
+    done = sorted(path.stem for path in (old / "sweeps").glob("*.json"))
+    assert 0 < len(done) < 15 and not (old / "summary.json").exists()
+    plan_text = "3,2,2,0.3"
+    assert main(["--baseline-run", str(eval_run), "--plan", plan_text, "--criterion", "wilson95", "--dry-run",
+                 "--run-name", "new", "--resume-from", str(old)]) == 0
+    new = tmp_path / "runs" / "new"
+    data = json.loads((new / "summary.json").read_text(encoding="utf-8"))
+    assert sorted(data["skipped"]) == done
+    assert sorted(data["completed"]) == sorted(t for t in EVAL_IDS if t not in done)
+    assert not ({row.task_id for row in read_manifest(new / "manifest.jsonl")} & set(done))  # 已完成的不重複付費
+    analysis = analyze_sweep_runs([old, new], eval_run, replicates=50)
+    assert len(analysis.curves) == 15 and analysis.not_completed == () and analysis.cliff_rate is not None
+    rows = [*read_manifest(old / "manifest.jsonl"), *read_manifest(new / "manifest.jsonl")]
+    assert analysis.cost_usd == pytest.approx(sum(row.cost_usd for row in rows))
+
+
+def test_cli_resume_rejects_a_different_plan_or_criterion(
+    eval_run: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from experiments.run_sweep import main
+
+    monkeypatch.chdir(tmp_path)
+    old = tmp_path / "runs" / "old"
+    run_sweeps(select_sources(eval_run), OracleFakeClient(week1_pool("eval")), plan=SMALL_PLAN, criterion="wilson95", run_dir=old,
+               clock=ZERO, replicates=50, skip=tuple(EVAL_IDS[2:]))
+    for plan_text, criterion in (("3,2,4,0.3", "wilson95"), ("3,2,2,0.3", "bonferroni95")):
+        with pytest.raises(ValueError):
+            main(["--baseline-run", str(eval_run), "--plan", plan_text, "--criterion", criterion, "--dry-run",
+                  "--run-name", "bad", "--resume-from", str(old)])
+        assert not (tmp_path / "runs" / "bad").exists()

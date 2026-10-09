@@ -105,7 +105,7 @@ def main() -> None:  # pragma: no cover - CLI
             total = math.fsum(e.cost_usd for e in episodes)
             line = f"{split} {name}: {len(episodes)} episodes, ${total:.2f} per rollout of the split"
             if split == "eval":
-                for n_fine in (24, 32):
+                for n_fine in (24, 32, 48):  # 48 = decision 025 §3 確認的 plan（選項 A）
                     bound = math.fsum(sweep_upper_bound(e, n_fine) for e in episodes)
                     line += f"; sweep upper bound (n_fine={n_fine}) ${bound:.0f}"
             print(line)

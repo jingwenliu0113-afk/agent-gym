@@ -989,8 +989,8 @@ def test_render_markdown_mentions_every_required_section(runs: _Runs, cache: dic
     assert "ci" in lower and "cliff" in lower
     for key in analysis.gate.patterns:  # cliff turn 模式與 Gate 評估
         assert key in md
-    assert "提案" in md or "proposal" in lower
-    assert "未經" in md or "未確認" in md or "not yet confirmed" in lower or "unconfirmed" in lower
+    assert "decision 025" in md and f"`{analysis.gate.outcome}`" in md  # 使用者已確認的規則與機械化的結果（decision 025 §4）
+    assert "未經使用者確認" not in md
     assert "15" in md and ("初步" in md or "preliminary" in lower)
     assert "成本" in md or "cost" in lower
     assert render_markdown(analysis) == md
@@ -1010,7 +1010,7 @@ def test_render_markdown_lists_sources_not_completed(budget_runs: _Runs, cache: 
 
 
 def test_analysis_format_is_v4() -> None:
-    assert SWEEP_ANALYSIS_FORMAT == "agent-gym/sweep-analysis/v4"  # v3：baseline_runs（decision 019 §4）；v4：dry_run（021）
+    assert SWEEP_ANALYSIS_FORMAT == "agent-gym/sweep-analysis/v5"  # v3：baseline_runs（019 §4）；v4：dry_run（021）；v5：Gate outcome（025）
     assert [f.name for f in dataclasses.fields(WindowEstimate)] == ["date", "n_sources", "n_rollouts", "success_rate"]
 
 

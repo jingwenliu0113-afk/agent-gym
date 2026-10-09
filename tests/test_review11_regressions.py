@@ -64,7 +64,7 @@ def test_format_versions() -> None:
     assert SUMMARY_FORMAT == "agent-gym/baseline-run/v2"
     assert ANALYSIS_FORMAT == "agent-gym/baseline-analysis/v3"
     assert SWEEP_SUMMARY_FORMAT == "agent-gym/sweep-run/v7"  # v7：decision 023
-    assert SWEEP_ANALYSIS_FORMAT == "agent-gym/sweep-analysis/v4"
+    assert SWEEP_ANALYSIS_FORMAT == "agent-gym/sweep-analysis/v5"  # v5：decision 025
 
 
 @pytest.mark.parametrize("dry_run", [True, False])
@@ -87,7 +87,8 @@ def test_run_baseline_cli_marks_dry_runs(tmp_path: Path, monkeypatch: pytest.Mon
     assert run_baseline.main(["--split", "eval", "--dry-run", "--run-name", "rehearsal"]) == 0
     assert _run_json(tmp_path / "runs" / "rehearsal")["dry_run"] is True
     monkeypatch.setattr(run_baseline, "make_anthropic_client", lambda: OracleFakeClient(POOL))
-    assert run_baseline.main(["--split", "eval", "--confirm-paid-run", "--max-cost-usd", "5", "--run-name", "real"]) == 0
+    assert run_baseline.main(["--split", "eval", "--rollouts", "3", "--confirm-paid-run", "--max-cost-usd", "5",
+                              "--run-name", "real"]) == 0  # 付費 eval 的 R = 3（decision 025 §2）
     assert _run_json(tmp_path / "runs" / "real")["dry_run"] is False
 
 
@@ -158,8 +159,11 @@ def _sweep_cli(baseline: Path, *extra: str) -> int:
 
 @pytest.fixture
 def fake_paid(monkeypatch: pytest.MonkeyPatch) -> list[int]:
-    """以 OracleFakeClient 模擬付費 client；回傳的 list 記錄被建立的次數。"""
+    """以 OracleFakeClient 模擬付費 client；回傳的 list 記錄被建立的次數。這些測試的對象是 dry-run / 付費的區分（decision 021），
+    為了速度用小的 plan：把登記的付費設定（decision 025 §3）暫時換成這裡的 PLAN / wilson95。"""
     made: list[int] = []
+    monkeypatch.setattr(run_sweep, "REGISTERED_PLAN", PLAN)
+    monkeypatch.setattr(run_sweep, "REGISTERED_CRITERION", "wilson95")
 
     def make() -> OracleFakeClient:
         made.append(1)

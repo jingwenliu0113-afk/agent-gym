@@ -16,7 +16,8 @@
 
 --baseline-run 要列出 eval baseline 的**所有**目錄（中斷後重跑的也算；與 analyze_baseline 相同），source 依 decision 019 §1 選取。
 
-SweepPlan 與驟降判定（--criterion）都沒有預設值：必須明確給定（decision 011 / 015 的選擇屬於使用者決策）。
+SweepPlan 與驟降判定（--criterion）都沒有預設值：必須明確給定。付費 sweep（--confirm-paid-run）只接受使用者確認的
+``--plan 2,10,48,0.3 --criterion bonferroni95``（decision 025 §3）；dry-run 不受限制。
 輸出（gitignored）：``runs/<name>/`` 下 ``run.json``（開始時寫入的設定與略過清單，decision 019 §2）、``manifest.jsonl``、
 ``sweeps/<task_id>.json``（每個 source 的 SweepResult）、
 ``rollouts/<task_id>/k<k>-r<i>.json``（每個完成的 rerun trajectory，decision 017 §2）、``summary.json``。
@@ -61,6 +62,9 @@ COMPLETED_OUTCOMES = ("success", "failure", "refusal")
 # v6：dry_run（021）；v7：完成的 sweep 可含祖先目錄的最終結果（續跑接續，023）。run.json 與 summary.json 共用此 format
 SWEEP_SUMMARY_FORMAT = "agent-gym/sweep-run/v7"
 RUN_FILE = "run.json"
+# decision 025 §3：付費 sweep 必須使用的設定（decision 011 選項 A）；dry-run 不受限制
+REGISTERED_PLAN = SweepPlan(coarse_stride=2, n_coarse=10, n_fine=48, drop_threshold=0.3)
+REGISTERED_CRITERION = "bonferroni95"
 _RUN_ID = re.compile(r"[0-9a-f]{32}")
 
 
@@ -483,6 +487,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     plan = parse_plan(args.plan)
+    if not args.dry_run and (plan != REGISTERED_PLAN or args.criterion != REGISTERED_CRITERION):
+        parser.error(
+            "a paid sweep must use the registered plan 2,10,48,0.3 and criterion bonferroni95 (decision 025 §3); "
+            "use --dry-run for other settings"
+        )
     name = args.run_name or ("dry-run-sweep" if args.dry_run else "sweep")
     run_dir = Path("runs") / name
     if run_dir.exists() and (not run_dir.is_dir() or any(run_dir.iterdir())):

@@ -38,6 +38,7 @@ from tasks.generator import GeneratedInstance, week1_pool
 
 SUMMARY_FORMAT = "agent-gym/baseline-run/v2"  # v2：run.json（decision 021 §1）；run.json 與 summary.json 共用
 RUN_FILE = "run.json"
+REGISTERED_EVAL_ROLLOUTS = 3  # decision 025 §2：付費 eval baseline 的 R；dev sanity 與 dry-run 不受限制
 
 
 @dataclass
@@ -375,6 +376,8 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - CLI
     else:
         if args.max_cost_usd is None:
             parser.error("--confirm-paid-run requires --max-cost-usd")
+        if args.split == "eval" and args.rollouts != REGISTERED_EVAL_ROLLOUTS:
+            parser.error(f"a paid eval baseline must use --rollouts {REGISTERED_EVAL_ROLLOUTS} (decision 025 §2)")
         client = make_anthropic_client()
         name = args.run_name or f"baseline-{args.split}"
         budget = args.max_cost_usd

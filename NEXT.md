@@ -6,7 +6,8 @@ Core：Day 1 完成；Week 1 除「#5 baseline 真正跑完整 task」以外都�
 需要真正呼叫 LLM 的步驟（dev sanity、eval baseline、eval 上的 failure localization sweep）依使用者決策 **deferred / blocked-by-paid-API**；
 keyless Core infrastructure（含分析工具、驟降判定選項、README 示範）已完成；第七輪對抗式審查找出的 keyless 缺口
 （已登記但漏實作的規則、只信任 summary 的分析）已依 decision 017 補齊；第八～十二輪審查與付費流程模擬找出的缺口已依 decision 018 – 024 補齊。
-**所有 keyless Core 工作已完成；剩下的都在下方「Blocked / 需要使用者」**（付費 LLM run 與研究設計決策）。
+**所有 keyless Core 工作已完成；研究設計決策已由使用者確認（decision 025）；剩下的只有下方「Blocked / 需要使用者」的付費 LLM run**
+（2026-10-09 使用者指示：API 的部分先不做）。
 尚未進 Advanced（Gate 未滿足：還沒有任何真實的 failure localization 結果）。
 
 Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/jingwenliu0113-afk/agent-gym），main 追蹤 origin/main；
@@ -14,7 +15,7 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 `d7241dc` Day 1 → `5c8ada4` Week 1 replay infrastructure → `c554735` keyless baseline adapter + attempt manifest →
 `638be6d` §6 failure localization infrastructure → `7a796f3` 付費 run 執行工具 + 計費修正 → SweepPlan 偵測力模擬（decision 011）→
 `b8c600f` 預先登記的分析工具 + README 示範（decision 015 / 016）→ `9baae38`…`63bde0b` 第七輪審查修正（decision 017）→
-第八輪審查修正（decision 018）→ `7a94d24` 第九輪（decision 019）→ `724f3b9` 第十輪（decision 020）→ `f750931` 第十一輪（decision 021）→ `88bdb02` 第十二輪（decision 022）→ `9cf7f8f` 付費流程模擬（decision 023）→ 023 的審查（decision 024）。
+第八輪審查修正（decision 018）→ `7a94d24` 第九輪（decision 019）→ `724f3b9` 第十輪（decision 020）→ `f750931` 第十一輪（decision 021）→ `88bdb02` 第十二輪（decision 022）→ `9cf7f8f` 付費流程模擬（decision 023）→ `8695714` 023 的審查（decision 024）→ 使用者確認的 run 設計（decision 025）。
 
 ## 上次完成（2026-10-08 / 10-09）
 
@@ -126,7 +127,13 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
    - 審查判定不成立而未處理：以 Python API 繞過 CLI 時，completing 目錄的祖先以外的目錄可能有重複的最終結果（列為 partial、成本照計）。
    - 驗證：審查留下的隨機續跑鏈模擬（3 種 plan、65 條鏈、每條最多 80 次續跑，混合預算停止、Ctrl-C（call 中、重試中、存檔前後、記帳後、sweep 完成後）與不完美的假 client）在 024 之後全部通過：每條曲線都與沒有中斷的排程完全相同，沒有任何 rollout 在已有最終結果後再執行，成本、partial_sweeps 與中止嘗試的計數都正確（024 之前有 8 條失敗）。
 
-測試：`uv run pytest` → 8699 passed、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 4–6 分鐘；`ruff check` 通過。
+15. **使用者確認的付費 run 設計**（decision 025，2026-10-09「照你建議」）：模型 `claude-opus-5-5` 不變；預算分段（先 dev sanity $10，
+   之後依實測重估再核准）；R = 3；SweepPlan 選項 A（`bonferroni95` + (2, 10, 48, 0.3)）；Gate 照 012 §4 提案，並把三種結果機械化
+   （`advanced` / `gradual` / `no_repeated_pattern`，另有 `no_data`；sweep 分析格式 v5）。付費 run 的 CLI 只接受登記的設定
+   （eval baseline 的 `--rollouts 3`；sweep 的 `--plan 2,10,48,0.3 --criterion bonferroni95`），不符時在任何 call 之前拒絕；
+   dry-run 不受限制。`cost_estimate` 加印 n_fine = 48 的上限。
+
+測試：`uv run pytest` → 8716 passed、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 4–6 分鐘；`ruff check` 通過。
 
 ## 使用者決策（2026-10-08 / 10-09）
 
@@ -137,6 +144,7 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
   所有 keyless Core infrastructure 完成、只剩 paid runs 時，才一次性回報需要的 paid runs、預估成本與順序。
 - （2026-10-09）使用者離開期間：需要使用者決策、批准、key、credential、sudo、人工標註、修改 frozen protocol、進 Advanced / Optional 的
   事項不等待，記到下方「Blocked / 需要使用者」後跳過；只有所有可做的 Core 都完成或全部 blocked 時才停。
+- （2026-10-09）研究設計決策「照建議」：見 decision 025（模型不變、預算分段、R = 3、選項 A、Gate 三種結果）。同時指示：**API 的部分先不做**，先完成其他能做的工作。
 - （2026-10-09 晚）Mac 使用自動電力模式：只暫停會產生正式 performance-sensitive 結果的 Mac 實驗（正式 Mac performance benchmark、
   正式 incident collection 先 deferred）；一般 heavy 工作、correctness、資料處理、開發測試、gpu-server 工作照常。本 project 目前唯一
   performance-sensitive 的數字是正式 LLM run 的 `latency_s`（SPEC §4 的 latency 指標），而正式 run 已因付費 API deferred；
@@ -160,18 +168,12 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 
 以下全部需要使用者決定或付費 API；keyless Core 已沒有其他可做的工作。程式不讀取、不保存任何 API key（由 SDK 從環境變數解析）。
 
-### A. 研究設計決策（paid runs 之前）
+### A. 研究設計決策：已確認（decision 025，2026-10-09）
 
-1. 模型 `claude-opus-5-5`（decision 009）與各階段預算；credential 由環境變數提供，帳號必須可用 `thinking-binding-controls-2026-08-01` beta。
-2. eval rollout 數 R（提案 R = 3）。
-3. SweepPlan / 驟降判定（decision 011；依預先登記規則**沒有合格 plan**，不自行放寬）。選定後另立 decision log 記錄：
-   - A：`--criterion bonferroni95` + (2, 10, 48, 0.3)：cliff 偵測 0.83、gradual 誤判 0.03；估算 $213 – $3,241（唯一兩個門檻都達到的設定）
-   - B：`--criterion wilson95` + (2, 10, 32, 0.3)：0.83 / 0.14；$155 – $2,362
-   - C：`--criterion wilson95` + (2, 8, 24, 0.3)：0.64 / 0.15；$99 – $1,510
-4. Gate 判定的操作化（decision 012 §4 提案，尚未確認），包含「收尾」分支（多數 source 為 gradual 且彼此不同 → 正式報告「失敗是逐步累積」）
-   中「彼此不同」的定義；目前分析只機械化判定進 Advanced 的條件。
+模型 `claude-opus-5-5`；預算分段（先 dev sanity $10）；R = 3；SweepPlan 選項 A（`bonferroni95` + (2, 10, 48, 0.3)，估算 $213 – $3,241，
+dev sanity 後重估）；Gate 三種結果（`advanced` / `gradual` / `no_repeated_pattern`）。不需要再決定任何事項。
 
-### B. 付費 LLM runs（依序；每一步都需要使用者先確認預算並提供 credential）
+### B. 付費 LLM runs（依序；使用者提供 credential 並明確指示開始後才執行；2026-10-09 指示：先不做）
 
 前提：Mac 不在自動電力模式（`latency_s` 是 performance-sensitive 指標；2026-10-09 晚的電力模式期間不跑正式 run）。
 成本都是 dry-run request 大小推得的估計（`uv run python -m experiments.cost_estimate`；低 / 高情境見 decision 012），dev sanity 後以實測重估。
@@ -179,29 +181,24 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 1. dev sanity（估計 $0.42 – $6.78）：`uv run --extra llm python -m experiments.run_baseline --split dev --confirm-paid-run --max-cost-usd 10`；
    以實測 tokens / call 重估 eval 與 sweep 的成本，再請使用者確認預算。
 2. eval baseline（每輪 15 題估計 $1.16 – $18.51；R = 3 約 $3.5 – $56）：
-   `uv run --extra llm python -m experiments.run_baseline --split eval --rollouts <R> --confirm-paid-run --max-cost-usd <X>`
-   （R 由 A.2 決定；`--rollouts` 預設為 1）。被中斷或因預算停止時以新目錄（`--run-name <新名稱>`）重跑；dry-run 的目錄不能一起傳入
+   `uv run --extra llm python -m experiments.run_baseline --split eval --rollouts 3 --confirm-paid-run --max-cost-usd <X>`
+   （X 在 dev sanity 重估後由使用者核准；付費 eval 只接受 `--rollouts 3`，decision 025 §2）。被中斷或因預算停止時以新目錄（`--run-name <新名稱>`）重跑；dry-run 的目錄不能一起傳入
    （decision 021 §1）；之後所有指令的 baseline
    都要列出**全部**目錄（analyze_baseline 的位置參數、run_sweep / analyze_sweep 的 `--baseline-run`；decision 016 A1 / 019 §1）。
-3. 以 decision 012 / 019 的規則選 source → eval sweep（成本見 A.3）：
-   `uv run --extra llm python -m experiments.run_sweep --baseline-run runs/<eval-run> [runs/<eval-rerun> ...] --plan S,NC,NF,T --criterion C --confirm-paid-run --max-cost-usd X`
-   （plan 與 criterion 都沒有預設值；`--dry-run` 已驗證）。被中斷或因預算停止時續跑：
+3. 以 decision 012 / 019 的規則選 source → eval sweep（估算 $213 – $3,241，dev sanity 後重估）：
+   `uv run --extra llm python -m experiments.run_sweep --baseline-run runs/<eval-run> [runs/<eval-rerun> ...] --plan 2,10,48,0.3 --criterion bonferroni95 --confirm-paid-run --max-cost-usd X`
+   （付費 sweep 只接受這組設定，decision 025 §3；`--dry-run` 已驗證）。被中斷或因預算停止時續跑：
    `... --run-name <新名稱> --resume-from runs/<第一個 sweep> [runs/<第二個 sweep> ...]`（列出**所有**先前的 sweep 目錄，較早與較晚的
    都要；`--max-cost-usd` 是這一次的上限，先前花費會印出；做到一半的 source 會接續、已有結果的 rollout 不再執行），分析時把所有
    sweep 目錄一起傳給 analyze_sweep（decision 018 – 023）。
 4. 以真實結果跑 `analyze_baseline` / `analyze_sweep`，把 recoverability curve、trajectory safety、「最終成功但中途有
    forbidden action」案例、Gate 判定放進 README 的「結果」段（README 目前只有 synthetic 示範）。
-5. Gate 判定（需要使用者確認 A.4 之後才能判斷是否進 Advanced）。
+5. Gate 判定：analyze_sweep 依 decision 025 §4 機械化輸出 `advanced` / `gradual` / `no_repeated_pattern`；`advanced` 才進 Advanced。
 
-### C. 環境（系統層，需要使用者處理）
+### C. 環境：已解決（2026-10-09）
 
-- 2026-10-09：`/usr/bin/git`（xcrun shim）載入 `/Applications/Xcode.app/.../libxcrun.dylib` 失敗（"incompatible architecture
-  (have 'arm64', need 'arm64e')"），所以直接打 `git` 的指令都會失敗。修正需要系統層操作（例如更新 / 重新安裝 Xcode，或
-  `sudo xcode-select --switch ...`），依規則不自行處理。
-  - 暫時的繞過方式（不改任何系統設定）：直接用 `/Applications/Xcode.app/Contents/Developer/usr/bin/git`。它沿用原本已授權的
-    keychain helper，所有 commit 都已用它 push 到 origin。
-  - 不要用 `DEVELOPER_DIR=/Library/Developer/CommandLineTools git push`：Command Line Tools 的 osxkeychain helper 會停在
-    keychain 授權（已中止，沒有處理任何 credential）。
+- 系統的 git 原本因 Xcode 的 libxcrun 架構不符而無法執行；使用者已把 developer directory 切到 Command Line Tools，`git` 與 push
+  都恢復正常。
 
 ## 分析前必須注意的已知限制（decision 003 / 004 / 005 / 007 / 009 / 011）
 

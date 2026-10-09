@@ -142,7 +142,7 @@ def test_run_json_is_written_before_the_first_attempt(baselines: dict[str, Path]
 
 def test_format_versions() -> None:
     assert SWEEP_SUMMARY_FORMAT == "agent-gym/sweep-run/v7"  # v4：run.json（019 §2）；v5–v7：020 / 021 / 023
-    assert SWEEP_ANALYSIS_FORMAT == "agent-gym/sweep-analysis/v4"  # v3：baseline_runs（019 §4）；v4：dry_run（021）
+    assert SWEEP_ANALYSIS_FORMAT == "agent-gym/sweep-analysis/v5"  # v3：baseline_runs（019 §4）；v4：dry_run（021）；v5：025
 
 
 @pytest.fixture(scope="module")

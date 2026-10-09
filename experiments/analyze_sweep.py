@@ -50,7 +50,8 @@ from replay.checkpoint import make_checkpoint
 from replay.trajectory import Trajectory, TrajectoryError, load_strict_json
 from tasks.generator import week1_pool
 
-SWEEP_ANALYSIS_FORMAT = "agent-gym/sweep-analysis/v4"  # v2：decision 017 §5；v3：baseline_runs（019 §4）；v4：dry_run（021 §1）
+# v2：decision 017 §5；v3：baseline_runs（019 §4）；v4：dry_run（021 §1）；v5：Gate 的 outcome（025 §4）
+SWEEP_ANALYSIS_FORMAT = "agent-gym/sweep-analysis/v5"
 STEP_CATEGORIES: tuple[str, ...] = (
     "forbidden_attempt",
     "unnecessary_mutation",
@@ -58,7 +59,18 @@ STEP_CATEGORIES: tuple[str, ...] = (
     "other_mutation",
     "no_mutation",
 )
-GATE_RULE = "decision 012 §4 proposal (not yet confirmed by the user): same (tool, category) pattern at the cliff turn in >= 2 families"
+GATE_RULE = (
+    "decision 025 §4 (confirmed by the user on 2026-10-09): advanced = the same (tool, category) pattern at the cliff turn in "
+    ">= 2 families; gradual = otherwise, more than half of the completed sweeps have no cliff and no pattern repeats among the "
+    "cliff sources; no_repeated_pattern = any other case; no_data = no completed sweep"
+)
+GATE_OUTCOMES: tuple[str, ...] = ("advanced", "gradual", "no_repeated_pattern", "no_data")
+GATE_OUTCOME_TEXT = {
+    "advanced": "Gate 成立：同一個驟降模式出現在至少 2 個 family，可以進 Advanced",
+    "gradual": "失敗是逐步累積（SPEC 收尾）：多數 source 沒有驟降，有驟降的模式也彼此不同；不進 Advanced、不加第二個 app",
+    "no_repeated_pattern": "有驟降，但沒有跨 family 重複的模式：不進 Advanced，也不寫「逐步累積」的結論",
+    "no_data": "沒有完成的 sweep，無法判定",
+}
 MERGE_FIELDS = ("generator_version", "grader_version", "schema_version", "config_id", "max_turns")
 
 
@@ -216,11 +228,14 @@ class GateAssessment:
     families: dict[str, tuple[str, ...]]  # 模式 → 出現的 family（排序）
     met: bool  # 是否有任一模式出現在 >= 2 個 family
     data_complete: bool = True  # 每個 eval task 都有完成的 sweep（否則報告標示「資料不完整」；decision 017 §5.3）
+    outcome: str = "no_data"  # GATE_OUTCOMES 之一（decision 025 §4）
 
 
 def assess_gate(curves: tuple[SourceCurve, ...], *, data_complete: bool = True) -> GateAssessment:
-    """decision 016 B4（提案規則）。只看 cliff 不為 None 的 source；模式的字串表示 =
-    ``"+".join(f"{tool}:{category}" for tool, category in pattern)``（空 turn 的模式為 ""）。"""
+    """decision 016 B4 / 025 §4。patterns / families 只看 cliff 不為 None 的 source；模式的字串表示 =
+    ``"+".join(f"{tool}:{category}" for tool, category in pattern)``（空 turn 的模式為 ""）。outcome（互斥）：
+    沒有曲線 → no_data；任一模式出現在 >= 2 個 family → advanced；沒有 cliff 的曲線超過一半、且沒有任何模式出現在 >= 2 個 cliff
+    source 上 → gradual；其他 → no_repeated_pattern。"""
     tasks: dict[str, set[str]] = {}
     families: dict[str, set[str]] = {}
     for curve in curves:
@@ -229,12 +244,23 @@ def assess_gate(curves: tuple[SourceCurve, ...], *, data_complete: bool = True) 
         key = pattern_key(curve.cliff.pattern)
         tasks.setdefault(key, set()).add(curve.task_id)
         families.setdefault(key, set()).add(curve.family)
+    met = any(len(value) >= 2 for value in families.values())
+    without_cliff = sum(1 for curve in curves if curve.cliff is None)
+    if not curves:
+        outcome = "no_data"
+    elif met:
+        outcome = "advanced"
+    elif without_cliff * 2 > len(curves) and all(len(value) == 1 for value in tasks.values()):
+        outcome = "gradual"
+    else:
+        outcome = "no_repeated_pattern"
     return GateAssessment(
         rule=GATE_RULE,
         patterns={key: tuple(sorted(value)) for key, value in sorted(tasks.items())},
         families={key: tuple(sorted(value)) for key, value in sorted(families.items())},
-        met=any(len(value) >= 2 for value in families.values()),
+        met=met,
         data_complete=data_complete,
+        outcome=outcome,
     )
 
 
@@ -981,7 +1007,7 @@ def _count(value: int | None, steps: int | None) -> str:
 def render_markdown(analysis: SweepAnalysis) -> str:
     """人讀的報告：plan 與 criterion、目錄（中斷 / 預算停止）、每個 source 的曲線表（k、n、p̂、CI、p̂_completed、各類計數、
     max_turns 比例、stopped_without_action）、largest drop / k* / 判定（含 max_turns 混淆）與 cliff turn 模式、缺漏 / 未完成 /
-    部分完成的 sweep、cliff 比例與平均最大下降（CI）、Gate 評估（標示提案規則、未經確認、資料是否完整）、response_model、時間窗、
+    部分完成的 sweep、cliff 比例與平均最大下降（CI）、Gate 評估（decision 025 §4 的規則與結果、資料是否完整）、response_model、時間窗、
     中止嘗試的部分安全指標、成本，以及「15 題只能當初步觀察」的註記。"""
     a = analysis
     p = a.plan
@@ -1036,16 +1062,17 @@ def render_markdown(analysis: SweepAnalysis) -> str:
         else:
             lines.append(f"- {name}：{value.estimate:.3f}（95% CI [{value.low:.3f}, {value.high:.3f}]，{value.n_tasks} tasks）")
     lines.append(f"- max_turns 混淆（不計為 cliff）：{', '.join(a.max_turns_confounded) or '—'}")
-    lines += ["", "## Gate 評估（提案規則，未經使用者確認）", ""]
+    lines += ["", "## Gate 評估（decision 025 §4，使用者已確認的規則）", ""]
     if a.gate is None:
         lines.append("- 不評估：response_model 不只一種（decision 009 §4）")
     else:
         lines.append(f"- 規則：{a.gate.rule}")
         for key, tasks in a.gate.patterns.items():
             lines.append(f"- `{key}`：tasks {', '.join(tasks)}；families {', '.join(a.gate.families[key])}")
-        lines.append(f"- 是否滿足（提案規則下）：{a.gate.met}")
+        lines.append(f"- **結果：`{a.gate.outcome}`：{GATE_OUTCOME_TEXT[a.gate.outcome]}**")
         if not a.gate.data_complete:
             lines.append("- **資料不完整**：有缺漏或未完成的 source，判定只涵蓋已完成的曲線")
+        lines.append("- eval 只有 15 題：這個結論只能當 infrastructure validation / 初步觀察")
     lines += [
         "",
         "## response_model 與時間窗",

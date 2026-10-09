@@ -30,6 +30,7 @@ from __future__ import annotations
 import copy
 import json
 import math
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
@@ -409,8 +410,33 @@ class Trajectory:
         return trajectory
 
     def save(self, path: str | Path) -> None:
-        """寫入 ``canonical_json(self.to_dict()) + "\\n"``（UTF-8）。"""
-        Path(path).write_bytes((canonical_json(self.to_dict()) + "\n").encode("utf-8"))
+        """寫入 ``canonical_json(self.to_dict()) + "\\n"``（UTF-8）。atomic（decision 023 §2）：先寫同目錄的暫存檔並 fsync，再以
+        os.replace 換成目標檔，最後盡量 fsync 目錄；失敗時刪除暫存檔、目標檔不變（不會只寫一半）。"""
+        target = Path(path)
+        data = (canonical_json(self.to_dict()) + "\n").encode("utf-8")
+        temporary = target.with_name(f".{target.name}.tmp")
+        try:
+            with open(temporary, "wb") as handle:
+                handle.write(data)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, target)
+        except BaseException:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
+        try:
+            descriptor = os.open(target.parent, os.O_RDONLY)
+        except OSError:
+            return
+        try:
+            os.fsync(descriptor)
+        except OSError:
+            pass
+        finally:
+            os.close(descriptor)
 
     @classmethod
     def load(cls, path: str | Path) -> Trajectory:

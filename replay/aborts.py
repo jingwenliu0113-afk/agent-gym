@@ -272,13 +272,15 @@ def run_logged(
     key: RolloutKey,
     max_turns: int,
     log_path: str | Path,
+    save_path: str | Path | None = None,
 ) -> Trajectory | None:
     """以 ``CountingPolicy(policy)`` 呼叫 ``run``，並把結果寫成一列 AttemptRecord（附加到 log_path）。
 
     執行前檢查（違反 → ValueError，不執行 run、不寫紀錄）：rollout_index 為 int >= 0；attempt 為 int 且
     ``1 <= attempt <= MAX_EPISODE_ATTEMPTS``；manifest 中沒有相同唯一鍵；attempt > 1 時同鍵的 attempt - 1 必須存在且為
     ``outcome == "aborted"``、``error_class == "infrastructure"``。
-    - 成功：寫 outcome="completed"（trajectory_id、termination），回傳 trajectory。
+    - 成功：save_path 不是 None 時**先**以 ``trajectory.save(save_path)`` 存檔（decision 023 §2：manifest 說完成的 rollout 必須
+      能在磁碟上找到；存檔失敗屬於 harness 中止），再寫 outcome="completed"（trajectory_id、termination），回傳 trajectory。
     - ``Exception``：依 classify_exception 分類；若例外帶 ``partial_episode``（replay.runner.PartialEpisode），以 grader 對其
       records 與 env 狀態計算 partial_* 欄位；寫 outcome="aborted"。infrastructure / agent_output → 回傳 None；
       harness → 寫完紀錄後原樣往外拋。
@@ -330,6 +332,8 @@ def run_logged(
     try:
         trajectory = run(counting)
         _check_completed(trajectory, task=task, key=key, max_turns=max_turns, config_id=config_id)
+        if save_path is not None:
+            trajectory.save(save_path)
     except Exception as exc:
         error_class = classify_exception(exc)
         steps, actions, attempts = _partial_metrics(task, getattr(exc, "partial_episode", None))
@@ -399,9 +403,10 @@ def run_with_retries(
     key: RolloutKey,
     max_turns: int,
     log_path: str | Path,
+    save_path: str | Path | None = None,
 ) -> RetryResult:
     """decision 009 的重試規則：key.attempt 必須是 1（否則 ValueError）；attempt = 1, 2, … 依序
-    ``run_logged(run, policy_factory(attempt), key=replace(key, attempt=attempt), ...)``：
+    ``run_logged(run, policy_factory(attempt), key=replace(key, attempt=attempt), ..., save_path=save_path)``：
     - 回傳 trajectory → ``RetryResult(trajectory, attempt, None)``；
     - 回傳 None → 取 manifest 中這次嘗試的 error_class；infrastructure 且 attempt < MAX_EPISODE_ATTEMPTS → 再試；
       否則 ``RetryResult(None, attempt, error_class)``。manifest 找不到這一列 → RuntimeError。
@@ -414,7 +419,9 @@ def run_with_retries(
         attempt += 1
         attempt_key = replace(key, attempt=attempt)
         policy = policy_factory(attempt)
-        trajectory = run_logged(run, policy, task=task, key=attempt_key, max_turns=max_turns, log_path=log_path)
+        trajectory = run_logged(
+            run, policy, task=task, key=attempt_key, max_turns=max_turns, log_path=log_path, save_path=save_path
+        )
         if trajectory is not None:
             return RetryResult(trajectory, attempt, None)
         error_class = _logged_error_class(log_path, task.task_id, policy.agent_config.config_id, attempt_key)

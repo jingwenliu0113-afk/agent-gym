@@ -328,7 +328,41 @@ def analyze_sweep_runs(
     plan: SweepPlan | None = None,
     criterion: str | None = None,
 ) -> SweepAnalysis:
-    """decision 016 B、017 §5、018 與 019。任何不一致 → ValueError。
+    """``resume_state(...)[0]``；見 ``resume_state``。"""
+    return resume_state(sweep_run_dirs, baseline_run_dirs, replicates=replicates, plan=plan, criterion=criterion)[0]
+
+
+@dataclass(frozen=True)
+class _Directory:
+    directory: Path
+    label: str
+    parents: tuple[str, ...]  # run.json 的 resumed_from
+    groups: dict[tuple[str, Any, int], list[AttemptRecord]]  # (task_id, k, i) → 該目錄的嘗試
+    results: dict[str, SweepResult]  # 該目錄完成的 sweep
+
+
+def _is_final(attempts: list[AttemptRecord]) -> bool:
+    """decision 023 §1：最後一次嘗試是 completed、agent_output，或已達 MAX_EPISODE_ATTEMPTS 的 infrastructure 中止。"""
+    last = max(attempts, key=lambda row: row.attempt)
+    return (
+        last.outcome == "completed"
+        or last.error_class == "agent_output"
+        or (last.error_class == "infrastructure" and last.attempt >= MAX_EPISODE_ATTEMPTS)
+    )
+
+
+def resume_state(
+    sweep_run_dirs: Sequence[str | Path],
+    baseline_run_dirs: str | Path | Sequence[str | Path],
+    *,
+    replicates: int = 10000,
+    plan: SweepPlan | None = None,
+    criterion: str | None = None,
+) -> tuple[SweepAnalysis, dict[str, dict[tuple[int, int], RolloutOutcome]]]:
+    """回傳 (analysis, carried)：carried = 沒有在任何目錄完成的 source → 所有目錄中它已有最終結果的 rollout（已核對；decision 023 §1，
+    供 run_sweep 的續跑使用）。
+
+    decision 016 B、017 §5、018、019、021 與 023。任何不一致 → ValueError。
 
     - source = ``run_sweep.select_sources(baseline_run_dirs)``（全部 eval task；eval baseline 的所有目錄，decision 019 §1）。
       每個 sweep 目錄必須存在且有 manifest；目錄以 device + inode 識別，不得重複，也不得是任何 baseline 目錄（decision 018 §4）。
@@ -343,6 +377,8 @@ def analyze_sweep_runs(
       檔案、source 核對（018 §2：sources = 全部 eval task、completed 與 skipped 的語意、不得有 harness 中止、未用完的重試只能出現在
       因預算停止的目錄；cliff_rate 等彙總值只檢查型別，不採用）。所有目錄的 plan 與 criterion 必須相同（給了 plan / criterion
       時也必須與它們相同，供 run_sweep 的續跑使用）；同一個 source 只能在一個目錄完成。
+    - 每個完成的 sweep 的 rollout = 完成它的目錄自己的列 + 該目錄的祖先（resumed_from）中該 source 的最終結果（decision 023 §1；
+      同一個 (k, i) 的最終結果在兩處、或祖先已有最終結果而又被執行 → ValueError）。partial_sweeps 只列沒有進入任何曲線的 (k, i)。
     - 每個完成的 sweep 以 manifest 與 ``rollouts/<task_id>/k<k>-r<i>.json`` 重算核對（rollout 的嘗試數、完成與否與標籤、
       trajectory verify / parent / classify_rollout / termination、run_protocol 重現的排程與 refine 區間、estimate_checkpoint、
       assess_drop）。
@@ -368,8 +404,8 @@ def analyze_sweep_runs(
             raise ValueError("plan and criterion must be given together")
         settings.add(canonical_json([asdict(plan), criterion]))
     checkpoint_ids: dict[tuple[str, int], str] = {}
-    completed: dict[str, tuple[str, SweepResult, list[_Rollout]]] = {}
-    partial_sweeps: list[dict[str, Any]] = []
+    completing: dict[str, str] = {}  # task_id → 完成 sweep 的目錄 run_id
+    infos: dict[str, _Directory] = {}  # run_id → 目錄（依輸入順序）
     resumed: list[dict[str, Any]] = []
     run_ids: set[str] = set()
     ancestors: set[str] = set()
@@ -434,16 +470,12 @@ def analyze_sweep_runs(
                 raise ValueError(f"{directory}: rollout {task_id} k={k} r{i} never finished, yet the run wrote a summary")
         for task_id, result in results.items():
             settings.add(canonical_json([asdict(result.plan), result.criterion]))
-            if task_id in completed:
+            if task_id in completing:
                 raise ValueError(f"the sweep of {task_id} was completed in more than one directory")
-            source = sources.get(task_id)
-            if source is None:
+            if sources.get(task_id) is None:
                 raise ValueError(f"{directory}: {task_id} has no source in the baseline run")
-            completed[task_id] = (label, result, _verify(directory, label, result, source, groups))
-        swept = {task_id for task_id, _, _ in groups}
-        for task_id in sorted(swept - set(results), key=pool_order.index):
-            n = len({(k, i) for t, k, i in groups if t == task_id})
-            partial_sweeps.append({"run": label, "task_id": task_id, "rollouts": n})
+            completing[task_id] = run_id
+        infos[run_id] = _Directory(directory, label, tuple(parents), groups, results)
     if ancestors - run_ids:
         raise ValueError(
             f"the sweep directories continued directories that are not being analyzed (run ids {', '.join(sorted(ancestors - run_ids))}); "
@@ -454,6 +486,52 @@ def analyze_sweep_runs(
     plan_data, criterion = load_strict_json(next(iter(settings)).encode("utf-8"))
     plan = SweepPlan(**plan_data)
     assert criterion is not None
+
+    # decision 023 §1：完成的 sweep = 自己的列 + 祖先目錄中該 source 的最終結果；每個 rollout 以最終結果所在的目錄核對
+    completed: dict[str, tuple[str, SweepResult, list[_Rollout]]] = {}
+    used: set[tuple[str, str, Any, int]] = set()  # (run_id, task_id, k, i)：進入曲線的 rollout
+    for task_id in pool_order:
+        if task_id not in completing:
+            continue
+        owner = infos[completing[task_id]]
+        source = sources[task_id]
+        assert source is not None
+        lookup: dict[tuple[Any, int], tuple[str, _Directory, list[AttemptRecord]]] = {
+            (k, i): (completing[task_id], owner, attempts) for (t, k, i), attempts in owner.groups.items() if t == task_id
+        }
+        for parent_id in sorted(owner.parents):
+            parent = infos[parent_id]
+            for (t, k, i), attempts in parent.groups.items():
+                if t != task_id or not _is_final(attempts):
+                    continue
+                if (k, i) in lookup:
+                    raise ValueError(
+                        f"{owner.directory}: rollout {task_id} k={k} r{i} already has a final result in {parent.directory}; "
+                        "it was run again (decision 023 §1)"
+                    )
+                lookup[(k, i)] = (parent_id, parent, attempts)
+        result = owner.results[task_id]
+        completed[task_id] = (owner.label, result, _verify(owner.directory, result, source, lookup))
+        used.update((run_id, task_id, k, i) for (k, i), (run_id, _, _) in lookup.items())
+    partial_sweeps: list[dict[str, Any]] = []
+    for run_id, info in infos.items():
+        for task_id in sorted({t for t, _, _ in info.groups}, key=pool_order.index):
+            unused = {(k, i) for t, k, i in info.groups if t == task_id and (run_id, task_id, k, i) not in used}
+            if unused:
+                partial_sweeps.append({"run": info.label, "task_id": task_id, "rollouts": len(unused)})
+    carried: dict[str, dict[tuple[int, int], RolloutOutcome]] = {}
+    for task_id in pool_order:
+        source = sources[task_id]
+        if source is None or task_id in completing:
+            continue
+        for info in infos.values():
+            for (t, k, i), attempts in info.groups.items():
+                if t != task_id or not _is_final(attempts):
+                    continue
+                if (k, i) in carried.get(task_id, {}):
+                    raise ValueError(f"rollout {task_id} k={k} r{i} has a final result in more than one directory")
+                outcome, _ = _final_outcome(info.directory, task_id, k, i, attempts, source)
+                carried.setdefault(task_id, {})[(k, i)] = outcome
 
     curves: list[SourceCurve] = []
     rollouts: list[_Rollout] = []
@@ -508,7 +586,7 @@ def analyze_sweep_runs(
     windows: dict[str, list[_Rollout]] = {}
     for rollout in rollouts if blocked is None else ():  # 時間窗也是跨 rollout 的合併（decision 018 §5）
         windows.setdefault(rollout.date, []).append(rollout)
-    return SweepAnalysis(
+    analysis = SweepAnalysis(
         plan=plan,
         criterion=criterion,
         baseline_runs=run_labels(baselines),
@@ -559,6 +637,7 @@ def analyze_sweep_runs(
         cost_usd=math.fsum(row.cost_usd for _, row in all_rows),
         unknown_cost_calls=sum(row.unknown_cost_calls for _, row in all_rows),
     )
+    return analysis, carried
 
 
 def _read_json(path: Path) -> Any:
@@ -744,61 +823,74 @@ def _check_attempts(
         raise ValueError(f"{where}: checkpoint_id is not the source's checkpoint at k")
 
 
+def _final_outcome(
+    directory: Path, task_id: str, k: Any, i: int, attempts: list[AttemptRecord], source: Trajectory
+) -> tuple[RolloutOutcome, _Rollout | None]:
+    """一個 rollout 依 manifest（與完成時存檔的 trajectory）得到的 RolloutOutcome，以及 _Rollout 的資料（run 欄位留空）。
+    最後一次嘗試完成 → 載入並 verify ``rollouts/<task_id>/k<k>-r<i>.json``，trajectory_id、parent、termination 必須與 manifest 相符，
+    以 classify_rollout 分類；agent_output → agent_error；infrastructure 且已達 MAX_EPISODE_ATTEMPTS → aborted；其他（沒有最終
+    結果）→ ValueError。"""
+    where = f"{directory}: rollout {task_id} k={k} r{i}"
+    ordered = sorted(attempts, key=lambda row: row.attempt)
+    last = ordered[-1]
+    if [row.attempt for row in ordered] != list(range(1, len(ordered) + 1)) or any(
+        row.outcome == "completed" or row.error_class != "infrastructure" for row in ordered[:-1]
+    ):
+        raise ValueError(f"{where} has inconsistent attempts")
+    if type(k) is not int or not 0 <= k < len(source.turns):
+        raise ValueError(f"{where}: k is not a checkpoint of the source")
+    if last.outcome == "completed":
+        path = directory / "rollouts" / task_id / f"k{k}-r{i}.json"
+        try:
+            trajectory = Trajectory.load(path)
+            trajectory.verify()
+        except (OSError, TrajectoryError) as exc:
+            raise ValueError(f"cannot load {path}: {exc}") from exc
+        parent = {"trajectory_id": source.trajectory_id, "checkpoint_id": last.checkpoint_id, "turn": k}
+        if trajectory.trajectory_id != last.trajectory_id or canonical_json(trajectory.parent) != canonical_json(parent):
+            raise ValueError(f"{path} does not match the manifest")
+        if trajectory.termination != last.termination:
+            raise ValueError(f"{path}: termination disagrees with the manifest")
+        label, stopped = classify_rollout(trajectory, k)
+        outcome = RolloutOutcome(k, i, label, trajectory.termination, stopped, last.attempt)
+        rollout = _Rollout("", task_id, k, i, label, utc_date(last.utc_time), _models(trajectory, k), _multi_tool_turns(trajectory, k))
+        return outcome, rollout
+    if last.error_class == "agent_output":
+        label = "agent_error"
+    elif last.error_class == "infrastructure" and last.attempt >= MAX_EPISODE_ATTEMPTS:
+        label = "aborted"
+    else:
+        raise ValueError(f"{where} never finished")
+    return RolloutOutcome(k, i, label, None, False, last.attempt), _Rollout("", task_id, k, i, label, utc_date(last.utc_time), (), ())
+
+
 def _verify(
     directory: Path,
-    label: str,
     result: SweepResult,
     source: Trajectory,
-    groups: dict[tuple[str, Any, int], list[AttemptRecord]],
+    lookup: dict[tuple[Any, int], tuple[str, _Directory, list[AttemptRecord]]],
 ) -> list[_Rollout]:
-    """decision 017 §5.2：完成的 sweep 與 manifest、存檔的 rollout 重算核對；回傳每個 rollout 的 outcome、UTC 日期與 models。"""
+    """decision 017 §5.2 / 023 §1：完成的 sweep 與 manifest、存檔的 rollout 重算核對；lookup = (k, i) → (run_id, 最終結果所在的
+    目錄, 嘗試)。回傳每個 rollout 的 outcome、UTC 日期與 models（run = 最終結果所在目錄的標籤）。"""
     task_id = result.task_id
     where = f"{directory}: sweep of {task_id}"
     if result.source_trajectory_id != source.trajectory_id:
         raise ValueError(f"{where} does not belong to the baseline run's source")
     by_key = {(r.k, r.rollout_index): r for r in result.rollouts}
-    keys = {(k, i) for t, k, i in groups if t == task_id}
-    if len(by_key) != len(result.rollouts) or set(by_key) != keys:
+    if len(by_key) != len(result.rollouts) or set(by_key) != set(lookup):
         raise ValueError(f"{where}: its rollouts do not match the manifest")
     verified: list[_Rollout] = []
     for rollout in result.rollouts:
         k, i = rollout.k, rollout.rollout_index
-        attempts = sorted(groups[(task_id, k, i)], key=lambda row: row.attempt)
-        last = attempts[-1]
-        if [row.attempt for row in attempts] != list(range(1, len(attempts) + 1)) or any(
-            row.outcome == "completed" or row.error_class != "infrastructure" for row in attempts[:-1]
-        ):
-            raise ValueError(f"{where}: rollout k={k} r{i} has inconsistent attempts")
-        if rollout.attempts != last.attempt or not 0 <= k < len(source.turns):
-            raise ValueError(f"{where}: rollout k={k} r{i} disagrees with the manifest")
-        models: tuple[str, ...] = ()
-        multi: tuple[int, ...] = ()
-        if last.outcome == "completed":
-            path = directory / "rollouts" / task_id / f"k{k}-r{i}.json"
-            try:
-                trajectory = Trajectory.load(path)
-                trajectory.verify()
-            except (OSError, TrajectoryError) as exc:
-                raise ValueError(f"cannot load {path}: {exc}") from exc
-            parent = {"trajectory_id": source.trajectory_id, "checkpoint_id": last.checkpoint_id, "turn": k}
-            if trajectory.trajectory_id != last.trajectory_id or canonical_json(trajectory.parent) != canonical_json(parent):
-                raise ValueError(f"{path} does not match the manifest")
-            if trajectory.termination != last.termination or rollout.termination != trajectory.termination:
-                raise ValueError(f"{path}: termination disagrees with the sweep result or the manifest")
-            if classify_rollout(trajectory, k) != (rollout.outcome, rollout.stopped_without_action):
-                raise ValueError(f"{path}: the recorded outcome does not match the trajectory")
-            models = _models(trajectory, k)
-            multi = _multi_tool_turns(trajectory, k)
-        else:
-            if last.error_class == "agent_output":
-                expected = "agent_error"
-            elif last.error_class == "infrastructure" and last.attempt >= MAX_EPISODE_ATTEMPTS:
-                expected = "aborted"
-            else:
-                raise ValueError(f"{where}: rollout k={k} r{i} never finished; the sweep cannot be complete")
-            if (rollout.outcome, rollout.termination, rollout.stopped_without_action) != (expected, None, False):
-                raise ValueError(f"{where}: rollout k={k} r{i} is labelled differently from the manifest")
-        verified.append(_Rollout(label, task_id, k, i, rollout.outcome, utc_date(last.utc_time), models, multi))
+        _, owner, attempts = lookup[(k, i)]
+        try:
+            outcome, data = _final_outcome(owner.directory, task_id, k, i, attempts, source)
+        except ValueError as exc:
+            raise ValueError(f"{where}: {exc}; the sweep cannot be complete") from exc
+        if outcome != rollout:
+            raise ValueError(f"{where}: rollout k={k} r{i} disagrees with the manifest or its trajectory")
+        assert data is not None
+        verified.append(dataclasses.replace(data, run=owner.label))
 
     def replay(k: int, i: int) -> RolloutOutcome:
         if (k, i) not in by_key:

@@ -63,7 +63,7 @@ def _run_json(run_dir: Path) -> dict[str, Any]:
 def test_format_versions() -> None:
     assert SUMMARY_FORMAT == "agent-gym/baseline-run/v2"
     assert ANALYSIS_FORMAT == "agent-gym/baseline-analysis/v3"
-    assert SWEEP_SUMMARY_FORMAT == "agent-gym/sweep-run/v6"
+    assert SWEEP_SUMMARY_FORMAT == "agent-gym/sweep-run/v7"  # v7：decision 023
     assert SWEEP_ANALYSIS_FORMAT == "agent-gym/sweep-analysis/v4"
 
 

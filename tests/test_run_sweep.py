@@ -293,9 +293,9 @@ def test_unknown_criterion_is_rejected_without_running(eval_run: Path, tmp_path:
 # ---------------------------------------------------------------- rollout 存檔與格式（decision 017 §1 / §2）
 
 
-def test_sweep_output_format_is_v6() -> None:
-    # v3：skipped（018）；v4：run.json（019）；v5：run_id / resumed_from（020）；v6：dry_run（021）
-    assert SWEEP_SUMMARY_FORMAT == "agent-gym/sweep-run/v6"
+def test_sweep_output_format_is_v7() -> None:
+    # v3：skipped（018）；v4：run.json（019）；v5：run_id / resumed_from（020）；v6：dry_run（021）；v7：續跑接續（023）
+    assert SWEEP_SUMMARY_FORMAT == "agent-gym/sweep-run/v7"
 
 
 def test_dry_run_saves_every_completed_rollout_trajectory(eval_run: Path, tmp_path: Path) -> None:

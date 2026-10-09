@@ -10,8 +10,9 @@
         真正呼叫 Anthropic API；只能在使用者確認 SweepPlan 與預算之後執行。credential 由 SDK 自行解析，本腳本不讀取任何 key。
     ... --run-name <new-name> --resume-from runs/<first-sweep> [runs/<second-sweep> ...]
         中斷或因預算停止後續跑（decision 018 §1 / 019 §3 / 020）：必須列出**所有**先前的 sweep 目錄（較早與較晚的都要；
-        --resume-from 可重複給）。以 analyze_sweep 的完整核對讀這些目錄，plan 與 criterion 必須相同；已完成的 source 不再執行
-        （不重複付費）。之後以 analyze_sweep 同時分析所有目錄。--max-cost-usd 是這一次執行的上限（先前目錄已花的金額會印出）。
+        --resume-from 可重複給）。以 analyze_sweep 的完整核對讀這些目錄，plan 與 criterion 必須相同；已完成的 source 不再執行，
+        做到一半的 source 接續執行、已有最終結果的 rollout 不再執行（不重複付費；decision 023）。之後以 analyze_sweep 同時分析
+        所有目錄。--max-cost-usd 是這一次執行的上限（先前目錄已花的金額會印出）。
 
 --baseline-run 要列出 eval baseline 的**所有**目錄（中斷後重跑的也算；與 analyze_baseline 相同），source 依 decision 019 §1 選取。
 
@@ -47,7 +48,7 @@ from experiments.run_baseline import (
     budget_reached,
     check_budget_args,
 )
-from replay.localization import CLIFF_CRITERIA, SweepPlan, SweepResult, sweep
+from replay.localization import CLIFF_CRITERIA, RolloutOutcome, SweepPlan, SweepResult, check_prior, sweep
 from replay.runner import Clock
 from replay.stats import BootstrapResult, stratified_task_bootstrap
 from replay.trajectory import Trajectory
@@ -56,8 +57,8 @@ from tasks.generator import week1_pool
 COMPLETED_OUTCOMES = ("success", "failure", "refusal")
 
 # v2：max_turns_confounded、rollout 存檔（017）；v3：skipped（018）；v4：run.json（019）；v5：run_id / resumed_from（020）；
-# v6：dry_run（021）。run.json 與 summary.json 共用此 format
-SWEEP_SUMMARY_FORMAT = "agent-gym/sweep-run/v6"
+# v6：dry_run（021）；v7：完成的 sweep 可含祖先目錄的最終結果（續跑接續，023）。run.json 與 summary.json 共用此 format
+SWEEP_SUMMARY_FORMAT = "agent-gym/sweep-run/v7"
 RUN_FILE = "run.json"
 _RUN_ID = re.compile(r"[0-9a-f]{32}")
 
@@ -291,6 +292,7 @@ def run_sweeps(
     skip: Collection[str] = (),
     resumed_from: Collection[str] = (),
     dry_run: bool = False,
+    carried: Mapping[str, Mapping[tuple[int, int], RolloutOutcome]] | None = None,
 ) -> SweepRunSummary:
     """依 eval pool 的順序對每個非 None、且不在 skip 中的 source 執行 ``replay.localization.sweep``（共用一個 manifest）。
 
@@ -301,6 +303,8 @@ def run_sweeps(
       ``check_budget_args``；run_dir 不存在或為空。
     - resumed_from：續跑時各 --resume-from 目錄的 run_id（不是 str 的集合；每個都是 32 位小寫 hex、不重複；否則 ValueError）。
     - dry_run（bool）：OracleFakeClient 的輸出（CLI 的 --dry-run）；直接以 Python 呼叫時預設 False（decision 021 §1）。
+    - carried（decision 023 §1，續跑）：task_id → 先前目錄中該 source 已有最終結果的 rollout（``check_prior``）；只能是有 source、
+      不在 skip 中的 task。sweep 重放排程時直接採用、不再執行（``sweep(..., prior=...)``）。
     - 第一次嘗試之前寫入 ``run.json``（``run_description``：新的隨機 run_id、排序後的 resumed_from、dry_run；decision 019 §2 /
       020 §2 / 021 §1）。
     - policy_factory(k, i, attempt)：``budget_reached(ledger, max_cost_usd)`` → raise BudgetExceeded；否則
@@ -334,6 +338,15 @@ def run_sweeps(
         raise ValueError("resumed_from must not repeat a run id")
     if not isinstance(dry_run, bool):
         raise ValueError("dry_run must be a bool")
+    if carried is None:
+        carried = {}
+    if not isinstance(carried, Mapping):
+        raise ValueError("carried must map task ids to their carried-over rollouts")
+    priors = {}
+    for task_id, prior in carried.items():
+        if task_id not in sources or sources[task_id] is None or task_id in skipped:
+            raise ValueError(f"carried rollouts for {task_id!r}, which is not a source to run here")
+        priors[task_id] = check_prior(prior)
     config = baseline_agent_config() if agent_config is None else copy.deepcopy(agent_config)
     check_budget_args(max_cost_usd, config)
     for task_id, source in sources.items():
@@ -385,6 +398,7 @@ def run_sweeps(
                 clock=clock,
                 criterion=criterion,
                 rollout_dir=run_dir / "rollouts" / task_id,
+                prior=priors.get(task_id),
             )
         except BudgetExceeded:
             stopped = True
@@ -470,8 +484,9 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("the eval baseline is a dry-run output; a paid sweep needs a paid baseline (decision 021 §1)")
     skip: tuple[str, ...] = ()
     resumed_from: list[str] = []
+    carried: dict[str, Any] = {}
     if args.resume_from:
-        from experiments.analyze_sweep import analyze_sweep_runs  # 延遲 import：analyze_sweep 依賴本模組
+        from experiments.analyze_sweep import resume_state  # 延遲 import：analyze_sweep 依賴本模組
 
         resume_dirs = [Path(directory) for directory in args.resume_from]
         lineages = [read_lineage(directory) for directory in resume_dirs]
@@ -487,7 +502,7 @@ def main(argv: list[str] | None = None) -> int:
                 for run_id, paths in absent.items()
             )
             parser.error(f"--resume-from leaves out earlier sweep directories they continued: {listed} (decision 021 §2)")
-        previous = analyze_sweep_runs(args.resume_from, args.baseline_run, replicates=1, plan=plan, criterion=args.criterion)
+        previous, carried = resume_state(args.resume_from, args.baseline_run, replicates=1, plan=plan, criterion=args.criterion)
         skip = tuple(curve.task_id for curve in previous.curves)
         uncovered = sorted({t for entry in previous.resumed for t in entry["skipped"]} - set(skip))
         if uncovered:
@@ -503,6 +518,12 @@ def main(argv: list[str] | None = None) -> int:
             )
         resumed_from = sorted(lineage[0] for lineage in lineages if lineage is not None)
         print(f"resuming: {len(skip)} sources already completed in {', '.join(previous.runs)}", file=sys.stderr)
+        if carried:
+            print(
+                "carrying over finished rollouts of partially swept sources (decision 023 §1): "
+                + ", ".join(f"{task_id} ({len(prior)})" for task_id, prior in carried.items()),
+                file=sys.stderr,
+            )
         print(
             f"previously spent ${previous.cost_usd:.4f} (unknown-cost calls {previous.unknown_cost_calls}) in "
             f"{', '.join(previous.runs)}; --max-cost-usd applies to this run only",
@@ -519,7 +540,7 @@ def main(argv: list[str] | None = None) -> int:
         client = make_anthropic_client()
     summary = run_sweeps(
         sources, client, plan=plan, criterion=args.criterion, run_dir=run_dir, max_cost_usd=args.max_cost_usd,
-        skip=skip, resumed_from=resumed_from, dry_run=args.dry_run,
+        skip=skip, resumed_from=resumed_from, dry_run=args.dry_run, carried=carried,
     )
     for task_id in summary.sources:
         result = summary.results.get(task_id)

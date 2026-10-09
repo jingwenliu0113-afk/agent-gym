@@ -222,6 +222,7 @@ def _run_one(
         key=RolloutKey(None, None, None, rollout_index, 1),
         max_turns=BASELINE_MAX_TURNS,
         log_path=log_path,
+        save_path=trajectories_dir / f"{task.task_id}-r{rollout_index}.json",  # 先存檔再記帳（decision 023 §2）
     )
     trajectory = retried.trajectory
     if trajectory is None:
@@ -229,7 +230,6 @@ def _run_one(
         return EpisodeResult(
             task.task_id, task.family, rollout_index, retried.attempts, outcome, None, None, False, None, None, None, None, None
         )
-    trajectory.save(trajectories_dir / f"{task.task_id}-r{rollout_index}.json")
     outcome, stopped_without_action = classify_rollout(trajectory, 0)
     report = trajectory.grade()
     usage = trajectory.usage()

@@ -12,10 +12,10 @@ from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
 from statistics import NormalDist
-from typing import Callable, Mapping
+from typing import Any, Callable, Mapping
 
 from agents.policy import Policy
-from replay.aborts import RolloutKey, run_with_retries
+from replay.aborts import MAX_EPISODE_ATTEMPTS, RolloutKey, run_with_retries
 from replay.checkpoint import Checkpoint, make_checkpoint, rerun
 from replay.runner import Clock
 from replay.stats import wilson_interval
@@ -298,6 +298,25 @@ def run_protocol(last: int, plan: SweepPlan, rollout: Callable[[int, int], Rollo
     )
 
 
+def check_prior(prior: Any) -> dict[tuple[int, int], RolloutOutcome]:
+    """decision 023 §1：None → {}；否則必須是 (k, rollout_index)（int >= 0）→ RolloutOutcome 的 Mapping，outcome 的 (k, rollout_index)
+    與 key 相同、outcome 在 ROLLOUT_OUTCOMES 中、attempts 在 1..MAX_EPISODE_ATTEMPTS；否則 ValueError。回傳可修改的 dict 複本。"""
+    if prior is None:
+        return {}
+    if not isinstance(prior, Mapping):
+        raise ValueError("prior must map (k, rollout_index) to RolloutOutcome")
+    checked: dict[tuple[int, int], RolloutOutcome] = {}
+    for key, outcome in prior.items():
+        if not isinstance(key, tuple) or len(key) != 2 or not all(type(x) is int and x >= 0 for x in key):
+            raise ValueError("prior keys must be (k, rollout_index) pairs of ints >= 0")
+        if not isinstance(outcome, RolloutOutcome) or (outcome.k, outcome.rollout_index) != key:
+            raise ValueError("each prior value must be the RolloutOutcome of its (k, rollout_index)")
+        if outcome.outcome not in ROLLOUT_OUTCOMES or type(outcome.attempts) is not int or not 1 <= outcome.attempts <= MAX_EPISODE_ATTEMPTS:
+            raise ValueError("a prior outcome has an unknown label or an invalid attempt count")
+        checked[key] = outcome
+    return checked
+
+
 def sweep(
     source: Trajectory,
     policy_factory: Callable[[int, int, int], Policy],
@@ -307,6 +326,7 @@ def sweep(
     clock: Clock = time.perf_counter,
     criterion: str = DEFAULT_CLIFF_CRITERION,
     rollout_dir: str | Path | None = None,
+    prior: Mapping[tuple[int, int], RolloutOutcome] | None = None,
 ) -> SweepResult:
     """對 source 執行 coarse → refine 掃描。
 
@@ -319,13 +339,17 @@ def sweep(
     - run_logged 的事前檢查錯誤（例如 manifest 已有相同的嘗試）原樣往外拋。
     - 驟降判定依 criterion（CLIFF_CRITERIA，decision 015），在執行任何 rollout 之前檢查（不合法 → ValueError）。
       largest_drop / largest_drop_k / is_cliff / max_turns_confounded 取自 ``assess_drop``（decision 017 §1）。
-    - rollout_dir（decision 017 §2）：給定時，每個完成的 rerun trajectory 存成 ``rollout_dir/k<k>-r<i>.json``；
-      必須不存在或為空目錄（否則 ValueError，不執行），不存在時建立。
+    - rollout_dir（decision 017 §2）：給定時，每個完成的 rerun trajectory 存成 ``rollout_dir/k<k>-r<i>.json``（先存檔再記帳，
+      decision 023 §2）；必須不存在或為空目錄（否則 ValueError，不執行），不存在時建立。
+    - prior（decision 023 §1，續跑）：(k, rollout_index) → 先前目錄中已有最終結果的 RolloutOutcome（``check_prior``）。重放排程時，
+      prior 中的 (k, i) 直接採用、不執行；prior 必須剛好是排程的前綴：排程要求 prior 以外的 (k, i) 而 prior 還有剩 → 在執行之前
+      ValueError；排程結束時 prior 還有剩 → ValueError。
     """
     if not isinstance(plan, SweepPlan):
         raise ValueError("plan must be a SweepPlan")
     if criterion not in CLIFF_CRITERIA:
         raise ValueError(f"criterion must be one of {CLIFF_CRITERIA}")
+    remaining = check_prior(prior)
     save_dir = None if rollout_dir is None else Path(rollout_dir)
     if save_dir is not None and save_dir.exists() and (not save_dir.is_dir() or any(save_dir.iterdir())):
         raise ValueError(f"{save_dir} already exists and is not an empty directory")
@@ -336,6 +360,10 @@ def sweep(
     checkpoints: dict[int, Checkpoint] = {}
 
     def run_one(k: int, rollout_index: int) -> RolloutOutcome:
+        if (k, rollout_index) in remaining:
+            return remaining.pop((k, rollout_index))
+        if remaining:
+            raise ValueError("the carried-over rollouts are not a prefix of this sweep's schedule (decision 023 §1)")
         if k not in checkpoints:
             checkpoints[k] = make_checkpoint(source, k)
         checkpoint = checkpoints[k]
@@ -346,6 +374,8 @@ def sweep(
                 raise ValueError("policy_factory produced a policy whose config_id differs from the source agent")
             return policy
 
+        if save_dir is not None:
+            save_dir.mkdir(parents=True, exist_ok=True)
         retried = run_with_retries(
             lambda p: rerun(checkpoint, p, clock=clock),
             factory,
@@ -353,11 +383,9 @@ def sweep(
             key=RolloutKey(checkpoint.checkpoint_id, k, source_id, rollout_index, 1),
             max_turns=checkpoint.max_turns,
             log_path=log_path,
+            save_path=None if save_dir is None else save_dir / f"k{k}-r{rollout_index}.json",  # 先存檔再記帳（decision 023 §2）
         )
         if retried.trajectory is not None:
-            if save_dir is not None:
-                save_dir.mkdir(parents=True, exist_ok=True)
-                retried.trajectory.save(save_dir / f"k{k}-r{rollout_index}.json")
             outcome, stopped = classify_rollout(retried.trajectory, k)
             result = RolloutOutcome(k, rollout_index, outcome, retried.trajectory.termination, stopped, retried.attempts)
         else:
@@ -366,6 +394,8 @@ def sweep(
         return result
 
     protocol = run_protocol(last, plan, run_one)
+    if remaining:
+        raise ValueError("some carried-over rollouts are not part of this sweep's schedule (decision 023 §1)")
     estimates = tuple(estimate_checkpoint(k, list(protocol.outcomes[k])) for k in sorted(protocol.outcomes))
     assessed = assess_drop(estimates, plan.drop_threshold, criterion=criterion)
     return SweepResult(

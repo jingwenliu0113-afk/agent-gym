@@ -16,7 +16,7 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 `b8c600f` 預先登記的分析工具 + README 示範（decision 015 / 016）→ `9baae38`…`63bde0b` 第七輪審查修正（decision 017）→
 第八輪審查修正（decision 018）→ `7a94d24` 第九輪（decision 019）→ `724f3b9` 第十輪（decision 020）→ `f750931` 第十一輪（decision 021）→ `88bdb02` 第十二輪（decision 022）→ `9cf7f8f` 付費流程模擬（decision 023）→ 023 的審查（decision 024）。
 
-## 上次完成（2026-10-08）
+## 上次完成（2026-10-08 / 10-09）
 
 全程 TDD（契約 stub → 測試紅燈 → 實作 → 對抗式審查 → 回歸測試 → 修正）。只用 Mac CPU；沒有使用 Mac heavy lock、遠端 RTX、Docker，
 沒有呼叫任何 LLM、沒有讀取或保存任何 credential。
@@ -124,6 +124,7 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
    - run.json、summary.json、sweeps/<task>.json 都以 atomic 方式寫入（`replay.atomic.write_atomic`）：原本磁碟已滿時留下截斷的
      檔案，目錄因此無法讀取。讀取 JSON 失敗的錯誤訊息包含檔案路徑。
    - 審查判定不成立而未處理：以 Python API 繞過 CLI 時，completing 目錄的祖先以外的目錄可能有重複的最終結果（列為 partial、成本照計）。
+   - 驗證：審查留下的隨機續跑鏈模擬（3 種 plan、65 條鏈、每條最多 80 次續跑，混合預算停止、Ctrl-C（call 中、重試中、存檔前後、記帳後、sweep 完成後）與不完美的假 client）在 024 之後全部通過：每條曲線都與沒有中斷的排程完全相同，沒有任何 rollout 在已有最終結果後再執行，成本、partial_sweeps 與中止嘗試的計數都正確（024 之前有 8 條失敗）。
 
 測試：`uv run pytest` → 8699 passed、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 4–6 分鐘；`ruff check` 通過。
 

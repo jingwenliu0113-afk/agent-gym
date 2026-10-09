@@ -125,7 +125,7 @@ def test_run_json_is_written_before_the_first_attempt(baselines: dict[str, Path]
     run_dir = tmp_path / "s"
     with pytest.raises(KeyboardInterrupt):
         run_sweeps(sources, _Explode(), plan=PLAN, criterion="bonferroni95", run_dir=run_dir, clock=ZERO, skip=(EVAL_IDS[2],))
-    assert not (run_dir / "manifest.jsonl").exists()
+    assert read_manifest(run_dir / "manifest.jsonl") == ()  # 空的 manifest（decision 024 §1）
     data = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
     assert len(data.pop("run_id")) == 32 and data.pop("resumed_from") == []  # decision 020 §2
     assert data.pop("dry_run") is False  # decision 021 §1：直接以 Python 呼叫時預設 False

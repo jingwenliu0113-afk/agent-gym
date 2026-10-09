@@ -48,6 +48,7 @@ from experiments.run_baseline import (
     budget_reached,
     check_budget_args,
 )
+from replay.atomic import write_atomic
 from replay.localization import CLIFF_CRITERIA, RolloutOutcome, SweepPlan, SweepResult, check_prior, sweep
 from replay.runner import Clock
 from replay.stats import BootstrapResult, stratified_task_bootstrap
@@ -211,7 +212,8 @@ def missing_ancestors(resume_from: Sequence[Path], run_dir: Path) -> dict[str, l
 
 def later_sweeps(resume_from: Sequence[Path], run_dir: Path, *, dry_run: bool = False) -> list[Path]:
     """decision 020 §3 / 021 §1：在 resume_from 各目錄與 run_dir 的上層目錄中（不遞迴），找出 run.json 的 resumed_from 含有任一
-    resume_from 目錄的 run_id、與這次同一種模式（dry_run）、有 manifest、但不在 resume_from 中的目錄（依路徑排序）。"""
+    resume_from 目錄的 run_id、與這次同一種模式（dry_run）、有紀錄（manifest 至少一列或至少一個 sweeps/*.json；decision 024 §2）、
+    但不在 resume_from 中的目錄（依路徑排序）。"""
 
     given = {_identity(directory) for directory in resume_from} - {None}
     ids = {lineage[0] for directory in resume_from if (lineage := read_lineage(directory)) is not None}
@@ -219,13 +221,20 @@ def later_sweeps(resume_from: Sequence[Path], run_dir: Path, *, dry_run: bool = 
     for child, lineage in _sibling_sweeps([*resume_from, run_dir]):
         if _identity(child) in given or lineage[2] != dry_run or not set(lineage[1]) & ids:
             continue
-        try:
-            has_manifest = (child / "manifest.jsonl").is_file()
-        except OSError:
-            continue
-        if has_manifest:
+        if _has_records(child):
             found.append(child)
     return found
+
+
+def _has_records(directory: Path) -> bool:
+    """decision 024 §2：manifest 至少有一列，或至少有一個 sweeps/*.json（讀不到 → 視為有紀錄，交給分析時的完整核對）。"""
+    try:
+        manifest = directory / "manifest.jsonl"
+        if manifest.is_file() and manifest.stat().st_size > 0:
+            return True
+        return any((directory / "sweeps").glob("*.json"))
+    except OSError:
+        return True
 
 
 @dataclass(frozen=True)
@@ -306,7 +315,8 @@ def run_sweeps(
     - carried（decision 023 §1，續跑）：task_id → 先前目錄中該 source 已有最終結果的 rollout（``check_prior``）；只能是有 source、
       不在 skip 中的 task。sweep 重放排程時直接採用、不再執行（``sweep(..., prior=...)``）。
     - 第一次嘗試之前寫入 ``run.json``（``run_description``：新的隨機 run_id、排序後的 resumed_from、dry_run；decision 019 §2 /
-      020 §2 / 021 §1）。
+      020 §2 / 021 §1）並建立空的 ``manifest.jsonl``（decision 024 §1）。run.json、sweeps 檔與 summary.json 都以
+      ``write_atomic`` 寫入（decision 024 §3）。
     - policy_factory(k, i, attempt)：``budget_reached(ledger, max_cost_usd)`` → raise BudgetExceeded；否則
       ``CostMeter(AnthropicPolicy(client, agent_config), ledger)``（ledger 跨所有 source 共用）。
     - BudgetExceeded → 停止（stopped_by_budget = True）：該 source 的部分 sweep 不計入 completed（rollouts 仍在 manifest 中），
@@ -373,8 +383,9 @@ def run_sweeps(
         skipped=[t for t in pool if t in skipped],
         sources=sources,
     )
-    (run_dir / RUN_FILE).write_bytes((canonical_json(description) + "\n").encode("utf-8"))
+    write_atomic(run_dir / RUN_FILE, (canonical_json(description) + "\n").encode("utf-8"))
     log_path = run_dir / "manifest.jsonl"
+    write_atomic(log_path, b"")  # 每個 sweep 目錄一定有 manifest（decision 024 §1）
     ledger = Ledger()
 
     def policy_factory(k: int, rollout_index: int, attempt: int) -> CostMeter:
@@ -404,7 +415,7 @@ def run_sweeps(
             stopped = True
             break
         results[task_id] = result
-        (sweeps_dir / f"{task_id}.json").write_bytes((canonical_json(_jsonable(asdict(result))) + "\n").encode("utf-8"))
+        write_atomic(sweeps_dir / f"{task_id}.json", (canonical_json(_jsonable(asdict(result))) + "\n").encode("utf-8"))
 
     completed = tuple(results)
     cliff_rate = mean_drop = None
@@ -435,7 +446,7 @@ def run_sweeps(
         unknown_cost_calls=ledger.unknown_cost_calls,
         stopped_by_budget=stopped,
     )
-    (run_dir / "summary.json").write_bytes((canonical_json(summary.to_dict()) + "\n").encode("utf-8"))
+    write_atomic(run_dir / "summary.json", (canonical_json(summary.to_dict()) + "\n").encode("utf-8"))
     return summary
 
 

@@ -641,9 +641,10 @@ def resume_state(
 
 
 def _read_json(path: Path) -> Any:
+    """strict JSON；讀取或解析失敗 → ValueError，訊息包含檔案路徑（decision 024 §4）。"""
     try:
         return load_strict_json(path.read_bytes())
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         raise ValueError(f"cannot read {path}: {exc}") from exc
 
 

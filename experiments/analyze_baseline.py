@@ -186,8 +186,8 @@ def _check_run_file(directory: Path, rows: list[AttemptRecord]) -> dict[str, Any
     path = directory / RUN_FILE
     try:
         data = load_strict_json(path.read_bytes()) if path.exists() else None
-    except OSError as exc:
-        raise ValueError(f"cannot read {path}: {exc}") from exc
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"cannot read {path}: {exc}") from exc  # 訊息包含檔案路徑（decision 024 §4）
     if not isinstance(data, dict) or data.get("format") != SUMMARY_FORMAT:
         raise ValueError(f"{directory} has no {RUN_FILE} of format {SUMMARY_FORMAT}; not a baseline run")
     if set(data) != RUN_FILE_KEYS:
@@ -285,8 +285,8 @@ def _read_summary(directory: Path) -> dict[str, Any] | None:
         return None
     try:
         summary = load_strict_json(path.read_bytes())
-    except OSError as exc:
-        raise ValueError(f"cannot read {path}: {exc}") from exc
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"cannot read {path}: {exc}") from exc  # 訊息包含檔案路徑（decision 024 §4）
     if not isinstance(summary, dict) or summary.get("format") != SUMMARY_FORMAT:
         raise ValueError(f"{directory} is not a baseline run")
     if summary.get("split") != "eval":

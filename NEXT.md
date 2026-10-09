@@ -5,7 +5,7 @@
 Core：Day 1 完成；Week 1 除「#5 baseline 真正跑完整 task」以外都完成；#5 與 SPEC §6 中**不需要 API key 的部分全部完成**。
 需要真正呼叫 LLM 的步驟（dev sanity、eval baseline、eval 上的 failure localization sweep）依使用者決策 **deferred / blocked-by-paid-API**；
 keyless Core infrastructure（含分析工具、驟降判定選項、README 示範）已完成；第七輪對抗式審查找出的 keyless 缺口
-（已登記但漏實作的規則、只信任 summary 的分析）已依 decision 017 補齊；第八～十二輪審查與最後的付費流程模擬找出的缺口已依 decision 018 – 023 補齊。
+（已登記但漏實作的規則、只信任 summary 的分析）已依 decision 017 補齊；第八～十二輪審查與付費流程模擬找出的缺口已依 decision 018 – 024 補齊。
 **所有 keyless Core 工作已完成；剩下的都在下方「Blocked / 需要使用者」**（付費 LLM run 與研究設計決策）。
 尚未進 Advanced（Gate 未滿足：還沒有任何真實的 failure localization 結果）。
 
@@ -14,7 +14,7 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 `d7241dc` Day 1 → `5c8ada4` Week 1 replay infrastructure → `c554735` keyless baseline adapter + attempt manifest →
 `638be6d` §6 failure localization infrastructure → `7a796f3` 付費 run 執行工具 + 計費修正 → SweepPlan 偵測力模擬（decision 011）→
 `b8c600f` 預先登記的分析工具 + README 示範（decision 015 / 016）→ `9baae38`…`63bde0b` 第七輪審查修正（decision 017）→
-第八輪審查修正（decision 018）→ `7a94d24` 第九輪（decision 019）→ `724f3b9` 第十輪（decision 020）→ `f750931` 第十一輪（decision 021）→ `88bdb02` 第十二輪（decision 022）→ `9cf7f8f` 付費流程模擬（decision 023）。
+第八輪審查修正（decision 018）→ `7a94d24` 第九輪（decision 019）→ `724f3b9` 第十輪（decision 020）→ `f750931` 第十一輪（decision 021）→ `88bdb02` 第十二輪（decision 022）→ `9cf7f8f` 付費流程模擬（decision 023）→ 023 的審查（decision 024）。
 
 ## 上次完成（2026-10-08）
 
@@ -118,7 +118,14 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
    - trajectory 先寫入（atomic）再在 manifest 記「completed」：原本在兩者之間中斷或存檔失敗會讓 baseline 目錄無法讀取；存檔失敗
      現在是 harness 中止（照常記帳）。
 
-測試：`uv run pytest` → 8689 passed、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 4–6 分鐘；`ruff check` 通過。
+14. **decision 023 審查後的修正**（decision 024；含 65 條隨機續跑鏈的模擬，其餘的曲線都與沒有中斷的排程完全相同）：
+   - sweep 目錄在第一次嘗試之前就建立空的 manifest：原本完全靠接續完成的 sweep（中斷落在最後一個 source 記帳之後、sweeps 檔寫入
+     之前）沒有 manifest，無法分析也無法再續跑，那條付費曲線永遠進不了報告。後代檢查改為只看有紀錄的目錄。
+   - run.json、summary.json、sweeps/<task>.json 都以 atomic 方式寫入（`replay.atomic.write_atomic`）：原本磁碟已滿時留下截斷的
+     檔案，目錄因此無法讀取。讀取 JSON 失敗的錯誤訊息包含檔案路徑。
+   - 審查判定不成立而未處理：以 Python API 繞過 CLI 時，completing 目錄的祖先以外的目錄可能有重複的最終結果（列為 partial、成本照計）。
+
+測試：`uv run pytest` → 8699 passed、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 4–6 分鐘；`ruff check` 通過。
 
 ## 使用者決策（2026-10-08 / 10-09）
 
@@ -213,7 +220,7 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
   搬到其他位置的後續 sweep 目錄偵測不到。沒有 `--resume-from` 的新 sweep 不做這個檢查（無法分辨刻意重新開始與忘了續跑）。
 - 每次分析都要用新的 `--out`（或空目錄；decision 022）。
 - dry-run 標記由 CLI 的 `--dry-run` 決定（decision 021 §1）；直接以 Python 呼叫 `run_split` / `run_sweeps` 時預設 `dry_run=False`。
-  dry-run 的輸出永遠不能與付費輸出一起分析或互相續跑；預演續跑要用 dry-run 鏈。中斷時還沒有任何嘗試寫入 manifest 的目錄沒有可分析的內容，不要傳入分析工具。
+  dry-run 的輸出永遠不能與付費輸出一起分析或互相續跑；預演續跑要用 dry-run 鏈。sweep 目錄一定有 manifest（可能是空的，decision 024 §1），可以照常傳入；baseline 目錄中斷在第一次嘗試之前時沒有 manifest，沒有可分析的內容，不要傳入分析工具。
 - sweep 會為每個完成的 rerun 存一個 trajectory 檔（含前綴，約為 source 的大小）；付費 sweep 的 `runs/` 可能達數百 MB（gitignored）。
 - max_turns 混淆判定只看最大下降：被混淆時不改看其他下降（decision 017 §1，刻意保守）。
 - 偵測力模擬的情境是假設；真實曲線形狀未知。

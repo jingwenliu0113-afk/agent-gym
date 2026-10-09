@@ -31,6 +31,7 @@ from agents.policy import AgentConfig, PolicyStep
 from env.environment import IssueTrackerEnv
 from env.hashing import canonical_json
 from replay.aborts import RolloutKey, billed_cost, run_with_retries
+from replay.atomic import write_atomic
 from replay.localization import classify_rollout
 from replay.runner import Clock, run_episode
 from tasks.generator import GeneratedInstance, week1_pool
@@ -175,7 +176,7 @@ def run_split(
     trajectories_dir = run_dir / "trajectories"
     trajectories_dir.mkdir(parents=True, exist_ok=True)
     description = {"format": SUMMARY_FORMAT, "split": split, "rollouts": rollouts, "config_id": config.config_id, "dry_run": dry_run}
-    (run_dir / RUN_FILE).write_bytes((canonical_json(description) + "\n").encode("utf-8"))
+    write_atomic(run_dir / RUN_FILE, (canonical_json(description) + "\n").encode("utf-8"))
     log_path = run_dir / "manifest.jsonl"
     ledger = Ledger()
     results: list[EpisodeResult] = []
@@ -200,7 +201,7 @@ def run_split(
         unknown_cost_calls=ledger.unknown_cost_calls,
         stopped_by_budget=stopped,
     )
-    (run_dir / "summary.json").write_bytes((canonical_json(summary.to_dict()) + "\n").encode("utf-8"))
+    write_atomic(run_dir / "summary.json", (canonical_json(summary.to_dict()) + "\n").encode("utf-8"))  # decision 024 §3
     return summary
 
 

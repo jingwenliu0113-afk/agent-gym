@@ -145,7 +145,7 @@ def test_a_later_directory_without_a_manifest_does_not_block(baseline: Path, tmp
     with pytest.raises(KeyboardInterrupt):
         _cli(baseline, "--run-name", "s2", "--resume-from", str(runs / "s1"))
     monkeypatch.setattr(run_sweep, "OracleFakeClient", OracleFakeClient)
-    assert (runs / "s2" / "run.json").exists() and not (runs / "s2" / "manifest.jsonl").exists()
+    assert (runs / "s2" / "run.json").exists() and read_manifest(runs / "s2" / "manifest.jsonl") == ()  # 空的 manifest（decision 024 §1）
     assert _cli(baseline, "--run-name", "s3", "--resume-from", str(runs / "s1")) == 0  # s2 沒有可分析的內容（018 §4）
 
 

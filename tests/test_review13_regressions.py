@@ -19,7 +19,7 @@ from experiments.analyze_baseline import analyze_runs, load_runs
 from experiments.analyze_sweep import analyze_sweep_runs
 from experiments.run_baseline import OracleFakeClient, run_split
 from experiments.run_sweep import SWEEP_SUMMARY_FORMAT, main, run_sweeps, select_sources
-from replay import trajectory as trajectory_module
+from replay import atomic
 from replay.aborts import MAX_EPISODE_ATTEMPTS, read_manifest
 from replay.localization import RolloutOutcome, SweepPlan
 from replay.trajectory import Trajectory
@@ -296,7 +296,7 @@ def test_trajectory_save_is_atomic(baseline: Path, tmp_path: Path, monkeypatch: 
     def broken_replace(src: Any, dst: Any) -> None:
         raise OSError("replace failed")
 
-    monkeypatch.setattr(trajectory_module.os, "replace", broken_replace)
+    monkeypatch.setattr(atomic.os, "replace", broken_replace)  # Trajectory.save 以 replay.atomic 寫入（decision 024 §3）
     other = next(source for source in reversed(list(select_sources(baseline).values())) if source is not None)
     with pytest.raises(OSError):
         other.save(target)

@@ -5,7 +5,7 @@
 Core：Day 1 完成；Week 1 除「#5 baseline 真正跑完整 task」以外都完成；#5 與 SPEC §6 中**不需要 API key 的部分全部完成**。
 需要真正呼叫 LLM 的步驟（dev sanity、eval baseline、eval 上的 failure localization sweep）依使用者決策 **deferred / blocked-by-paid-API**；
 keyless Core infrastructure（含分析工具、驟降判定選項、README 示範）已完成；第七輪對抗式審查找出的 keyless 缺口
-（已登記但漏實作的規則、只信任 summary 的分析）已依 decision 017 補齊；第八～十二輪審查找出的缺口已依 decision 018 – 022 補齊。
+（已登記但漏實作的規則、只信任 summary 的分析）已依 decision 017 補齊；第八～十二輪審查與最後的付費流程模擬找出的缺口已依 decision 018 – 023 補齊。
 **所有 keyless Core 工作已完成；剩下的都在下方「Blocked / 需要使用者」**（付費 LLM run 與研究設計決策）。
 尚未進 Advanced（Gate 未滿足：還沒有任何真實的 failure localization 結果）。
 
@@ -14,7 +14,7 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 `d7241dc` Day 1 → `5c8ada4` Week 1 replay infrastructure → `c554735` keyless baseline adapter + attempt manifest →
 `638be6d` §6 failure localization infrastructure → `7a796f3` 付費 run 執行工具 + 計費修正 → SweepPlan 偵測力模擬（decision 011）→
 `b8c600f` 預先登記的分析工具 + README 示範（decision 015 / 016）→ `9baae38`…`63bde0b` 第七輪審查修正（decision 017）→
-第八輪審查修正（decision 018）→ `7a94d24` 第九輪（decision 019）→ `724f3b9` 第十輪（decision 020）→ `f750931` 第十一輪（decision 021）→ 第十二輪（decision 022）。
+第八輪審查修正（decision 018）→ `7a94d24` 第九輪（decision 019）→ `724f3b9` 第十輪（decision 020）→ `f750931` 第十一輪（decision 021）→ `88bdb02` 第十二輪（decision 022）→ `9cf7f8f` 付費流程模擬（decision 023）。
 
 ## 上次完成（2026-10-08）
 
@@ -110,7 +110,15 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
    （原本沿用 dry-run 分析的目錄時，會留下沒有標示的 dry-run 曲線 SVG）；dry-run 分析的 SVG 標題加上「[dry-run]」。
    審查判定不成立而未處理：以 Python 直接呼叫 `analyze(load_rollouts(...))` 時沒有模式資訊（021 §1 已記錄的限制）。
 
-測試：`uv run pytest` → 8671 passed、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 4–6 分鐘；`ruff check` 通過。
+13. **依 NEXT B.1–B.4 原文模擬付費流程後的修正**（decision 023）：
+   - 續跑接續做到一半的 source：原本因預算停止或 Ctrl-C 中斷時，正在跑的 source 已付費的 rollout 會在續跑時全部重做（模擬中每次
+     重複付費 $0.28 – $0.53；上限低於單一 source 的成本時永遠無法完成）。現在續跑重放同一個排程，已有最終結果的 rollout 直接採用、
+     只執行缺的部分（`sweep(prior=...)`、`run_sweeps(carried=...)`，sweep 格式 v7）；analyze_sweep 以「自己的列 + 祖先目錄的最終結果」
+     核對完成的 sweep，重複執行已有最終結果的 rollout → ValueError。
+   - trajectory 先寫入（atomic）再在 manifest 記「completed」：原本在兩者之間中斷或存檔失敗會讓 baseline 目錄無法讀取；存檔失敗
+     現在是 harness 中止（照常記帳）。
+
+測試：`uv run pytest` → 8689 passed、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 4–6 分鐘；`ruff check` 通過。
 
 ## 使用者決策（2026-10-08 / 10-09）
 
@@ -171,7 +179,8 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
    `uv run --extra llm python -m experiments.run_sweep --baseline-run runs/<eval-run> [runs/<eval-rerun> ...] --plan S,NC,NF,T --criterion C --confirm-paid-run --max-cost-usd X`
    （plan 與 criterion 都沒有預設值；`--dry-run` 已驗證）。被中斷或因預算停止時續跑：
    `... --run-name <新名稱> --resume-from runs/<第一個 sweep> [runs/<第二個 sweep> ...]`（列出**所有**先前的 sweep 目錄，較早與較晚的
-   都要；`--max-cost-usd` 是這一次的上限，先前花費會印出），分析時把所有 sweep 目錄一起傳給 analyze_sweep（decision 018 / 019 / 020）。
+   都要；`--max-cost-usd` 是這一次的上限，先前花費會印出；做到一半的 source 會接續、已有結果的 rollout 不再執行），分析時把所有
+   sweep 目錄一起傳給 analyze_sweep（decision 018 – 023）。
 4. 以真實結果跑 `analyze_baseline` / `analyze_sweep`，把 recoverability curve、trajectory safety、「最終成功但中途有
    forbidden action」案例、Gate 判定放進 README 的「結果」段（README 目前只有 synthetic 示範）。
 5. Gate 判定（需要使用者確認 A.4 之後才能判斷是否進 Advanced）。

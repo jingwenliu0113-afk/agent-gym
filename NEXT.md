@@ -141,12 +141,14 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
      id 依位置產生；截斷防護（`truncate` / `shift` 關閉、送出前的 fit check、`prompt_eval_count` 檢查）；錯誤分類（連線 / 5xx →
      infrastructure，輸出截斷 → agent_output，結構 / 模型 / context → harness）；只連 loopback、只呼叫 chat / version / tags / show
      （不可能下載或改動模型）、拒絕 cloud 模型；`verify_server` 檢查模型存在、tools 能力與凍結的版本 / digest。
+   - `tools/with-gpu-lock`（decision 026 §6）：經 `ssh gpu-server` 取得 WSL 內的 GPU lock 並建立到 Ollama 的通道；已以測試用的 lock 檔實測。
+   - `experiments/local_probe.py`：開發題測試的彙整（不呼叫模型）與 lock 內的截斷自我測試，作為凍結設定的依據。
    - 實驗流程：`make_policy` 依 agent 設定選 adapter；run_sweeps 沿用 source 自己的 agent；`OllamaOracleFakeClient` 讓 dry-run 走
      本機路徑；本機預算以 `--max-model-calls` 計；CLI 預設 provider 為 ollama，`--confirm-local-run` 要求 GPU lock 環境變數、呼叫次數上限、
      loopback URL，正式 run（eval baseline、sweep）另外要求凍結的設定且 server 相符；Anthropic 路徑（`--provider anthropic
      --confirm-paid-run`）保留為 Optional。
 
-測試：`uv run pytest` → 8852 passed、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 4–6 分鐘；`ruff check` 通過。
+測試：`uv run pytest` → 8862 passed、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 4–6 分鐘；`ruff check` 通過。
 
 ## 使用者決策（2026-10-08 / 10-09 / 10-11）
 
@@ -193,7 +195,10 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
    Ollama 可用後只需確認通道連得到 `/api/version`。
 3. 少量開發題測試（dev split 5 題，草案設定）：
    `tools/with-gpu-lock -- uv run python -m experiments.run_baseline --split dev --confirm-local-run --max-model-calls 200`；
-   確認模型能正確呼叫工具，量測每次呼叫的秒數與 token 數，並確認 `truncate: false` 時 server 對超長 prompt 的行為。
+   確認模型能正確呼叫工具，量測每次呼叫的秒數與 token 數，並確認 `truncate: false` 時 server 對超長 prompt 的行為：
+   - `uv run python -m experiments.local_probe --summarize runs/local-dev`（結果、每次呼叫的耗時與 token、tool call 的有效性與錯誤種類）；
+   - `tools/with-gpu-lock -- uv run python -m experiments.local_probe --truncation-check`（num_ctx 1024 送超長 prompt；
+     `rejected` 才代表 server 不會靜默截斷）。
 4. **凍結（需使用者確認）**：依開發題測試的結果寫一份 decision，凍結 model tag、量化版本與 digest、Ollama 版本、prompt（`baseline/v1`）、
    tool schema、推論參數（草案：think 關、num_ctx 32768、num_predict 4096、temperature 0.7、top_p 0.8、top_k 20、min_p 0、
    presence_penalty 1.5、每次呼叫隨機 seed；temperature 必須 > 0，否則 rerun 沒有變異）與各階段的呼叫次數上限

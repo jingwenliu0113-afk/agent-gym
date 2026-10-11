@@ -260,8 +260,8 @@ def test_missing_eval_count_is_zero_output_tokens() -> None:
 
 
 def test_output_truncated_at_num_predict_is_an_agent_output_error() -> None:
-    with pytest.raises(AdapterError) as info:
-        _parse(_response(done_reason="length"))
+    with pytest.raises(AdapterError) as info:  # length 且輸出達到 num_predict（decision 027 §2）
+        _parse(_response(done_reason="length", eval_count=LOCAL_MODEL_CONFIG["options"]["num_predict"]))
     assert info.value.billed_usage["cost_usd"] == 0.0  # type: ignore[attr-defined]
     assert classify_exception(info.value) == "agent_output"
 
@@ -339,6 +339,9 @@ class _FakeClient:
         if isinstance(response, BaseException):
             raise response
         return response
+
+    def version(self) -> dict[str, Any]:  # 服務仍在（decision 027 §1 的探測）
+        return {"version": "0.0.0-test"}
 
 
 def test_policy_sends_the_built_request_with_a_fresh_seed_per_call() -> None:

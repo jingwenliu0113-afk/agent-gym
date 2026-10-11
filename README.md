@@ -89,8 +89,8 @@ Task → Agent actions → state changes → grader → replay from checkpoint
 | Failure localization | `replay/localization.py`、`replay/stats.py` | coarse → 反覆 refine 的 checkpoint sweep、Wilson CI、family 分層 task-level bootstrap、驟降判定 |
 | 實驗腳本 | `experiments/` | baseline / sweep 的執行（dry-run、本機模型的呼叫次數上限與 GPU lock、Optional 的成本上限、manifest）、偵測力模擬、預先登記的分析 |
 
-所有實驗設計與格式變更都記在 [docs/decisions/](docs/decisions/)（001–026），包含預先登記的統計協定（005）、baseline 設定（009）、
-failure localization 協定（010 / 013）、偵測力模擬（011）、run 協定（012 / 025）、本機模型（026）、分析規則（016 / 017）、中斷後續跑與寫入的規則（018 – 020 / 023 / 024）與 dry-run 輸出的區分（021 / 022）。
+所有實驗設計與格式變更都記在 [docs/decisions/](docs/decisions/)（001–027），包含預先登記的統計協定（005）、baseline 設定（009）、
+failure localization 協定（010 / 013）、偵測力模擬（011）、run 協定（012 / 025）、本機模型（026 / 027）、分析規則（016 / 017）、中斷後續跑與寫入的規則（018 – 020 / 023 / 024）與 dry-run 輸出的區分（021 / 022）。
 
 ## 怎麼跑
 

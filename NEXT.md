@@ -143,12 +143,21 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
      （不可能下載或改動模型）、拒絕 cloud 模型；`verify_server` 檢查模型存在、tools 能力與凍結的版本 / digest。
    - `tools/with-gpu-lock`（decision 026 §6）：經 `ssh gpu-server` 取得 WSL 內的 GPU lock 並建立到 Ollama 的通道；已以測試用的 lock 檔實測。
    - `experiments/local_probe.py`：開發題測試的彙整（不呼叫模型）與 lock 內的截斷自我測試，作為凍結設定的依據。
+
+17. **decision 026 審查後的強化**（decision 027）：
+   - 遠端斷線不再變成 rollout 的最終結果：呼叫失敗後探測 `version()`，連不上 → `OllamaServerUnavailable`（harness），run 停止，
+     中斷的 rollout 不是最終結果，服務恢復後重跑 / 續跑即可補回（原本其餘所有 rollout 會在幾毫秒內變成 aborted，baseline 的 source
+     永久遺失、sweep 被記為完成並把 Gate 判為 gradual）。
+   - context 防護在 `done_reason` 之前；length 只有在輸出達到 num_predict 時才算輸出截斷。
+   - 無法記錄的 tool call 參數：字串交給 env，物件或其他內容 → agent_output（原本漏出 ValueError / RecursionError 而停掉整個 run）。
+   - 審查判定不成立而未處理：5xx 的內容提到 context（026 依 status 分類）；執行中途 server 被換掉（lock 期間不會發生，每次執行
+     開始時檢查）；續跑時沒有印出先前的呼叫次數（019 §3：上限只限這一次）。
    - 實驗流程：`make_policy` 依 agent 設定選 adapter；run_sweeps 沿用 source 自己的 agent；`OllamaOracleFakeClient` 讓 dry-run 走
      本機路徑；本機預算以 `--max-model-calls` 計；CLI 預設 provider 為 ollama，`--confirm-local-run` 要求 GPU lock 環境變數、呼叫次數上限、
      loopback URL，正式 run（eval baseline、sweep）另外要求凍結的設定且 server 相符；Anthropic 路徑（`--provider anthropic
      --confirm-paid-run`）保留為 Optional。
 
-測試：`uv run pytest` → 8862 passed、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 4–6 分鐘；`ruff check` 通過。
+測試：`uv run pytest` → 8885 passed、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 4–6 分鐘；`ruff check` 通過。
 
 ## 使用者決策（2026-10-08 / 10-09 / 10-11）
 

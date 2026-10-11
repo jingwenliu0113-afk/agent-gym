@@ -21,10 +21,15 @@ messages 的檢查與轉換（違反 → ValueError，且不呼叫 client）：
 Response → PolicyStep（``parse_chat_response``）：
 - 結構逐欄檢查（不符 → ``OllamaProtocolError``，harness）：response 是 dict、``done`` 為 true、``done_reason`` 為 stop 或 length、
   ``model`` 等於設定的 model、沒有 ``remote_model`` / ``remote_host``、message 只有允許的 key 且型別正確、計數為 int >= 0。
-- ``done_reason`` = length（輸出達到 num_predict）→ ``AdapterError``（agent_output，等同 Anthropic 的 max_tokens）。
-- context 防護（``OllamaContextError``，harness）：``prompt_eval_count`` 必須存在且 >= 1；``prompt_eval_count + eval_count < num_ctx``。
-- tool call：``function.name`` 必須是非空字串（否則 ``AdapterError``）；參數為物件照用、JSON 字串先解析、null 視為 {}、
-  其他原樣（env 記為 invalid_arguments）；id = ``call_<assistant_turn>_<序號>``。
+- context 防護（``OllamaContextError``，harness），在 done_reason 之前（decision 027 §2）：``prompt_eval_count`` 必須存在且 >= 1；
+  ``prompt_eval_count + eval_count < num_ctx``。
+- ``done_reason`` = length：輸出達到 num_predict → ``AdapterError``（agent_output，等同 Anthropic 的 max_tokens）；
+  沒有達到 → ``OllamaContextError``（context 用盡）。
+- 模型的內容無法記錄（過深、非有限數、無法編碼的字串）或無法成為 ToolCall → ``AdapterError``（decision 027 §3）。
+- tool call：``function.name`` 必須是非空字串（否則 ``AdapterError``）；參數為物件照用、JSON 字串以 strict 解析且結果是可記錄的
+  物件才用、null 視為 {}、其他原樣（env 記為 invalid_arguments）；id = ``call_<assistant_turn>_<序號>``。
+- 呼叫失敗（OllamaTransportError）時以 ``version()`` 探測：連不上 → ``OllamaServerUnavailable``（harness，run 停止、可補回）；
+  連得上 → 原例外（infrastructure，重試；decision 027 §1）。
 - ModelMessage：text = content、stop_reason = "tool_calls" 或 "stop"、provider_content = [raw]（只含允許的 key）。
 - 用量：input = prompt_eval_count、output = eval_count（欄位不在為 0）、cost_usd = 0.0；meta 見 ``_meta``。
 """
@@ -48,8 +53,9 @@ from agents.baseline import (
     InfrastructureError,
 )
 from agents.policy import MAX_MODEL_CONFIG_DEPTH, AgentConfig, ModelMessage, PolicyStep, ToolCall, _check_json
+from env.environment import check_call_preconditions
 from env.hashing import canonical_json
-from replay.trajectory import check_json_document
+from replay.trajectory import check_json_document, load_strict_json
 
 OLLAMA_POLICY = "ollama-chat"
 OLLAMA_ADAPTER_VERSION = "ollama-chat/v1"
@@ -91,6 +97,11 @@ class OllamaContextError(RuntimeError):
 
 class OllamaTransportError(InfrastructureError):
     """連線失敗、逾時或 HTTP 5xx；infrastructure 類，依 decision 009 重試。"""
+
+
+class OllamaServerUnavailable(RuntimeError):
+    """呼叫失敗後 ``version()`` 也連不上：推論服務不可用（通道或 Ollama 中斷）。harness 類：run 停止，這次嘗試不是最終結果，
+    服務恢復後重跑 / 續跑即可補回（decision 027 §1）。"""
 
 
 def local_agent_config() -> AgentConfig:
@@ -148,15 +159,19 @@ def check_local_config(config: Any) -> AgentConfig:
 
 
 def _parse_arguments(arguments: Any) -> Any:
-    """物件照用；JSON 字串先解析，結果是物件才用；null → {}；其他原樣（env 記為 invalid_arguments）。"""
+    """物件照用；JSON 字串以 strict 解析（拒絕 NaN / Infinity、超出範圍、重複 key、過深），結果是可記錄的物件才用，否則原字串
+    （env 記為 invalid_arguments；decision 027 §3）；null → {}；其他原樣。"""
     if arguments is None:
         return {}
     if isinstance(arguments, str):
         try:
-            parsed = json.loads(arguments)
-        except ValueError:
+            parsed = load_strict_json(arguments.encode("utf-8"))
+            if not isinstance(parsed, dict):
+                return arguments
+            check_call_preconditions("arguments", parsed)
+        except (UnicodeError, TypeError, ValueError):
             return arguments
-        return parsed if isinstance(parsed, dict) else arguments
+        return parsed
     return arguments
 
 
@@ -275,30 +290,44 @@ def parse_chat_response(response: Any, model_config: dict[str, Any], *, assistan
             raise OllamaProtocolError("each tool call must be an object with a function object")
         if not set(raw_call["function"]) <= set(RAW_FUNCTION_KEYS):
             raise OllamaProtocolError("a tool call function has unexpected keys")
-    try:
-        _check_json(message, "message", 0, MAX_MODEL_CONFIG_DEPTH)
-    except (TypeError, ValueError) as exc:
-        raise OllamaProtocolError(f"message is not valid JSON content: {exc}") from exc
-    raw = json.loads(canonical_json(message))
     usage = {"input_tokens": counts["prompt_eval_count"], "output_tokens": counts["eval_count"] or 0}
-    if response["done_reason"] == "length":
-        error = AdapterError("the reply reached num_predict (output truncated)")
+
+    def agent_output(message_text: str, cause: BaseException | None = None) -> AdapterError:
+        error = AdapterError(message_text)
         error.billed_usage = {"cost_usd": 0.0, **usage}  # type: ignore[attr-defined]
-        raise error
+        if cause is not None:
+            error.__cause__ = cause
+        return error
+
+    # decision 027 §2：context 防護在 done_reason 之前
     num_ctx = model_config["options"]["num_ctx"]
     if not counts["prompt_eval_count"]:
         raise OllamaContextError("prompt_eval_count is missing or 0; the prompt cannot be verified")
     if counts["prompt_eval_count"] + (counts["eval_count"] or 0) >= num_ctx:
         raise OllamaContextError("prompt_eval_count + eval_count reached num_ctx; the context may have been truncated")
+    if response["done_reason"] == "length":
+        if (counts["eval_count"] or 0) < model_config["options"]["num_predict"]:
+            raise OllamaContextError("the reply stopped at 'length' before num_predict; the context ran out")
+        raise agent_output("the reply reached num_predict (output truncated)")
+    # decision 027 §3：模型的內容無法記錄 → agent_output
+    try:
+        _check_json(message, "message", 0, MAX_MODEL_CONFIG_DEPTH)
+    except (TypeError, ValueError) as exc:
+        raise agent_output(f"the reply cannot be recorded: {exc}", exc) from exc
+    raw = json.loads(canonical_json(message))
     calls = []
-    for index, raw_call in enumerate(raw_calls):
-        name = raw_call["function"].get("name")
-        if not isinstance(name, str) or not name:
-            error = AdapterError("a tool call has no name")
-            error.billed_usage = {"cost_usd": 0.0, **usage}  # type: ignore[attr-defined]
-            raise error
-        calls.append(ToolCall(id=f"call_{assistant_turn}_{index}", name=name, args=_parse_arguments(raw_call["function"].get("arguments"))))
-    model_message = ModelMessage(text=text, tool_calls=tuple(calls), stop_reason="tool_calls" if calls else "stop", provider_content=[raw])
+    try:
+        for index, raw_call in enumerate(raw_calls):
+            name = raw_call["function"].get("name")
+            if not isinstance(name, str) or not name:
+                raise agent_output("a tool call has no name")
+            args = _parse_arguments(raw_call["function"].get("arguments"))
+            calls.append(ToolCall(id=f"call_{assistant_turn}_{index}", name=name, args=args))
+        model_message = ModelMessage(
+            text=text, tool_calls=tuple(calls), stop_reason="tool_calls" if calls else "stop", provider_content=[raw]
+        )
+    except (TypeError, ValueError) as exc:
+        raise agent_output(f"the reply cannot become a tool call: {exc}", exc) from exc
     meta = {
         "response_model": response["model"],
         "done_reason": response["done_reason"],
@@ -345,7 +374,14 @@ class OllamaPolicy:
         if len(canonical_json(request).encode("utf-8")) // 2 + options["num_predict"] > options["num_ctx"]:
             raise OllamaContextError("the request may not fit in num_ctx; it was not sent")
         turn = sum(1 for message in messages if isinstance(message, dict) and message.get("role") == "assistant")
-        response = self._client.chat(request)
+        try:
+            response = self._client.chat(request)
+        except OllamaTransportError as exc:
+            try:  # decision 027 §1：服務還在 → 一次失敗的請求（重試）；連不上 → 服務不可用（停止）
+                self._client.version()
+            except Exception as probe:
+                raise OllamaServerUnavailable(f"the model server is unreachable: {exc}; probe: {probe}") from exc
+            raise
         return parse_chat_response(response, model_config, assistant_turn=turn, seed=seed)
 
 
@@ -423,9 +459,9 @@ class OllamaHTTPClient:
                 raise OllamaContextError(f"{method} {path} returned HTTP {status}: {text[:300]}")
             raise OllamaProtocolError(f"{method} {path} returned HTTP {status}: {text[:300]}")
         try:
-            return json.loads(data)
+            return load_strict_json(data)  # 過深、NaN、重複 key → ValueError（decision 027 §3）
         except ValueError as exc:
-            raise OllamaProtocolError(f"{method} {path} did not return JSON") from exc
+            raise OllamaProtocolError(f"{method} {path} did not return valid JSON: {exc}") from exc
 
 
 def make_ollama_client(base_url: str, model_config: dict[str, Any] | None = None) -> OllamaHTTPClient:

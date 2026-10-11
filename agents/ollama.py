@@ -344,6 +344,11 @@ def parse_chat_response(response: Any, model_config: dict[str, Any], *, assistan
     return PolicyStep(message=model_message, input_tokens=usage["input_tokens"], output_tokens=usage["output_tokens"], cost_usd=0.0, meta=meta)
 
 
+def _fits(request: dict[str, Any], options: dict[str, Any]) -> bool:
+    """送出前的保守估計：request bytes ÷ 2 + num_predict <= num_ctx。"""
+    return len(canonical_json(request).encode("utf-8")) // 2 + options["num_predict"] <= options["num_ctx"]
+
+
 def _default_seed() -> int:
     return secrets.randbelow(2**31 - 1) + 1
 
@@ -351,8 +356,10 @@ def _default_seed() -> int:
 class OllamaPolicy:
     """Ollama ``/api/chat`` policy（對 conversation 無狀態；每次呼叫的 seed 隨機並記在 meta，decision 026 §5）。
 
-    ``next_message``：組 request（ValueError 在呼叫之前）→ 送出前的 fit check：request bytes ÷ 2 + num_predict > num_ctx →
-    ``OllamaContextError``（不呼叫）→ ``client.chat(request)``（例外原樣往外拋）→ ``parse_chat_response``。
+    ``next_message``：組 request（ValueError 在呼叫之前）→ 送出前的 fit check（request bytes ÷ 2 + num_predict <= num_ctx；
+    不通過時：固定部分本身放不下 → ``OllamaContextError``，否則 → ``AdapterError``；都不呼叫，decision 028 §2）→
+    ``client.chat(request)`` → ``parse_chat_response``。chat 的 OllamaTransportError：``version()`` 連不上，或 client 記錄的連續 chat
+    失敗 >= 2 → ``OllamaServerUnavailable``；否則原樣往外拋（decision 027 §1 / 028 §1）。
     """
 
     def __init__(self, client: Any, agent_config: AgentConfig, *, seed_source: Callable[[], int] | None = None) -> None:
@@ -371,8 +378,11 @@ class OllamaPolicy:
             raise ValueError("seed_source must return an int in [1, 2**31)")
         request = build_chat_request(messages, tools, model_config, seed=seed)
         options = model_config["options"]
-        if len(canonical_json(request).encode("utf-8")) // 2 + options["num_predict"] > options["num_ctx"]:
-            raise OllamaContextError("the request may not fit in num_ctx; it was not sent")
+        if not _fits(request, options):  # decision 028 §2
+            fixed = build_chat_request(messages[:3], tools, model_config, seed=seed)
+            if not _fits(fixed, options):
+                raise OllamaContextError("the system prompt, instruction and tools alone may not fit in num_ctx; it was not sent")
+            raise AdapterError("the conversation the model built may not fit in num_ctx; the rollout ends (not sent)")
         turn = sum(1 for message in messages if isinstance(message, dict) and message.get("role") == "assistant")
         try:
             response = self._client.chat(request)
@@ -381,6 +391,8 @@ class OllamaPolicy:
                 self._client.version()
             except Exception as probe:
                 raise OllamaServerUnavailable(f"the model server is unreachable: {exc}; probe: {probe}") from exc
+            if getattr(self._client, "consecutive_chat_failures", 0) >= 2:  # decision 028 §1：推論路徑連續失敗
+                raise OllamaServerUnavailable(f"the inference path failed twice in a row: {exc}") from exc
             raise
         return parse_chat_response(response, model_config, assistant_turn=turn, seed=seed)
 
@@ -425,9 +437,19 @@ class OllamaHTTPClient:
         self._host = parts.hostname
         self._port = parts.port or 11434
         self._timeout = timeout_s
+        self.consecutive_chat_failures = 0  # decision 028 §1：連續的 chat 傳輸失敗（成功或其他回覆時歸零）
 
     def chat(self, request: dict[str, Any]) -> Any:
-        return self._call("POST", "/api/chat", request)
+        try:
+            response = self._call("POST", "/api/chat", request)
+        except OllamaTransportError:
+            self.consecutive_chat_failures += 1
+            raise
+        except Exception:
+            self.consecutive_chat_failures = 0
+            raise
+        self.consecutive_chat_failures = 0
+        return response
 
     def version(self) -> Any:
         return self._call("GET", "/api/version", None)

@@ -21,9 +21,12 @@ import sys
 from pathlib import Path
 from typing import Any, Sequence
 
+from agents.baseline import MAX_EPISODE_ATTEMPTS
 from agents.ollama import OLLAMA_POLICY, OllamaContextError, check_local_config, make_ollama_client
 from agents.policy import AgentConfig
 from apps.issue_tracker.tools import TOOL_NAMES
+from replay.aborts import read_manifest
+from replay.localization import classify_rollout
 from replay.trajectory import Trajectory, load_strict_json
 
 TRUNCATION_NUM_CTX = 1024
@@ -37,12 +40,51 @@ def _stats(values: list[float]) -> dict[str, Any]:
     return {"n": len(values), "median": statistics.median(ordered), "p90": p90, "max": ordered[-1]}
 
 
+def _manifest_outcomes(run_dir: Path) -> list[dict[str, Any]]:
+    """沒有 summary 的中斷目錄：由 manifest 每個 rollout 的最後一次嘗試重建結果（同 analyze_baseline 的規則，decision 017 §4.1）。"""
+    last: dict[tuple[str, int], Any] = {}
+    for row in read_manifest(run_dir / "manifest.jsonl"):
+        key = (row.task_id, row.rollout_index)
+        if key not in last or row.attempt > last[key].attempt:
+            last[key] = row
+    results = []
+    for (task_id, rollout_index), row in last.items():
+        if row.outcome == "completed":
+            trajectory = Trajectory.load(run_dir / "trajectories" / f"{task_id}-r{rollout_index}.json")
+            outcome = classify_rollout(trajectory, 0)[0]
+            trajectory_id: str | None = row.trajectory_id
+        else:
+            trajectory_id = None
+            if row.error_class == "agent_output":
+                outcome = "agent_error"
+            elif row.error_class == "infrastructure" and row.attempt >= MAX_EPISODE_ATTEMPTS:
+                outcome = "aborted"
+            else:
+                outcome = "interrupted"
+        results.append({"task_id": task_id, "rollout_index": rollout_index, "outcome": outcome, "trajectory_id": trajectory_id})
+    return results
+
+
 def summarize_smoke(run_dir: str | Path) -> dict[str, Any]:
-    """彙整 run_baseline 的本機 run 目錄（summary.json 與 trajectories/；不呼叫模型）。agent 不是本機模型 → ValueError。"""
+    """彙整 run_baseline 的本機 run 目錄（不呼叫模型）。agent 不是本機模型 → ValueError。decision 028 §3：
+    - 每次呼叫的耗時 / token 與 tool call 統計只涵蓋已完成的 trajectory（``calls.coverage``），``calls.excluded`` = 其餘計費的呼叫數；
+    - ``billed_calls`` = manifest 所有嘗試的計費呼叫數；``aborts`` = 每一種中止的 (error_class, exception_type, message) 次數；
+    - ``dry_run`` 取自 run.json；沒有 summary 的中斷目錄由 manifest 重建結果（``interrupted`` = True）。"""
     run_dir = Path(run_dir)
-    summary = load_strict_json((run_dir / "summary.json").read_bytes())
-    if not isinstance(summary, dict) or not isinstance(summary.get("results"), list):
-        raise ValueError(f"{run_dir} is not a run_baseline directory")
+    rows = read_manifest(run_dir / "manifest.jsonl")
+    run_json = load_strict_json((run_dir / "run.json").read_bytes()) if (run_dir / "run.json").exists() else {}
+    summary_path = run_dir / "summary.json"
+    if summary_path.exists():
+        summary = load_strict_json(summary_path.read_bytes())
+        if not isinstance(summary, dict) or not isinstance(summary.get("results"), list):
+            raise ValueError(f"{run_dir} is not a run_baseline directory")
+        results = summary["results"]
+        split, config_id = summary.get("split"), summary.get("config_id")
+    else:
+        summary = None
+        results = _manifest_outcomes(run_dir)
+        split = run_json.get("split") if isinstance(run_json, dict) else None
+        config_id = rows[0].config_id if rows else None
     outcomes: dict[str, int] = {}
     seconds: list[float] = []
     prompt_counts: list[float] = []
@@ -50,7 +92,7 @@ def summarize_smoke(run_dir: str | Path) -> dict[str, Any]:
     tool_calls = unknown = invalid = multi = 0
     error_codes: dict[str, int] = {}
     calls = 0
-    for result in summary["results"]:
+    for result in results:
         outcomes[result["outcome"]] = outcomes.get(result["outcome"], 0) + 1
         if result.get("trajectory_id") is None:
             continue
@@ -79,16 +121,27 @@ def summarize_smoke(run_dir: str | Path) -> dict[str, Any]:
                     error_codes[code] = error_codes.get(code, 0) + 1
                     if code == "invalid_arguments":
                         invalid += 1
-    episodes = len(summary["results"])
+    billed = sum(row.billed_calls for row in rows)
+    aborts: dict[tuple[str, str, str], int] = {}
+    for row in rows:
+        if row.outcome == "aborted":
+            key = (row.error_class or "", row.exception_type or "", row.message or "")
+            aborts[key] = aborts.get(key, 0) + 1
+    episodes = len(results)
     return {
         "run": run_dir.name,
-        "split": summary.get("split"),
-        "config_id": summary.get("config_id"),
+        "split": split,
+        "config_id": config_id,
+        "dry_run": bool(run_json.get("dry_run")) if isinstance(run_json, dict) else False,
+        "interrupted": summary is None,
         "episodes": episodes,
         "outcomes": dict(sorted(outcomes.items())),
         "success_rate": outcomes.get("success", 0) / episodes if episodes else None,
+        "billed_calls": billed,
         "calls": {
+            "coverage": "completed trajectories only",
             "n": calls,
+            "excluded": billed - calls,
             "seconds": _stats(seconds),
             "prompt_eval_count": _stats(prompt_counts),
             "eval_count": _stats(eval_counts),
@@ -100,6 +153,10 @@ def summarize_smoke(run_dir: str | Path) -> dict[str, Any]:
             "multi_tool_turns": multi,
             "error_codes": dict(sorted(error_codes.items())),
         },
+        "aborts": [
+            {"error_class": error_class, "exception_type": exception_type, "message": message, "count": count}
+            for (error_class, exception_type, message), count in sorted(aborts.items())
+        ],
     }
 
 

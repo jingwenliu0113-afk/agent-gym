@@ -7,7 +7,8 @@
 #   本機關閉 stdin（或 ssh 結束）時釋放。
 # - 同一條連線以 -L 127.0.0.1:<local>:127.0.0.1:<remote> 建立通道（Windows 的 localhost 會轉到 WSL 的 loopback）。
 # - lock 取得後才執行指令，並設定 AI_PORTFOLIO_GPU_LOCK=held 與 AGENT_GYM_OLLAMA_URL=http://127.0.0.1:<local>。
-# - 拿不到 lock（其他 Project 正在使用）→ exit 75，不執行、不等待、不搶；遠端無法連線或逾時 → exit 69；用法錯誤 → exit 64。
+# - 拿不到 lock（其他 Project 正在使用）或本機通道的 port 已被占用（可能有另一個 wrapper 正在執行）→ exit 75，不執行、不等待、
+#   不搶；遠端無法連線或逾時 → exit 69；用法錯誤 → exit 64（decision 026 §6 / 028 §4）。
 # - 指令結束（或 wrapper 收到 INT / TERM / HUP）時釋放 lock，回傳指令的 exit code。
 # 不讀取、不保存任何 credential；不刪除任何 lock 檔。
 set -euo pipefail
@@ -52,6 +53,7 @@ mkfifo "$FIFO"
 SSH_PID=
 
 cleanup() {
+  trap '' INT TERM HUP  # cleanup 期間不再被中斷（decision 028 §4）
   exec 9>&- 2>/dev/null || true  # 關閉遠端的 stdin → 遠端的 cat 結束 → flock 釋放
   if [[ -n "$SSH_PID" ]]; then
     for _ in $(seq 1 50); do kill -0 "$SSH_PID" 2>/dev/null || break; sleep 0.1; done
@@ -80,6 +82,10 @@ while ! grep -q '^LOCKED$' "$OUT" 2>/dev/null; do
     SSH_PID=
     if [[ $status -eq 1 ]]; then
       echo "with-gpu-lock: the GPU lock $LOCK_FILE is busy (another project is using the GPU); not running" >&2
+      exit 75
+    fi
+    if grep -q -e "Could not request local forwarding" -e "Address already in use" "$ERR" 2>/dev/null; then
+      echo "with-gpu-lock: the local tunnel port $LOCAL_PORT is already in use (another wrapper may be running); not running" >&2
       exit 75
     fi
     echo "with-gpu-lock: could not reach $HOST (ssh exit $status): $(tail -n 3 "$ERR" 2>/dev/null)" >&2

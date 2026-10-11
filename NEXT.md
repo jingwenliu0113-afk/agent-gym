@@ -152,12 +152,21 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
    - 無法記錄的 tool call 參數：字串交給 env，物件或其他內容 → agent_output（原本漏出 ValueError / RecursionError 而停掉整個 run）。
    - 審查判定不成立而未處理：5xx 的內容提到 context（026 依 status 分類）；執行中途 server 被換掉（lock 期間不會發生，每次執行
      開始時檢查）；續跑時沒有印出先前的呼叫次數（019 §3：上限只限這一次）。
+
+18. **decision 027 審查後的修正**（decision 028）：
+   - 推論路徑連續失敗（`/api/version` 有回應、`/api/chat` 一直 5xx 或逾時）→ `OllamaServerUnavailable`：client 記錄連續的 chat
+     傳輸失敗，同一個 rollout 的重試也失敗時 run 停止、不是最終結果（原本所有 rollout 仍會變成 aborted）。
+   - 模型自己把對話拉長而超出送出前的 fit check → agent_output（只算那個 rollout 失敗，不計費）；固定部分（system、user、tools）本身
+     放不下才是 harness（原本會停掉整個 run，並在重跑時換掉樣本）。
+   - `local_probe --summarize` 涵蓋失敗的嘗試（計費呼叫總數、每一種中止的次數與訊息、標示統計的涵蓋範圍）、標示 dry-run、能處理
+     沒有 summary 的中斷目錄。
+   - wrapper：本機通道的 port 被占用 → exit 75（原本誤報為遠端無法連線）；cleanup 期間不再被第二個訊號中斷。
    - 實驗流程：`make_policy` 依 agent 設定選 adapter；run_sweeps 沿用 source 自己的 agent；`OllamaOracleFakeClient` 讓 dry-run 走
      本機路徑；本機預算以 `--max-model-calls` 計；CLI 預設 provider 為 ollama，`--confirm-local-run` 要求 GPU lock 環境變數、呼叫次數上限、
      loopback URL，正式 run（eval baseline、sweep）另外要求凍結的設定且 server 相符；Anthropic 路徑（`--provider anthropic
      --confirm-paid-run`）保留為 Optional。
 
-測試：`uv run pytest` → 8885 passed、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 4–6 分鐘；`ruff check` 通過。
+測試：`uv run pytest` → 8895 passed、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 4–6 分鐘；`ruff check` 通過。
 
 ## 使用者決策（2026-10-08 / 10-09 / 10-11）
 

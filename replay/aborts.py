@@ -5,10 +5,12 @@
 
 例外分類（``classify_exception``）：
 - ``"agent_output"``：``agents.baseline.AdapterError``。
-- ``"infrastructure"``：例外類別的模組為 ``anthropic`` 或 ``anthropic.*``，且（類別名稱為 APIConnectionError / APITimeoutError /
+- ``"infrastructure"``：``agents.baseline.InfrastructureError``（例如本機 Ollama 的連線失敗、逾時、HTTP 5xx；decision 026）；
+  或例外類別的模組為 ``anthropic`` 或 ``anthropic.*``，且（類別名稱為 APIConnectionError / APITimeoutError /
   RateLimitError / InternalServerError / OverloadedError / ServiceUnavailableError，或帶 int 的 ``status_code`` 屬性且為 429 或
   >= 500）。非 anthropic 模組的例外即使帶 status_code 也不算（避免把 harness 自己的錯誤當暫時性錯誤重試）。
-- ``"harness"``：其他所有例外（含 ReplayIntegrityError、anthropic 的 4xx、TrajectoryError、CheckpointError、TypeError…）。
+- ``"harness"``：其他所有例外（含 ReplayIntegrityError、anthropic 的 4xx、Ollama 的協定 / context 錯誤、TrajectoryError、
+  CheckpointError、TypeError…）。
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from agents.baseline import MAX_EPISODE_ATTEMPTS, AdapterError
+from agents.baseline import MAX_EPISODE_ATTEMPTS, AdapterError, InfrastructureError
 from agents.policy import Policy, PolicyStep
 from apps.issue_tracker.schema import SCHEMA_VERSION
 from env.hashing import canonical_json
@@ -187,6 +189,8 @@ def classify_exception(exc: BaseException) -> str:
     """依模組 docstring 回傳 ERROR_CLASSES 之一。"""
     if isinstance(exc, AdapterError):
         return "agent_output"
+    if isinstance(exc, InfrastructureError):  # decision 026：本機推論服務的暫時性失敗
+        return "infrastructure"
     module = getattr(type(exc), "__module__", None)
     if isinstance(module, str) and (module == "anthropic" or module.startswith("anthropic.")):
         if type(exc).__name__ in _INFRASTRUCTURE_NAMES:

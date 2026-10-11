@@ -10,13 +10,14 @@ Task → Agent actions → state changes → grader → replay from checkpoint
 每條 trajectory 逐步記錄 model message、tool call、結果與前後的 state hash；grader 把「最後成功」與「過程安全」分開評；
 從任一 checkpoint 還原後重新 rollout，就能估計 **P(success | checkpoint k)**——從哪一步開始救不回來。
 
-> **目前狀態**：Core 的 keyless infrastructure 已完成並以 synthetic policy 驗證。真正的 LLM baseline / eval / failure-localization sweep
-> 需要付費 API，依專案決策目前 **deferred**（見 [NEXT.md](NEXT.md)）。下面的示範是 **synthetic policy，不是 LLM 結果**。
+> **目前狀態**：Core 的 infrastructure 已完成並以 synthetic policy 驗證。Core 的 LLM 改用自行部署的本機模型
+> （`qwen3.5:9b-q4_K_M`，台中 gpu-server 的 Ollama，decision 026）；付費 API 改為 Optional。遠端 Ollama 可用、設定凍結之後才會有
+> 真正的 LLM 結果（見 [NEXT.md](NEXT.md)）。下面的示範是 **synthetic policy，不是 LLM 結果**。
 
 ## 示範：replay 能回答什麼（synthetic，keyless，可重現）
 
 <!-- demo:start -->
-> **synthetic policy 的示範，不是 LLM 結果。** agent 是解析解已知的 synthetic policy（decision 010）：照 oracle 行動，每個 turn 以機率 q = 0.05 改為發出不可逆的錯誤（在受保護的 issue 上留言）。真正的 LLM 結果要等 paid runs。
+> **synthetic policy 的示範，不是 LLM 結果。** agent 是解析解已知的 synthetic policy（decision 010）：照 oracle 行動，每個 turn 以機率 q = 0.05 改為發出不可逆的錯誤（在受保護的 issue 上留言）。真正的 LLM 結果要等本機模型（decision 026）的正式 run。
 
 ### 1. Task — `gen-reassign-departed-s0`（dev split，不計入任何統計）
 
@@ -84,12 +85,12 @@ Task → Agent actions → state changes → grader → replay from checkpoint
 | Tasks | `tasks/` | 手寫 smoke tasks（只做回歸）＋ parameterized generator：5 個題型 × 4 seeds（dev 5 題、eval 15 題），每題附 oracle 與會被判錯的 negatives |
 | Grader | `grader/` | final-state correctness、constraint violations、forbidden actions / attempts、unnecessary mutations、tool errors、steps、tokens、latency、cost；以重放驗證 records 的完整性 |
 | Recorder / replay | `agents/policy.py`、`replay/` | checkpoint 自帶前綴並在載入時重放驗證；trajectory 以 `verify()` 重放驗證（分析工具載入後一律呼叫）；restore 後 agent 看到的 conversation 與原 episode 逐 byte 相同 |
-| Baseline agent | `agents/baseline.py` | Anthropic Messages adapter（可注入 client、保留 thinking signature、忠實歷史檢查、計費）；設定固定在 decision 009 |
+| Agent adapters | `agents/ollama.py`、`agents/baseline.py` | Core：Ollama 原生 `/api/chat` adapter（只連 loopback、只呼叫允許的端點、tool call 與 JSON 結構驗證、截斷防護、模型釘選；decision 026）。Optional：Anthropic Messages adapter（decision 009） |
 | Failure localization | `replay/localization.py`、`replay/stats.py` | coarse → 反覆 refine 的 checkpoint sweep、Wilson CI、family 分層 task-level bootstrap、驟降判定 |
-| 實驗腳本 | `experiments/` | baseline / sweep 的執行（dry-run、成本上限、manifest）、成本估算、偵測力模擬、預先登記的分析 |
+| 實驗腳本 | `experiments/` | baseline / sweep 的執行（dry-run、本機模型的呼叫次數上限與 GPU lock、Optional 的成本上限、manifest）、偵測力模擬、預先登記的分析 |
 
-所有實驗設計與格式變更都記在 [docs/decisions/](docs/decisions/)（001–025），包含預先登記的統計協定（005）、baseline 設定（009）、
-failure localization 協定（010 / 013）、偵測力模擬（011）、付費 run 協定（012）、分析規則（016 / 017）、中斷後續跑與寫入的規則（018 – 020 / 023 / 024）與 dry-run 輸出的區分（021 / 022）。
+所有實驗設計與格式變更都記在 [docs/decisions/](docs/decisions/)（001–026），包含預先登記的統計協定（005）、baseline 設定（009）、
+failure localization 協定（010 / 013）、偵測力模擬（011）、run 協定（012 / 025）、本機模型（026）、分析規則（016 / 017）、中斷後續跑與寫入的規則（018 – 020 / 023 / 024）與 dry-run 輸出的區分（021 / 022）。
 
 ## 怎麼跑
 
@@ -97,15 +98,15 @@ failure localization 協定（010 / 013）、偵測力模擬（011）、付費 r
 uv sync --extra llm                                            # llm extra 讓 SDK 契約測試也會執行（只用 `uv sync` 時這些測試會 skip）
 uv run pytest                                                  # 全部測試（約 3–4 分鐘）
 uv run python -m experiments.demo_synthetic --out docs/demo    # 上面的 synthetic 示範
-uv run python -m experiments.run_baseline --split dev --dry-run  # 不連網：以 oracle 假 client 走完整條 baseline 流程
-uv run python -m experiments.cost_estimate                     # 付費 run 的成本估算（不連網）
+uv run python -m experiments.run_baseline --split dev --dry-run  # 不連網：以 oracle 假 client 走完整條 baseline 流程（預設 provider：本機 Ollama）
 ```
 
-付費 run（目前 deferred）的指令與順序見 [NEXT.md](NEXT.md)；程式不讀取、不保存任何 API key（由 SDK 從環境變數解析）。
+本機模型的正式 run（需要 gpu-server 與 GPU lock）的步驟見 [NEXT.md](NEXT.md)。付費 API（Optional）的成本估算：
+`uv run python -m experiments.cost_estimate`；程式不讀取、不保存任何 API key。
 
 ## 結果
 
-尚無 LLM 結果。paid runs 完成後，這裡會放：
+尚無 LLM 結果。本機模型（decision 026）的正式 run 完成後，這裡會放：
 
 - eval baseline：success rate（含 95% CI）與分開報告的 trajectory safety 指標；
 - recoverability curve：每個 eval task 的 P(success | k)，以及驟降（cliff）或平緩漂移（gradual）的判定；

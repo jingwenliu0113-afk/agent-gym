@@ -136,18 +136,18 @@ def test_a_paid_eval_baseline_needs_three_rollouts(rollouts: list[str], tmp_path
                                                    made: list[str]) -> None:
     monkeypatch.chdir(tmp_path)
     with pytest.raises(SystemExit):
-        run_baseline.main(["--split", "eval", "--confirm-paid-run", "--max-cost-usd", "5", "--run-name", "e", *rollouts])
+        run_baseline.main(["--split", "eval", "--provider", "anthropic", "--confirm-paid-run", "--max-cost-usd", "5", "--run-name", "e", *rollouts])
     assert made == [] and not (tmp_path / "runs" / "e").exists()
 
 
 def test_the_registered_baseline_settings_and_dry_runs_are_accepted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
                                                                     made: list[str]) -> None:
     monkeypatch.chdir(tmp_path)
-    assert run_baseline.main(["--split", "eval", "--rollouts", "3", "--confirm-paid-run", "--max-cost-usd", "0.05",
+    assert run_baseline.main(["--split", "eval", "--rollouts", "3", "--provider", "anthropic", "--confirm-paid-run", "--max-cost-usd", "0.05",
                               "--run-name", "e"]) == 0
     assert json.loads((tmp_path / "runs" / "e" / "run.json").read_text(encoding="utf-8"))["rollouts"] == 3
-    assert run_baseline.main(["--split", "dev", "--confirm-paid-run", "--max-cost-usd", "0.05", "--run-name", "d"]) == 0  # dev sanity
-    assert run_baseline.main(["--split", "eval", "--dry-run", "--run-name", "r"]) == 0  # dry-run 不受限制
+    assert run_baseline.main(["--split", "dev", "--provider", "anthropic", "--confirm-paid-run", "--max-cost-usd", "0.05", "--run-name", "d"]) == 0  # dev sanity
+    assert run_baseline.main(["--split", "eval", "--dry-run", "--provider", "anthropic", "--run-name", "r"]) == 0  # dry-run 不受限制
     assert made == ["client", "client"]
 
 

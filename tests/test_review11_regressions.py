@@ -84,10 +84,10 @@ def test_run_split_writes_run_json_before_the_first_attempt(dry_run: bool, tmp_p
 
 def test_run_baseline_cli_marks_dry_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
-    assert run_baseline.main(["--split", "eval", "--dry-run", "--run-name", "rehearsal"]) == 0
+    assert run_baseline.main(["--split", "eval", "--dry-run", "--provider", "anthropic", "--run-name", "rehearsal"]) == 0
     assert _run_json(tmp_path / "runs" / "rehearsal")["dry_run"] is True
     monkeypatch.setattr(run_baseline, "make_anthropic_client", lambda: OracleFakeClient(POOL))
-    assert run_baseline.main(["--split", "eval", "--rollouts", "3", "--confirm-paid-run", "--max-cost-usd", "5",
+    assert run_baseline.main(["--split", "eval", "--rollouts", "3", "--provider", "anthropic", "--confirm-paid-run", "--max-cost-usd", "5",
                               "--run-name", "real"]) == 0  # 付費 eval 的 R = 3（decision 025 §2）
     assert _run_json(tmp_path / "runs" / "real")["dry_run"] is False
 

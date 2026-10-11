@@ -2,12 +2,14 @@
 
 ## 目前位置
 
-Core：Day 1 完成；Week 1 除「#5 baseline 真正跑完整 task」以外都完成；#5 與 SPEC §6 中**不需要 API key 的部分全部完成**。
-需要真正呼叫 LLM 的步驟（dev sanity、eval baseline、eval 上的 failure localization sweep）依使用者決策 **deferred / blocked-by-paid-API**；
+Core：Day 1 完成；Week 1 除「#5 baseline 真正跑完整 task」以外都完成；#5 與 SPEC §6 中**不需要模型推論的部分全部完成**。
+**2026-10-11 起 Core 的 LLM 改用自行部署的本機模型**（`qwen3.5:9b-q4_K_M`，台中 gpu-server 的 Ollama；decision 026）；付費 API 改為 Optional。
+Ollama adapter、tool calling 與 JSON 驗證、呼叫次數預算、本機 run 的 CLI 與 dry-run 都已完成；需要 GPU 的步驟目前 **blocked**
+（gpu-server 的 Ollama 尚未部署，由 incident-investigator 進行中；本 Project 不安裝 Ollama、不下載模型）。
 keyless Core infrastructure（含分析工具、驟降判定選項、README 示範）已完成；第七輪對抗式審查找出的 keyless 缺口
 （已登記但漏實作的規則、只信任 summary 的分析）已依 decision 017 補齊；第八～十二輪審查與付費流程模擬找出的缺口已依 decision 018 – 024 補齊。
-**所有 keyless Core 工作已完成；研究設計決策已由使用者確認（decision 025）；剩下的只有下方「Blocked / 需要使用者」的付費 LLM run**
-（2026-10-09 使用者指示：API 的部分先不做）。
+不需要 GPU 的 Core 工作已完成；剩下的見下方「Blocked / 需要使用者」：遠端 Ollama 可用後的 lock wrapper、開發題測試、設定凍結
+（需使用者確認）與正式 run。
 尚未進 Advanced（Gate 未滿足：還沒有任何真實的 failure localization 結果）。
 
 Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/jingwenliu0113-afk/agent-gym），main 追蹤 origin/main；
@@ -133,9 +135,25 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
    （eval baseline 的 `--rollouts 3`；sweep 的 `--plan 2,10,48,0.3 --criterion bonferroni95`），不符時在任何 call 之前拒絕；
    dry-run 不受限制。`cost_estimate` 加印 n_fine = 48 的上限。
 
-測試：`uv run pytest` → 8716 passed、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 4–6 分鐘；`ruff check` 通過。
+16. **Core 改用本機模型（2026-10-11，decision 026）**：
+   - `agents/ollama.py`：Ollama 原生 `/api/chat` adapter（只用標準函式庫）。request 決定性、assistant 以 provider_content 原樣重送
+     （restore 後的 conversation 相同）；tool call 的結構與參數驗證（物件 / JSON 字串 / null / 其他交給 env 記為 invalid_arguments），
+     id 依位置產生；截斷防護（`truncate` / `shift` 關閉、送出前的 fit check、`prompt_eval_count` 檢查）；錯誤分類（連線 / 5xx →
+     infrastructure，輸出截斷 → agent_output，結構 / 模型 / context → harness）；只連 loopback、只呼叫 chat / version / tags / show
+     （不可能下載或改動模型）、拒絕 cloud 模型；`verify_server` 檢查模型存在、tools 能力與凍結的版本 / digest。
+   - 實驗流程：`make_policy` 依 agent 設定選 adapter；run_sweeps 沿用 source 自己的 agent；`OllamaOracleFakeClient` 讓 dry-run 走
+     本機路徑；本機預算以 `--max-model-calls` 計；CLI 預設 provider 為 ollama，`--confirm-local-run` 要求 GPU lock 環境變數、呼叫次數上限、
+     loopback URL，正式 run（eval baseline、sweep）另外要求凍結的設定且 server 相符；Anthropic 路徑（`--provider anthropic
+     --confirm-paid-run`）保留為 Optional。
 
-## 使用者決策（2026-10-08 / 10-09）
+測試：`uv run pytest` → 8836 passed、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 4–6 分鐘；`ruff check` 通過。
+
+## 使用者決策（2026-10-08 / 10-09 / 10-11）
+
+- **（2026-10-11）Core 改用免費、自行部署的 LLM**（decision 026）：正式模型預計 `Qwen3.5-9B Q4_K_M`，透過台中 gpu-server 的 Ollama
+  執行；暫時不使用任何付費雲端 API（之後若取得 Claude Max 方案的免費 API 額度會考慮）。不得自行重新安裝 Ollama 或重複下載模型；
+  先完成不需要 GPU 的工作；遠端可用後先做少量開發題測試；正式模型、量化版本、prompt、tool schema、推論參數與預算必須先凍結；
+  正式 GPU 實驗使用 `/tmp/ai-portfolio-gpu.lock`，被占用就改做其他工作；原本的付費 API 保留為 Optional，不再是 Core blocker。
 
 - 需要 `ANTHROPIC_API_KEY` 或其他付費 API 的正式 LLM run（baseline / eval / failure-localization sweep）**全部延後**；
   不要求 API key、不執行任何付費 API call。Claude Code Desktop 自身的 token 可自由用於開發、測試、review、commit、push。
@@ -166,36 +184,37 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 
 ## Blocked / 需要使用者
 
-以下全部需要使用者決定或付費 API；keyless Core 已沒有其他可做的工作。程式不讀取、不保存任何 API key（由 SDK 從環境變數解析）。
+### A. 遠端 GPU（blocked：gpu-server 的 Ollama 尚未部署；2026-10-11 唯讀檢查：WSL 內沒有 ollama、`/api/version` 無回應、GPU 閒置）
 
-### A. 研究設計決策：已確認（decision 025，2026-10-09）
+依序；全部在 GPU lock 內執行，lock 被占用就改做其他工作（MACHINE_POLICY）：
 
-模型 `claude-opus-5-5`；預算分段（先 dev sanity $10）；R = 3；SweepPlan 選項 A（`bonferroni95` + (2, 10, 48, 0.3)，估算 $213 – $3,241，
-dev sanity 後重估）；Gate 三種結果（`advanced` / `gradual` / `no_repeated_pattern`）。不需要再決定任何事項。
+1. 確認 incident-investigator 部署的 Ollama 可用（`/api/version`、`/api/tags` 有 `qwen3.5:9b-q4_K_M`），**不自行安裝、不 pull**。
+2. 撰寫並測試 GPU lock wrapper（Mac 端以 `ssh gpu-server` 取得 WSL 內的 `flock -n /tmp/ai-portfolio-gpu.lock`、建立 SSH 通道到
+   Ollama 的 loopback port、設定 `AI_PORTFOLIO_GPU_LOCK=held`；拿不到 lock 就退出），確認從 Mac 經通道連得到 Ollama。
+3. 少量開發題測試（dev split 5 題，草案設定）：
+   `<lock wrapper> uv run python -m experiments.run_baseline --split dev --confirm-local-run --max-model-calls 200 --ollama-url http://127.0.0.1:<通道 port>`；
+   確認模型能正確呼叫工具，量測每次呼叫的秒數與 token 數，並確認 `truncate: false` 時 server 對超長 prompt 的行為。
+4. **凍結（需使用者確認）**：依開發題測試的結果寫一份 decision，凍結 model tag、量化版本與 digest、Ollama 版本、prompt（`baseline/v1`）、
+   tool schema、推論參數（草案：think 關、num_ctx 32768、num_predict 4096、temperature 0.7、top_p 0.8、top_k 20、min_p 0、
+   presence_penalty 1.5、每次呼叫隨機 seed；temperature 必須 > 0，否則 rerun 沒有變異）與各階段的呼叫次數上限
+   （粗估：eval baseline R = 3 最多約 900 次；sweep 選項 A 約數千到 1.8 萬次，時間依實測的每次秒數換算）。
+   凍結後把 `agents.ollama.LOCAL_MODEL_CONFIG` 的 `model_digest` / `ollama_version` 填入。
+5. 正式 eval baseline（R = 3）：`... run_baseline --split eval --rollouts 3 --confirm-local-run --max-model-calls <凍結的上限> ...`。
+6. 正式 sweep（選項 A）：`... run_sweep --baseline-run runs/<eval> --plan 2,10,48,0.3 --criterion bonferroni95 --confirm-local-run
+   --max-model-calls <上限> ...`；中斷或停止時以 `--run-name <新名稱> --resume-from <所有先前的 sweep 目錄>` 續跑（decision 018 – 024）。
+7. `analyze_baseline` / `analyze_sweep`，把結果寫進 README 的「結果」段；Gate 依 decision 025 §4 機械化判定，`advanced` 才進 Advanced。
 
-### B. 付費 LLM runs（依序；使用者提供 credential 並明確指示開始後才執行；2026-10-09 指示：先不做）
+### B. 研究設計（已確認，沿用）
 
-前提：Mac 不在自動電力模式（`latency_s` 是 performance-sensitive 指標；2026-10-09 晚的電力模式期間不跑正式 run）。
-成本都是 dry-run request 大小推得的估計（`uv run python -m experiments.cost_estimate`；低 / 高情境見 decision 012），dev sanity 後以實測重估。
+decision 025 的 R = 3、SweepPlan 選項 A（`bonferroni95` + (2, 10, 48, 0.3)）、Gate 三種結果不變；模型改為本機模型（decision 026），
+凍結值待 A.4 經使用者確認。
 
-1. dev sanity（估計 $0.42 – $6.78）：`uv run --extra llm python -m experiments.run_baseline --split dev --confirm-paid-run --max-cost-usd 10`；
-   以實測 tokens / call 重估 eval 與 sweep 的成本，再請使用者確認預算。
-2. eval baseline（每輪 15 題估計 $1.16 – $18.51；R = 3 約 $3.5 – $56）：
-   `uv run --extra llm python -m experiments.run_baseline --split eval --rollouts 3 --confirm-paid-run --max-cost-usd <X>`
-   （X 在 dev sanity 重估後由使用者核准；付費 eval 只接受 `--rollouts 3`，decision 025 §2）。被中斷或因預算停止時以新目錄（`--run-name <新名稱>`）重跑；dry-run 的目錄不能一起傳入
-   （decision 021 §1）；之後所有指令的 baseline
-   都要列出**全部**目錄（analyze_baseline 的位置參數、run_sweep / analyze_sweep 的 `--baseline-run`；decision 016 A1 / 019 §1）。
-3. 以 decision 012 / 019 的規則選 source → eval sweep（估算 $213 – $3,241，dev sanity 後重估）：
-   `uv run --extra llm python -m experiments.run_sweep --baseline-run runs/<eval-run> [runs/<eval-rerun> ...] --plan 2,10,48,0.3 --criterion bonferroni95 --confirm-paid-run --max-cost-usd X`
-   （付費 sweep 只接受這組設定，decision 025 §3；`--dry-run` 已驗證）。被中斷或因預算停止時續跑：
-   `... --run-name <新名稱> --resume-from runs/<第一個 sweep> [runs/<第二個 sweep> ...]`（列出**所有**先前的 sweep 目錄，較早與較晚的
-   都要；`--max-cost-usd` 是這一次的上限，先前花費會印出；做到一半的 source 會接續、已有結果的 rollout 不再執行），分析時把所有
-   sweep 目錄一起傳給 analyze_sweep（decision 018 – 023）。
-4. 以真實結果跑 `analyze_baseline` / `analyze_sweep`，把 recoverability curve、trajectory safety、「最終成功但中途有
-   forbidden action」案例、Gate 判定放進 README 的「結果」段（README 目前只有 synthetic 示範）。
-5. Gate 判定：analyze_sweep 依 decision 025 §4 機械化輸出 `advanced` / `gradual` / `no_repeated_pattern`；`advanced` 才進 Advanced。
+### C. Optional：付費 API（不是 Core blocker；decision 026 §4）
 
-### C. 環境：已解決（2026-10-09）
+Anthropic 路徑完整保留：`--provider anthropic --dry-run` / `--confirm-paid-run --max-cost-usd X`（decision 009 / 012 / 014 / 025 的規則）。
+若日後取得 Claude Max 方案的免費 API 額度，另立 decision 決定是否使用；換模型等於換 agent，與本機結果不得合併。
+
+### D. 環境：已解決（2026-10-09）
 
 - 系統的 git 原本因 Xcode 的 libxcrun 架構不符而無法執行；使用者已把 developer directory 切到 Command Line Tools，`git` 與 push
   都恢復正常。
@@ -216,6 +235,7 @@ dev sanity 後重估）；Gate 三種結果（`advanced` / `gradual` / `no_repea
   成本加總中），重跑必須用新目錄。分析工具可直接同時讀中斷的目錄與重跑的目錄（decision 017）；sweep 以 `--resume-from` 續跑
   （decision 018 / 019 / 020，必須列出所有先前的 sweep 目錄）。續跑前的後代檢查只看相關目錄的上層目錄（不遞迴）：
   搬到其他位置的後續 sweep 目錄偵測不到。沒有 `--resume-from` 的新 sweep 不做這個檢查（無法分辨刻意重新開始與忘了續跑）。
+- 本機模型（decision 026）：`prompt_eval_count` 在 prompt 有快取時是否只計未快取的部分，以及 `truncate: false` 時 server 是否真的拒絕超長 prompt，都待開發題測試確認；adapter 的防護不依賴這兩點（送出前的 fit check 以 bytes ÷ 2 保守估計）。Ollama 的 tool call 參數可能是 JSON 字串或 null，adapter 會解析；解析不了的原樣交給 env（記為 invalid_arguments）。
 - 每次分析都要用新的 `--out`（或空目錄；decision 022）。
 - dry-run 標記由 CLI 的 `--dry-run` 決定（decision 021 §1）；直接以 Python 呼叫 `run_split` / `run_sweeps` 時預設 `dry_run=False`。
   dry-run 的輸出永遠不能與付費輸出一起分析或互相續跑；預演續跑要用 dry-run 鏈。sweep 目錄一定有 manifest（可能是空的，decision 024 §1），可以照常傳入；baseline 目錄中斷在第一次嘗試之前時沒有 manifest，沒有可分析的內容，不要傳入分析工具。

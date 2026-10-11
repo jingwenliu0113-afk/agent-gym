@@ -103,6 +103,11 @@ class AdapterError(RuntimeError):
     """模型自己的輸出無法成為合法 turn（截斷、未知 stop_reason / block 等）；decision 009 的 agent_output 類，不重試。"""
 
 
+class InfrastructureError(RuntimeError):
+    """provider 與模型輸出無關的暫時性失敗（例如本機推論服務的連線失敗、逾時、HTTP 5xx）；decision 009 的 infrastructure 類，
+    會重試（decision 026）。Anthropic SDK 的例外依模組與名稱另外分類。"""
+
+
 class ReplayIntegrityError(RuntimeError):
     """API 回報重放不忠實（例如 input_transformations 非空）；decision 009 的 harness 類，實驗必須停止。"""
 

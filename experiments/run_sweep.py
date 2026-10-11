@@ -36,18 +36,23 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Collection, Mapping, Sequence
 
-from agents.baseline import AnthropicPolicy, baseline_agent_config, make_anthropic_client
+from agents.baseline import ANTHROPIC_POLICY, baseline_agent_config, make_anthropic_client
+from agents.ollama import OLLAMA_POLICY
 from agents.policy import AgentConfig
 from env.hashing import canonical_json
 from experiments.analyze_baseline import RolloutRecord, load_runs
 from replay.trajectory import load_strict_json
 from replay.aborts import utc_instant
 from experiments.run_baseline import (
-    CostMeter,
-    Ledger,
-    OracleFakeClient,
+    DEFAULT_OLLAMA_URL,
     budget_reached,
     check_budget_args,
+    CostMeter,
+    Ledger,
+    make_policy,
+    OllamaOracleFakeClient,
+    OracleFakeClient,
+    start_local_run,
 )
 from replay.atomic import write_atomic
 from replay.localization import CLIFF_CRITERIA, RolloutOutcome, SweepPlan, SweepResult, check_prior, sweep
@@ -125,6 +130,14 @@ def load_sources(baseline_run_dirs: str | Path | Sequence[str | Path]) -> tuple[
         else:
             sources[task_id] = loaded.trajectories[(record.run, task_id, 0)]
     return sources, loaded.dry_run
+
+
+def source_config(sources: Mapping[str, Trajectory | None]) -> AgentConfig | None:
+    """非 None 的 source 共同的 agent 設定（decision 026：sweep 沿用 source 的 agent）；沒有 source → None；不只一種 → ValueError。"""
+    configs = {source.agent.config_id: source.agent for source in sources.values() if isinstance(source, Trajectory)}
+    if len(configs) > 1:
+        raise ValueError("the sources were produced by more than one agent config")
+    return copy.deepcopy(next(iter(configs.values()))) if configs else None
 
 
 def run_description(
@@ -306,14 +319,15 @@ def run_sweeps(
     resumed_from: Collection[str] = (),
     dry_run: bool = False,
     carried: Mapping[str, Mapping[tuple[int, int], RolloutOutcome]] | None = None,
+    max_model_calls: int | None = None,
 ) -> SweepRunSummary:
     """依 eval pool 的順序對每個非 None、且不在 skip 中的 source 執行 ``replay.localization.sweep``（共用一個 manifest）。
 
     - criterion（驟降判定，CLIFF_CRITERIA 之一）沒有預設值：與 plan 一樣必須明確給定（decision 011 / 015 的選擇屬於使用者決策）。
     - 事前檢查（ValueError，不執行）：plan 為 SweepPlan；criterion 在 CLIFF_CRITERIA 中；sources 的 key 剛好是全部 eval task
       （``select_sources`` 的形狀，decision 018 §1）；skip 是 task_id 的集合（不是 str），每個都有 source；至少有一個要執行的
-      source（decision 019 §3）；每個非 None 的 source 的 agent.config_id 必須等於 agent_config（預設 baseline）的 config_id；
-      ``check_budget_args``；run_dir 不存在或為空。
+      source（decision 019 §3）；每個非 None 的 source 的 agent.config_id 必須等於 agent_config 的 config_id（agent_config 為 None
+      時沿用 source 自己的設定，decision 026）；``check_budget_args``；run_dir 不存在或為空。
     - resumed_from：續跑時各 --resume-from 目錄的 run_id（不是 str 的集合；每個都是 32 位小寫 hex、不重複；否則 ValueError）。
     - dry_run（bool）：OracleFakeClient 的輸出（CLI 的 --dry-run）；直接以 Python 呼叫時預設 False（decision 021 §1）。
     - carried（decision 023 §1，續跑）：task_id → 先前目錄中該 source 已有最終結果的 rollout（``check_prior``）；只能是有 source、
@@ -321,8 +335,8 @@ def run_sweeps(
     - 第一次嘗試之前寫入 ``run.json``（``run_description``：新的隨機 run_id、排序後的 resumed_from、dry_run；decision 019 §2 /
       020 §2 / 021 §1）並建立空的 ``manifest.jsonl``（decision 024 §1）。run.json、sweeps 檔與 summary.json 都以
       ``write_atomic`` 寫入（decision 024 §3）。
-    - policy_factory(k, i, attempt)：``budget_reached(ledger, max_cost_usd)`` → raise BudgetExceeded；否則
-      ``CostMeter(AnthropicPolicy(client, agent_config), ledger)``（ledger 跨所有 source 共用）。
+    - policy_factory(k, i, attempt)：``budget_reached(ledger, max_cost_usd, max_model_calls)`` → raise BudgetExceeded；否則
+      ``CostMeter(make_policy(client, agent_config), ledger)``（ledger 跨所有 source 共用）。
     - BudgetExceeded → 停止（stopped_by_budget = True）：該 source 的部分 sweep 不計入 completed（rollouts 仍在 manifest 中），
       後面的 source 不再執行。
     - 每個完成的 sweep 寫入 ``sweeps/<task_id>.json``（canonical_json）；每個完成的 rerun trajectory 存成
@@ -361,8 +375,11 @@ def run_sweeps(
         if task_id not in sources or sources[task_id] is None or task_id in skipped:
             raise ValueError(f"carried rollouts for {task_id!r}, which is not a source to run here")
         priors[task_id] = check_prior(prior)
-    config = baseline_agent_config() if agent_config is None else copy.deepcopy(agent_config)
-    check_budget_args(max_cost_usd, config)
+    if agent_config is None:
+        config = source_config(sources) or baseline_agent_config()
+    else:
+        config = copy.deepcopy(agent_config)
+    check_budget_args(max_cost_usd, config, max_model_calls)
     for task_id, source in sources.items():
         if source is None:
             continue
@@ -373,7 +390,7 @@ def run_sweeps(
     run_dir = Path(run_dir)
     if run_dir.exists() and (not run_dir.is_dir() or any(run_dir.iterdir())):
         raise ValueError(f"{run_dir} already exists and is not an empty directory")
-    AnthropicPolicy(client, config)  # 設定與 client 的檢查在任何呼叫之前完成
+    make_policy(client, config)  # 設定與 client 的檢查在任何呼叫之前完成
 
     sweeps_dir = run_dir / "sweeps"
     sweeps_dir.mkdir(parents=True, exist_ok=True)
@@ -393,9 +410,12 @@ def run_sweeps(
     ledger = Ledger()
 
     def policy_factory(k: int, rollout_index: int, attempt: int) -> CostMeter:
-        if budget_reached(ledger, max_cost_usd):
-            raise BudgetExceeded(f"spent ${ledger.cost_usd:.4f} (cap ${max_cost_usd}, unknown-cost calls {ledger.unknown_cost_calls})")
-        return CostMeter(AnthropicPolicy(client, config), ledger)
+        if budget_reached(ledger, max_cost_usd, max_model_calls):
+            raise BudgetExceeded(
+                f"spent ${ledger.cost_usd:.4f} over {ledger.calls} calls (cost cap {max_cost_usd}, call cap {max_model_calls}, "
+                f"unknown-cost calls {ledger.unknown_cost_calls})"
+            )
+        return CostMeter(make_policy(client, config), ledger)
 
     families = {instance.task.task_id: instance.task.family for instance in week1_pool("eval")}
     results: dict[str, SweepResult] = {}
@@ -477,9 +497,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--criterion", required=True, choices=CLIFF_CRITERIA, help="驟降判定（必須明確給定，decision 015）")
     parser.add_argument("--run-name", default=None)
     mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--dry-run", action="store_true")
-    mode.add_argument("--confirm-paid-run", action="store_true")
-    parser.add_argument("--max-cost-usd", type=float, default=None)
+    mode.add_argument("--dry-run", action="store_true", help="不連網：與 source 的 agent 相同形狀的 oracle 假 client")
+    mode.add_argument("--confirm-local-run", action="store_true", help="本機模型（source 必須是本機 agent；需要 GPU lock）")
+    mode.add_argument("--confirm-paid-run", action="store_true", help="Anthropic API（Optional；source 必須是 Anthropic agent）")
+    parser.add_argument("--max-cost-usd", type=float, default=None, help="付費 run 必填的成本上限")
+    parser.add_argument("--max-model-calls", type=int, default=None, help="本機 run 必填的模型呼叫次數上限")
+    parser.add_argument("--ollama-url", default=DEFAULT_OLLAMA_URL, help="只接受 loopback（從 Mac 經 SSH 通道）")
     parser.add_argument(
         "--resume-from", nargs="+", action="extend", default=None,
         help="所有先前（中斷 / 因預算停止）的 sweep 目錄（可給多個、可重複；decision 018 §1 / 019 §3 / 020）",
@@ -489,8 +512,8 @@ def main(argv: list[str] | None = None) -> int:
     plan = parse_plan(args.plan)
     if not args.dry_run and (plan != REGISTERED_PLAN or args.criterion != REGISTERED_CRITERION):
         parser.error(
-            "a paid sweep must use the registered plan 2,10,48,0.3 and criterion bonferroni95 (decision 025 §3); "
-            "use --dry-run for other settings"
+            "a formal (local or paid) sweep must use the registered plan 2,10,48,0.3 and criterion bonferroni95 "
+            "(decision 025 §3); use --dry-run for other settings"
         )
     name = args.run_name or ("dry-run-sweep" if args.dry_run else "sweep")
     run_dir = Path("runs") / name
@@ -501,7 +524,16 @@ def main(argv: list[str] | None = None) -> int:
         )
     sources, baseline_dry_run = load_sources(args.baseline_run)
     if baseline_dry_run and not args.dry_run:
-        parser.error("the eval baseline is a dry-run output; a paid sweep needs a paid baseline (decision 021 §1)")
+        parser.error("the eval baseline is a dry-run output; a formal sweep needs a formal baseline (decision 021 §1)")
+    config = source_config(sources)
+    if config is None:
+        parser.error("the eval baseline has no source to sweep")
+    if args.confirm_local_run and config.policy != OLLAMA_POLICY:
+        parser.error("--confirm-local-run needs sources produced by the local model agent (decision 026)")
+    if args.confirm_paid_run and config.policy != ANTHROPIC_POLICY:
+        parser.error("--confirm-paid-run needs sources produced by the Anthropic agent (Optional, decision 026 §4)")
+    if args.confirm_local_run and args.max_cost_usd is not None:
+        parser.error("cost caps do not apply to local models; use --max-model-calls (decision 026 §2)")
     skip: tuple[str, ...] = ()
     resumed_from: list[str] = []
     carried: dict[str, Any] = {}
@@ -553,14 +585,17 @@ def main(argv: list[str] | None = None) -> int:
             print("nothing left to run: analyze the existing directories with experiments.analyze_sweep", file=sys.stderr)
             return 0
     if args.dry_run:
-        client: Any = OracleFakeClient(week1_pool("eval"))
+        client: Any = (OllamaOracleFakeClient if config.policy == OLLAMA_POLICY else OracleFakeClient)(week1_pool("eval"))
+    elif args.confirm_local_run:
+        client = start_local_run(parser, config, url=args.ollama_url, formal=True, max_model_calls=args.max_model_calls)
     else:
         if args.max_cost_usd is None:
             parser.error("--confirm-paid-run requires --max-cost-usd")
         client = make_anthropic_client()
     summary = run_sweeps(
         sources, client, plan=plan, criterion=args.criterion, run_dir=run_dir, max_cost_usd=args.max_cost_usd,
-        skip=skip, resumed_from=resumed_from, dry_run=args.dry_run, carried=carried,
+        skip=skip, resumed_from=resumed_from, dry_run=args.dry_run, carried=carried, agent_config=config,
+        max_model_calls=args.max_model_calls,
     )
     for task_id in summary.sources:
         result = summary.results.get(task_id)

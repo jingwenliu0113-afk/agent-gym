@@ -195,11 +195,20 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 
 ## Blocked / 需要使用者
 
-### A. 遠端 GPU（blocked：gpu-server 的 Ollama 尚未部署；2026-10-11 唯讀檢查：WSL 內沒有 ollama、`/api/version` 無回應、GPU 閒置）
+### A. 遠端 GPU
+
+狀態（2026-10-11 12:25，唯讀檢查）：
+- Ollama 0.35.0 已由 incident-investigator 部署，從 WSL 與 Windows 的 127.0.0.1:11434 都連得到（WSL 內沒有 ollama 指令，
+  應該是 Windows 端的服務）。
+- 模型 `qwen3.5:9b-q4_K_M`：digest `sha256:6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7`，Q4_K_M，9.7B，
+  能力 completion / vision / tools / thinking，模型 context 上限 262,144。
+- 模型自帶的預設：temperature 1、top_p 0.95、top_k 20、presence_penalty 1.5。adapter 一律明確覆寫。
+- 經不取 lock 的唯讀通道，`verify_server` 對真實 server 通過；version / tags / show 不會載入模型。
+- 當時 GPU lock 被其他 Project 持有：模型以 num_ctx 262,144 載入，占用約 13.8 GB VRAM。依規則不等待，lock 釋放後再做開發題測試。
 
 依序；全部在 GPU lock 內執行，lock 被占用就改做其他工作（MACHINE_POLICY）：
 
-1. 確認 incident-investigator 部署的 Ollama 可用（`/api/version`、`/api/tags` 有 `qwen3.5:9b-q4_K_M`），**不自行安裝、不 pull**。
+1. ~~確認 Ollama 可用~~：已確認（上方狀態）；**不自行安裝、不 pull**。
 2. ~~GPU lock wrapper~~：已完成（`tools/with-gpu-lock`，decision 026 §6；2026-10-11 以測試用的 lock 檔與臨時 HTTP 服務實測通過）。
    Ollama 可用後只需確認通道連得到 `/api/version`。
 3. 少量開發題測試（dev split 5 題，草案設定）：

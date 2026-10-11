@@ -37,8 +37,11 @@ from agents.baseline import (
 )
 from agents.ollama import (
     OLLAMA_POLICY,
+    OllamaContextError,
     OllamaHTTPClient,
     OllamaPolicy,
+    OllamaProtocolError,
+    OllamaTransportError,
     is_frozen,
     local_agent_config,
     make_ollama_client,
@@ -482,7 +485,7 @@ def start_local_run(parser: argparse.ArgumentParser, config: AgentConfig, *, url
         OllamaHTTPClient(url, timeout_s=1)  # 先驗證 URL（只接受 loopback），不連線
         client = make_ollama_client(url, config.model_config)
         info = verify_server(client, config)
-    except ValueError as exc:
+    except (ValueError, OllamaTransportError, OllamaProtocolError, OllamaContextError) as exc:
         parser.error(f"the local model server is not usable: {exc}")
     print(f"local model server: {canonical_json(info)}", file=sys.stderr)
     return client

@@ -166,7 +166,7 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
      loopback URL，正式 run（eval baseline、sweep）另外要求凍結的設定且 server 相符；Anthropic 路徑（`--provider anthropic
      --confirm-paid-run`）保留為 Optional。
 
-測試：`uv run pytest` → 8895 passed、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 4–6 分鐘；`ruff check` 通過。
+測試：`uv run pytest` → 8897 passed、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 4–6 分鐘；`ruff check` 通過。
 
 ## 使用者決策（2026-10-08 / 10-09 / 10-11）
 
@@ -204,6 +204,29 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 
 ## Blocked / 需要使用者
 
+### A0. **需要使用者決定：agent-gym 怎麼取用 gpu-server 上的模型**（2026-10-11 13:08 發現；decision 026 §7）
+
+gpu-server 上沒有常駐、共用的 Ollama 服務。incident-investigator 的做法：
+- 執行檔：WSL 使用者 home 下釘選的 Ollama 0.35.0；
+- 模型：它專用的 models 目錄（註明「只給本 project 用」）；
+- 執行方式：每次在 GPU lock 內啟動 `ollama serve`，結束就停止。
+
+13:08 lock 釋放後 server 就不在了，所以開發題測試在 server 檢查時停止（沒有任何模型呼叫）。在你決定之前，本 Project 不啟動那個 server、
+不使用它的 models 目錄、也不複製模型。選項：
+
+1. **（建議）共用執行檔與 models 目錄、各自啟動 server**：agent-gym 的 wrapper 在自己的 GPU lock 內，用同一個 Ollama 0.35.0 執行檔、
+   以 `OLLAMA_MODELS` 指向 incident-investigator 的 models 目錄啟動自己的 `ollama serve`：
+   - 只讀使用，加 `OLLAMA_NOPRUNE=1` 避免清理檔案；
+   - 只綁 loopback、`OLLAMA_NO_CLOUD=1`；
+   - 執行結束就停止，並確認通道連到的是這次啟動的 server。
+
+   不下載、不複製；兩個 project 用同一把 lock，不會同時使用。需要 incident-investigator 那邊知悉這個目錄會被共用。
+2. **改成兩個 project 共用的 models 目錄**（例如 `~/ai-portfolio-ollama-models`）：比較乾淨，但要由 incident-investigator 的 session
+   調整它的 wrapper。
+3. **複製一份給 agent-gym**（約 6.6 GB）：不是重新下載，但是重複的檔案，空間與一致性都要另外管理。
+
+決定之後：依選項擴充 `tools/with-gpu-lock`（啟動 / 停止 server、確認是這次的 server）並測試，再做下方 A 的開發題測試。
+
 ### A. 遠端 GPU
 
 狀態（2026-10-11 12:25，唯讀檢查）：
@@ -214,6 +237,7 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 - 模型自帶的預設：temperature 1、top_p 0.95、top_k 20、presence_penalty 1.5。adapter 一律明確覆寫。
 - 經不取 lock 的唯讀通道，`verify_server` 對真實 server 通過；version / tags / show 不會載入模型。
 - 當時 GPU lock 被其他 Project 持有：模型以 num_ctx 262,144 載入，占用約 13.8 GB VRAM。依規則不等待，lock 釋放後再做開發題測試。
+- 13:08 lock 釋放後 Ollama 也停止了（見 A0）：這個 server 只在 incident-investigator 自己的 lock 內存在。
 
 依序；全部在 GPU lock 內執行，lock 被占用就改做其他工作（MACHINE_POLICY）：
 

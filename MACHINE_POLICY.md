@@ -30,8 +30,9 @@ ssh gpu-server 'wsl.exe -d Ubuntu-22.04 -- bash -lc "<command>"'
 
 ### Ollama 與模型
 
-- Ollama 與模型由 incident-investigator 部署、與本 Project 共用。本 Project **不得**安裝、升級、重新安裝 Ollama，**不得**下載
-  （pull）、建立、刪除或複製任何模型。
+- Ollama 0.35.0 與模型由 incident-investigator 部署：它的 server 只在它自己的 GPU lock 內啟動、結束就停止，模型放在它專用的
+  models 目錄（decision 026 §7）。本 Project **不得**安裝、升級、重新安裝 Ollama，**不得**下載（pull）、建立、刪除或複製任何模型；
+  在使用者決定共用方式之前，也不啟動那個 server、不使用它的 models 目錄。
 - adapter 程式上只會呼叫 `/api/chat`、`/api/version`、`/api/tags`、`/api/show`，只連 loopback 位址（從 Mac 經 SSH 通道）。
 - 不使用 Ollama 的 cloud 模型（tag 以 `cloud` 結尾者一律拒絕）。
 - 正式 run 前確認 server 的 Ollama 版本與模型 digest 等於凍結值；不符就不執行，回報使用者。

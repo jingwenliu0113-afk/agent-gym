@@ -315,3 +315,21 @@ def test_a_formal_local_sweep_runs_with_the_frozen_config(frozen_local_baseline:
     run_json = json.loads((tmp_path / "runs" / "s" / "run.json").read_text(encoding="utf-8"))
     assert run_json["dry_run"] is False and run_json["criterion"] == "bonferroni95"
     assert ANTHROPIC_POLICY != OLLAMA_POLICY
+
+
+@pytest.mark.parametrize("error", ["transport", "protocol"])
+def test_an_unreachable_server_is_a_clean_refusal(error: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                                  capsys: pytest.CaptureFixture[str]) -> None:
+    """2026-10-11 開發題測試：server 不在時，CLI 以清楚的訊息拒絕（不是 traceback），且不建立 run 目錄。"""
+    from agents.ollama import OllamaProtocolError, OllamaTransportError
+
+    class Down(OllamaOracleFakeClient):
+        def version(self) -> dict[str, Any]:
+            raise (OllamaTransportError if error == "transport" else OllamaProtocolError)("GET /api/version failed")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(GPU_LOCK_ENV, "held")
+    monkeypatch.setattr(run_baseline, "make_ollama_client", lambda url, mc=None: Down(POOL))
+    with pytest.raises(SystemExit):
+        run_baseline.main(["--split", "dev", "--confirm-local-run", "--max-model-calls", "50", "--run-name", "x"])
+    assert "not usable" in capsys.readouterr().err and not (tmp_path / "runs" / "x").exists()

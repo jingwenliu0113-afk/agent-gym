@@ -118,6 +118,18 @@
   - 關閉 stdin 或終止本機的 ssh 都會釋放 lock；
   - lock 被其他 session 持有時 exit 75。
 
+### 7. gpu-server 上 Ollama 的實際部署方式（2026-10-11 發現；待使用者決定）
+
+- 12:25 時 Ollama 0.35.0 有回應、模型已載入，GPU lock 被持有。13:08 lock 釋放後，Ollama 就不在了：WSL 與 Windows 都連不到，也沒有 process。
+- 以唯讀方式讀 incident-investigator 的 `tools/with-remote-ollama`：
+  - 它在 WSL 使用者的 home 下放了釘選的 Ollama 0.35.0 執行檔；
+  - 模型在它自己的 models 目錄，註明「只給本 project 用」；
+  - 每次執行時在 GPU lock 內啟動 `ollama serve`，結束就停止。
+
+  所以 gpu-server 上**沒有常駐、共用的 Ollama 服務**。
+- 本 Project 在使用者決定之前不啟動那個 server、不使用它的 models 目錄、也不複製模型。這是跨 project 的資源決策，列在 NEXT 的
+  「Blocked / 需要使用者」。2026-10-11 13:08 的開發題測試因此在 server 檢查時就停止：沒有任何模型呼叫，也沒有建立 run 目錄。
+
 ## 為什麼
 
 - 使用者明確改變了 Core 的模型來源；SPEC 沒有指定 provider，Policy 介面本來就與 provider 無關，所以只需要新增 adapter，

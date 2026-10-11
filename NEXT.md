@@ -146,7 +146,7 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
      loopback URL，正式 run（eval baseline、sweep）另外要求凍結的設定且 server 相符；Anthropic 路徑（`--provider anthropic
      --confirm-paid-run`）保留為 Optional。
 
-測試：`uv run pytest` → 8836 passed、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 4–6 分鐘；`ruff check` 通過。
+測試：`uv run pytest` → 8852 passed、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 4–6 分鐘；`ruff check` 通過。
 
 ## 使用者決策（2026-10-08 / 10-09 / 10-11）
 
@@ -189,19 +189,20 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 依序；全部在 GPU lock 內執行，lock 被占用就改做其他工作（MACHINE_POLICY）：
 
 1. 確認 incident-investigator 部署的 Ollama 可用（`/api/version`、`/api/tags` 有 `qwen3.5:9b-q4_K_M`），**不自行安裝、不 pull**。
-2. 撰寫並測試 GPU lock wrapper（Mac 端以 `ssh gpu-server` 取得 WSL 內的 `flock -n /tmp/ai-portfolio-gpu.lock`、建立 SSH 通道到
-   Ollama 的 loopback port、設定 `AI_PORTFOLIO_GPU_LOCK=held`；拿不到 lock 就退出），確認從 Mac 經通道連得到 Ollama。
+2. ~~GPU lock wrapper~~：已完成（`tools/with-gpu-lock`，decision 026 §6；2026-10-11 以測試用的 lock 檔與臨時 HTTP 服務實測通過）。
+   Ollama 可用後只需確認通道連得到 `/api/version`。
 3. 少量開發題測試（dev split 5 題，草案設定）：
-   `<lock wrapper> uv run python -m experiments.run_baseline --split dev --confirm-local-run --max-model-calls 200 --ollama-url http://127.0.0.1:<通道 port>`；
+   `tools/with-gpu-lock -- uv run python -m experiments.run_baseline --split dev --confirm-local-run --max-model-calls 200`；
    確認模型能正確呼叫工具，量測每次呼叫的秒數與 token 數，並確認 `truncate: false` 時 server 對超長 prompt 的行為。
 4. **凍結（需使用者確認）**：依開發題測試的結果寫一份 decision，凍結 model tag、量化版本與 digest、Ollama 版本、prompt（`baseline/v1`）、
    tool schema、推論參數（草案：think 關、num_ctx 32768、num_predict 4096、temperature 0.7、top_p 0.8、top_k 20、min_p 0、
    presence_penalty 1.5、每次呼叫隨機 seed；temperature 必須 > 0，否則 rerun 沒有變異）與各階段的呼叫次數上限
    （粗估：eval baseline R = 3 最多約 900 次；sweep 選項 A 約數千到 1.8 萬次，時間依實測的每次秒數換算）。
    凍結後把 `agents.ollama.LOCAL_MODEL_CONFIG` 的 `model_digest` / `ollama_version` 填入。
-5. 正式 eval baseline（R = 3）：`... run_baseline --split eval --rollouts 3 --confirm-local-run --max-model-calls <凍結的上限> ...`。
-6. 正式 sweep（選項 A）：`... run_sweep --baseline-run runs/<eval> --plan 2,10,48,0.3 --criterion bonferroni95 --confirm-local-run
-   --max-model-calls <上限> ...`；中斷或停止時以 `--run-name <新名稱> --resume-from <所有先前的 sweep 目錄>` 續跑（decision 018 – 024）。
+5. 正式 eval baseline（R = 3）：`tools/with-gpu-lock -- uv run python -m experiments.run_baseline --split eval --rollouts 3
+   --confirm-local-run --max-model-calls <凍結的上限>`。
+6. 正式 sweep（選項 A）：`tools/with-gpu-lock -- uv run python -m experiments.run_sweep --baseline-run runs/<eval> --plan 2,10,48,0.3
+   --criterion bonferroni95 --confirm-local-run --max-model-calls <上限>`；中斷或停止時以 `--run-name <新名稱> --resume-from <所有先前的 sweep 目錄>` 續跑（decision 018 – 024）。
 7. `analyze_baseline` / `analyze_sweep`，把結果寫進 README 的「結果」段；Gate 依 decision 025 §4 機械化判定，`advanced` 才進 Advanced。
 
 ### B. 研究設計（已確認，沿用）

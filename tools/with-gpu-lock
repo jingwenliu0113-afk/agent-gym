@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# 在台中 gpu-server 的 GPU lock 內執行一個指令，並在同一條 SSH 連線上建立到 Ollama 的通道（decision 026 §3、MACHINE_POLICY）。
+#
+#   tools/with-gpu-lock [--lock-file PATH] [--local-port N] [--remote-port N] -- <command> [args...]
+#
+# - 經 `ssh gpu-server` 在 WSL（Ubuntu-22.04）內以 `flock -n <lock>` 取得 lock；lock 由遠端一個讀 stdin 的 process 持有，
+#   本機關閉 stdin（或 ssh 結束）時釋放。
+# - 同一條連線以 -L 127.0.0.1:<local>:127.0.0.1:<remote> 建立通道（Windows 的 localhost 會轉到 WSL 的 loopback）。
+# - lock 取得後才執行指令，並設定 AI_PORTFOLIO_GPU_LOCK=held 與 AGENT_GYM_OLLAMA_URL=http://127.0.0.1:<local>。
+# - 拿不到 lock（其他 Project 正在使用）→ exit 75，不執行、不等待、不搶；遠端無法連線或逾時 → exit 69；用法錯誤 → exit 64。
+# - 指令結束（或 wrapper 收到 INT / TERM / HUP）時釋放 lock，回傳指令的 exit code。
+# 不讀取、不保存任何 credential；不刪除任何 lock 檔。
+set -euo pipefail
+
+LOCK_FILE=/tmp/ai-portfolio-gpu.lock
+LOCAL_PORT=11435
+REMOTE_PORT=11434
+HOST=gpu-server
+DISTRO=Ubuntu-22.04
+TIMEOUT_S=${WITH_GPU_LOCK_TIMEOUT_S:-30}
+
+usage() {
+  echo "usage: tools/with-gpu-lock [--lock-file PATH] [--local-port N] [--remote-port N] -- <command> [args...]" >&2
+  exit 64
+}
+
+if [[ "${AI_PORTFOLIO_GPU_LOCK:-}" == "held" ]]; then
+  echo "with-gpu-lock: already inside the GPU lock (nested use refused)" >&2
+  exit 64
+fi
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --lock-file) [[ $# -ge 2 ]] || usage; LOCK_FILE=$2; shift 2 ;;
+    --local-port) [[ $# -ge 2 ]] || usage; LOCAL_PORT=$2; shift 2 ;;
+    --remote-port) [[ $# -ge 2 ]] || usage; REMOTE_PORT=$2; shift 2 ;;
+    --) shift; break ;;
+    *) usage ;;
+  esac
+done
+[[ $# -ge 1 ]] || usage
+[[ "$LOCK_FILE" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "with-gpu-lock: the lock file must be an absolute path without spaces" >&2; exit 64; }
+for port in "$LOCAL_PORT" "$REMOTE_PORT"; do
+  [[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1 && port <= 65535 )) || { echo "with-gpu-lock: invalid port $port" >&2; exit 64; }
+done
+
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/with-gpu-lock.XXXXXX")
+FIFO=$WORK/stdin
+OUT=$WORK/out
+ERR=$WORK/err
+mkfifo "$FIFO"
+SSH_PID=
+
+cleanup() {
+  exec 9>&- 2>/dev/null || true  # 關閉遠端的 stdin → 遠端的 cat 結束 → flock 釋放
+  if [[ -n "$SSH_PID" ]]; then
+    for _ in $(seq 1 50); do kill -0 "$SSH_PID" 2>/dev/null || break; sleep 0.1; done
+    kill "$SSH_PID" 2>/dev/null || true
+    wait "$SSH_PID" 2>/dev/null || true
+  fi
+  rm -rf "$WORK"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+
+# 遠端：WSL 內 flock -n；取得後印 LOCKED，持有到 stdin 關閉
+REMOTE="wsl.exe -d $DISTRO -- bash -lc \"flock -n $LOCK_FILE bash -c 'echo LOCKED; cat >/dev/null'\""
+ssh -o BatchMode=yes -o ConnectTimeout=10 -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 \
+  -L "127.0.0.1:$LOCAL_PORT:127.0.0.1:$REMOTE_PORT" "$HOST" "$REMOTE" < "$FIFO" > "$OUT" 2> "$ERR" &
+SSH_PID=$!
+exec 9> "$FIFO"  # 保持遠端的 stdin 開著
+
+deadline=$((SECONDS + TIMEOUT_S))
+while ! grep -q '^LOCKED$' "$OUT" 2>/dev/null; do
+  if ! kill -0 "$SSH_PID" 2>/dev/null; then
+    status=0
+    wait "$SSH_PID" || status=$?
+    SSH_PID=
+    if [[ $status -eq 1 ]]; then
+      echo "with-gpu-lock: the GPU lock $LOCK_FILE is busy (another project is using the GPU); not running" >&2
+      exit 75
+    fi
+    echo "with-gpu-lock: could not reach $HOST (ssh exit $status): $(tail -n 3 "$ERR" 2>/dev/null)" >&2
+    exit 69
+  fi
+  if (( SECONDS >= deadline )); then
+    echo "with-gpu-lock: $HOST did not confirm the lock within ${TIMEOUT_S}s; not running" >&2
+    exit 69
+  fi
+  sleep 0.2
+done
+
+echo "with-gpu-lock: holding $LOCK_FILE on $HOST; Ollama tunnel at http://127.0.0.1:$LOCAL_PORT" >&2
+status=0
+AI_PORTFOLIO_GPU_LOCK=held AGENT_GYM_OLLAMA_URL="http://127.0.0.1:$LOCAL_PORT" "$@" || status=$?
+exit "$status"

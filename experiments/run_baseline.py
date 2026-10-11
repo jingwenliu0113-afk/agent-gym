@@ -102,7 +102,13 @@ class CostMeter:
 
 GPU_LOCK_ENV = "AI_PORTFOLIO_GPU_LOCK"  # 只由 GPU lock wrapper 設為 "held"（decision 026 §3、MACHINE_POLICY）
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
+OLLAMA_URL_ENV = "AGENT_GYM_OLLAMA_URL"  # tools/with-gpu-lock 設為 SSH 通道的 loopback URL
 FAKE_OLLAMA_VERSION = "0.0.0-dry-run"
+
+
+def ollama_url_default() -> str:
+    """CLI 的 --ollama-url 預設：GPU lock wrapper 設定的通道 URL（OLLAMA_URL_ENV），否則 DEFAULT_OLLAMA_URL。"""
+    return os.environ.get(OLLAMA_URL_ENV) or DEFAULT_OLLAMA_URL
 FAKE_OLLAMA_DIGEST = "sha256:" + "0" * 64
 
 
@@ -495,7 +501,8 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - CLI
     mode.add_argument("--confirm-paid-run", action="store_true", help="真正呼叫 Anthropic API（Optional，會產生費用）")
     parser.add_argument("--max-cost-usd", type=float, default=None, help="付費 run 必填的成本上限（只限 anthropic）")
     parser.add_argument("--max-model-calls", type=int, default=None, help="本機 run 必填的模型呼叫次數上限")
-    parser.add_argument("--ollama-url", default=DEFAULT_OLLAMA_URL, help="只接受 loopback（從 Mac 經 SSH 通道）")
+    parser.add_argument("--ollama-url", default=ollama_url_default(),
+                        help="只接受 loopback；預設取 tools/with-gpu-lock 設定的通道 URL")
     args = parser.parse_args(argv)
 
     config = local_agent_config() if args.provider == "ollama" else baseline_agent_config()

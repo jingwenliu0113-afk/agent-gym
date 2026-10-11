@@ -48,8 +48,10 @@ ssh gpu-server 'wsl.exe -d Ubuntu-22.04 -- bash -lc "<command>"'
   CLI 要求環境變數 `AI_PORTFOLIO_GPU_LOCK=held`，這個變數只由 lock wrapper 設定；沒有就拒絕執行。
 - 拿不到 lock（其他 Project 正在使用）→ 不執行、不等待、不搶，改做其他工作。
 - 執行前另外看 `nvidia-smi`：其他 Project 已經把模型載進 GPU 時不執行（16 GB 容不下兩邊同時載入）。
-- 不得刪除任何 lock 檔，也不得終止其他 Project 的 process。
-- lock wrapper（Mac 端取得遠端 lock、建立 SSH 通道、設定 `AI_PORTFOLIO_GPU_LOCK`）待遠端 Ollama 可用、確認連線方式後撰寫並測試。
+- 不得刪除 `/tmp/ai-portfolio-gpu.lock` 或其他 Project 的 lock 檔，也不得終止其他 Project 的 process（wrapper 測試用的 lock 檔只用本 Project 自己建立的）。
+- lock wrapper：`tools/with-gpu-lock -- <command>`（decision 026 §6）。Mac 端經 `ssh gpu-server` 在 WSL 內取得 `flock -n`，
+  同一條連線建立到 Ollama 的通道（`http://127.0.0.1:11435` → 遠端 loopback 的 11434），設定 `AI_PORTFOLIO_GPU_LOCK=held`；
+  指令結束或中斷時釋放。lock 被占用 → exit 75，改做其他工作。
 
 ## Docker
 

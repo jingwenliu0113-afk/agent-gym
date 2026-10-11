@@ -44,13 +44,13 @@ from experiments.analyze_baseline import RolloutRecord, load_runs
 from replay.trajectory import load_strict_json
 from replay.aborts import utc_instant
 from experiments.run_baseline import (
-    DEFAULT_OLLAMA_URL,
     budget_reached,
     check_budget_args,
     CostMeter,
     Ledger,
     make_policy,
     OllamaOracleFakeClient,
+    ollama_url_default,
     OracleFakeClient,
     start_local_run,
 )
@@ -502,7 +502,8 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--confirm-paid-run", action="store_true", help="Anthropic API（Optional；source 必須是 Anthropic agent）")
     parser.add_argument("--max-cost-usd", type=float, default=None, help="付費 run 必填的成本上限")
     parser.add_argument("--max-model-calls", type=int, default=None, help="本機 run 必填的模型呼叫次數上限")
-    parser.add_argument("--ollama-url", default=DEFAULT_OLLAMA_URL, help="只接受 loopback（從 Mac 經 SSH 通道）")
+    parser.add_argument("--ollama-url", default=ollama_url_default(),
+                        help="只接受 loopback；預設取 tools/with-gpu-lock 設定的通道 URL")
     parser.add_argument(
         "--resume-from", nargs="+", action="extend", default=None,
         help="所有先前（中斷 / 因預算停止）的 sweep 目錄（可給多個、可重複；decision 018 §1 / 019 §3 / 020）",

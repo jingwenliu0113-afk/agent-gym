@@ -104,6 +104,20 @@
 | seed | 每次呼叫隨機（記在 meta） | 同一個 seed 會讓 rerun 完全相同；記錄 seed 讓每次呼叫可以事後重現 |
 | timeout | 600 秒 | 與 Anthropic baseline 相同 |
 
+### 6. GPU lock wrapper（2026-10-11 補充，已實作並實測）
+
+- `tools/with-gpu-lock [--lock-file PATH] [--local-port N] [--remote-port N] -- <command>`：
+  - 經 `ssh gpu-server` 在 WSL 內以 `flock -n /tmp/ai-portfolio-gpu.lock` 取得 lock，由遠端一個讀 stdin 的 process 持有；
+  - 同一條連線以 `-L 127.0.0.1:11435:127.0.0.1:11434` 建立通道（Windows 的 localhost 會轉到 WSL 的 loopback）；
+  - 取得後才執行指令，並設定 `AI_PORTFOLIO_GPU_LOCK=held` 與 `AGENT_GYM_OLLAMA_URL`（CLI 的 `--ollama-url` 預設取它）；
+  - 指令結束、中斷或 ssh 斷線時釋放 lock；
+  - exit code：lock 被占用 → 75（不執行、不等待、不搶）；遠端無法連線或逾時 → 69；用法錯誤 → 64。
+- 2026-10-11 以**測試用的 lock 檔**（不是 `/tmp/ai-portfolio-gpu.lock`）與 WSL 內 60 秒的臨時 HTTP 服務實測（不使用 GPU）：
+  - 通道回傳 HTTP 200；
+  - 指令執行期間 lock 被持有，結束後釋放；
+  - 關閉 stdin 或終止本機的 ssh 都會釋放 lock；
+  - lock 被其他 session 持有時 exit 75。
+
 ## 為什麼
 
 - 使用者明確改變了 Core 的模型來源；SPEC 沒有指定 provider，Policy 介面本來就與 provider 無關，所以只需要新增 adapter，

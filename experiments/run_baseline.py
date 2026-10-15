@@ -54,6 +54,7 @@ from replay.aborts import RolloutKey, billed_cost, run_with_retries
 from replay.atomic import write_atomic
 from replay.localization import classify_rollout
 from replay.runner import Clock, run_episode
+from replay.trajectory import load_strict_json
 from tasks.generator import GeneratedInstance, week1_pool
 
 SUMMARY_FORMAT = "agent-gym/baseline-run/v2"  # v2：run.json（decision 021 §1）；run.json 與 summary.json 共用
@@ -106,6 +107,7 @@ class CostMeter:
 GPU_LOCK_ENV = "AI_PORTFOLIO_GPU_LOCK"  # 只由 GPU lock wrapper 設為 "held"（decision 026 §3、MACHINE_POLICY）
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
 OLLAMA_URL_ENV = "AGENT_GYM_OLLAMA_URL"  # tools/with-gpu-lock 設為 SSH 通道的 loopback URL
+SERVER_INFO_ENV = "AGENT_GYM_OLLAMA_SERVER"  # tools/with-gpu-lock 設為本 Project 的 server 的 READY 報告（JSON；decision 029）
 FAKE_OLLAMA_VERSION = "0.0.0-dry-run"
 
 
@@ -470,13 +472,37 @@ class OllamaOracleFakeClient:
         return {"capabilities": ["completion", "tools"], "details": {"quantization_level": "Q4_K_M"}}
 
 
+def check_wrapper_server(config: AgentConfig) -> dict[str, Any]:
+    """tools/with-gpu-lock 啟動並確認（通道接到這次啟動的 server）的本 Project server 的報告（decision 029）：環境變數
+    SERVER_INFO_ENV 必須是 JSON 物件，``env`` 等於設定的 ``server_env``。回傳報告；違反 → ValueError。"""
+    raw = os.environ.get(SERVER_INFO_ENV)
+    if not raw:
+        raise ValueError(f"no report of this project's own server ({SERVER_INFO_ENV}): run inside tools/with-gpu-lock, which "
+                         "starts it (decision 029)")
+    try:
+        info = load_strict_json(raw.encode("utf-8"))
+    except (UnicodeError, ValueError) as exc:
+        raise ValueError(f"{SERVER_INFO_ENV} is not valid JSON: {exc}") from exc
+    if not isinstance(info, dict):
+        raise ValueError(f"{SERVER_INFO_ENV} must be a JSON object")
+    if info.get("env") != config.model_config.get("server_env"):
+        raise ValueError(f"the server was started with {info.get('env')!r}, not this config's server_env "
+                         f"{config.model_config.get('server_env')!r}")
+    return info
+
+
 def start_local_run(parser: argparse.ArgumentParser, config: AgentConfig, *, url: str, formal: bool,
                     max_model_calls: int | None) -> Any:
-    """本機模型 run 的事前檢查（decision 026 §3），全部在任何模型呼叫之前；違反 → ``parser.error``：
-    GPU lock 環境變數必須是 "held"；必須給 max_model_calls；正式 run 必須使用凍結的設定；client 必須只連 loopback；
-    ``verify_server`` 通過（模型存在、不是 cloud、支援 tools；凍結時版本與 digest 相符）。回傳 client，並把 server 資訊印到 stderr。"""
+    """本機模型 run 的事前檢查（decision 026 §3、029），全部在任何模型呼叫之前；違反 → ``parser.error``：
+    GPU lock 環境變數必須是 "held"；wrapper 啟動的本 Project server 的報告相符（``check_wrapper_server``）；必須給 max_model_calls；
+    正式 run 必須使用凍結的設定；client 必須只連 loopback；``verify_server`` 通過（模型存在、不是 cloud、支援 tools；凍結時版本與
+    digest 相符）。回傳 client，並把 server 資訊印到 stderr。"""
     if os.environ.get(GPU_LOCK_ENV) != "held":
         parser.error(f"local model runs must run inside the GPU lock wrapper ({GPU_LOCK_ENV}=held; MACHINE_POLICY)")
+    try:
+        wrapper_info = check_wrapper_server(config)
+    except ValueError as exc:
+        parser.error(str(exc))
     if max_model_calls is None:
         parser.error("local model runs require --max-model-calls (decision 026 §2)")
     if formal and not is_frozen(config):
@@ -487,7 +513,7 @@ def start_local_run(parser: argparse.ArgumentParser, config: AgentConfig, *, url
         info = verify_server(client, config)
     except (ValueError, OllamaTransportError, OllamaProtocolError, OllamaContextError) as exc:
         parser.error(f"the local model server is not usable: {exc}")
-    print(f"local model server: {canonical_json(info)}", file=sys.stderr)
+    print(f"local model server: {canonical_json(info)}; started by the wrapper: {canonical_json(wrapper_info)}", file=sys.stderr)
     return client
 
 

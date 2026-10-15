@@ -17,8 +17,9 @@ import pytest
 from agents.ollama import OllamaContextError, OllamaProtocolError, OllamaTransportError, local_agent_config
 from experiments import local_probe
 from experiments.local_probe import summarize_smoke, truncation_check
-from experiments.run_baseline import GPU_LOCK_ENV, OllamaOracleFakeClient, run_split
+from experiments.run_baseline import OllamaOracleFakeClient, run_split
 from tasks.generator import week1_pool
+from tests.wrapper_env import inside_wrapper, outside_wrapper
 
 ZERO = lambda: 0.0  # noqa: E731
 DEV = week1_pool("dev")
@@ -116,7 +117,7 @@ def test_truncation_check_lets_other_errors_through(error: Exception) -> None:
 
 def test_the_cli_needs_the_gpu_lock_for_the_truncation_check(monkeypatch: pytest.MonkeyPatch,
                                                              capsys: pytest.CaptureFixture[str]) -> None:
-    monkeypatch.delenv(GPU_LOCK_ENV, raising=False)
+    outside_wrapper(monkeypatch)
     made: list[str] = []
     monkeypatch.setattr(local_probe, "make_ollama_client", lambda url, mc=None: made.append(url))
     with pytest.raises(SystemExit):
@@ -126,7 +127,7 @@ def test_the_cli_needs_the_gpu_lock_for_the_truncation_check(monkeypatch: pytest
 
 def test_the_cli_runs_the_truncation_check_inside_the_lock(monkeypatch: pytest.MonkeyPatch,
                                                            capsys: pytest.CaptureFixture[str]) -> None:
-    monkeypatch.setenv(GPU_LOCK_ENV, "held")
+    inside_wrapper(monkeypatch)
     client = _Client(OllamaContextError("the input length exceeds the context length"))
     monkeypatch.setattr(local_probe, "make_ollama_client", lambda url, mc=None: client)
     assert local_probe.main(["--truncation-check"]) == 0
@@ -135,6 +136,6 @@ def test_the_cli_runs_the_truncation_check_inside_the_lock(monkeypatch: pytest.M
 
 def test_the_cli_summarizes_a_run_without_the_lock(smoke_run: Path, monkeypatch: pytest.MonkeyPatch,
                                                    capsys: pytest.CaptureFixture[str]) -> None:
-    monkeypatch.delenv(GPU_LOCK_ENV, raising=False)
+    outside_wrapper(monkeypatch)
     assert local_probe.main(["--summarize", str(smoke_run)]) == 0
     assert json.loads(capsys.readouterr().out)["episodes"] == 5

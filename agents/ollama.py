@@ -52,6 +52,7 @@ from agents.baseline import (
     AdapterError,
     InfrastructureError,
 )
+from agents.ollama_serve import SERVER_ENV
 from agents.policy import MAX_MODEL_CONFIG_DEPTH, AgentConfig, ModelMessage, PolicyStep, ToolCall, _check_json
 from env.environment import check_call_preconditions
 from env.hashing import canonical_json
@@ -61,6 +62,7 @@ OLLAMA_POLICY = "ollama-chat"
 OLLAMA_ADAPTER_VERSION = "ollama-chat/v1"
 
 # decision 026 §5 的草案。model_digest / ollama_version 為 None 表示尚未凍結（正式 run 會拒絕）。
+# server_env：tools/with-gpu-lock 啟動的 server 的固定環境（decision 029 §2；定義在 agents/ollama_serve.py）。
 LOCAL_MODEL_CONFIG: dict[str, Any] = {
     "provider": "ollama",
     "adapter": OLLAMA_ADAPTER_VERSION,
@@ -78,7 +80,9 @@ LOCAL_MODEL_CONFIG: dict[str, Any] = {
         "presence_penalty": 1.5,
     },
     "client": {"timeout_s": 600},
+    "server_env": dict(SERVER_ENV),
 }
+DEPLOYMENT_ENV = ("OLLAMA_HOST", "OLLAMA_MODELS")  # helper 另外設定的部署細節，不屬於設定
 REQUIRED_OPTIONS = ("num_ctx", "num_predict", "temperature")
 RAW_MESSAGE_KEYS = ("role", "content", "thinking", "tool_calls")
 RAW_CALL_KEYS = ("function", "id", "type")
@@ -153,6 +157,13 @@ def check_local_config(config: Any) -> AgentConfig:
     settings = model_config["client"]
     if not isinstance(settings, dict) or set(settings) != {"timeout_s"}:
         raise ValueError("model_config['client'] must be {'timeout_s'}")
+    server_env = model_config["server_env"]
+    if (
+        not isinstance(server_env, dict)
+        or not all(isinstance(k, str) and k.startswith("OLLAMA_") and isinstance(v, str) for k, v in server_env.items())
+        or set(server_env) & set(DEPLOYMENT_ENV)
+    ):
+        raise ValueError("model_config['server_env'] must map OLLAMA_* names (not OLLAMA_HOST / OLLAMA_MODELS) to strings")
     if not config.system_prompt.strip():
         raise ValueError("the system prompt must not be blank")
     return config

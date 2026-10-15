@@ -4,12 +4,11 @@
 
 Core：Day 1 完成；Week 1 除「#5 baseline 真正跑完整 task」以外都完成；#5 與 SPEC §6 中**不需要模型推論的部分全部完成**。
 **2026-10-11 起 Core 的 LLM 改用自行部署的本機模型**（`qwen3.5:9b-q4_K_M`，台中 gpu-server 的 Ollama；decision 026）；付費 API 改為 Optional。
-Ollama adapter、tool calling 與 JSON 驗證、呼叫次數預算、本機 run 的 CLI 與 dry-run 都已完成；需要 GPU 的步驟目前 **blocked**
-（gpu-server 的 Ollama 尚未部署，由 incident-investigator 進行中；本 Project 不安裝 Ollama、不下載模型）。
+**2026-10-15**：本 Project 在 GPU lock 內啟動自己的 Ollama server（與 incident-investigator 共用模型檔案、共用目錄只讀；decision 029），
+已在 gpu-server 實測：server 檢查、截斷自我測試、開發題測試（15 / 15 成功）全部通過，每次結束都確認 server 已停止、共用目錄沒有改變、
+lock 已釋放。**剩下唯一的 blocker：凍結設定需要使用者確認**（decision 030 提案，見下方「Blocked / 需要使用者」A）；確認後就跑正式 run。
 keyless Core infrastructure（含分析工具、驟降判定選項、README 示範）已完成；第七輪對抗式審查找出的 keyless 缺口
 （已登記但漏實作的規則、只信任 summary 的分析）已依 decision 017 補齊；第八～十二輪審查與付費流程模擬找出的缺口已依 decision 018 – 024 補齊。
-不需要 GPU 的 Core 工作已完成；剩下的見下方「Blocked / 需要使用者」：遠端 Ollama 可用後的 lock wrapper、開發題測試、設定凍結
-（需使用者確認）與正式 run。
 尚未進 Advanced（Gate 未滿足：還沒有任何真實的 failure localization 結果）。
 
 Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/jingwenliu0113-afk/agent-gym），main 追蹤 origin/main；
@@ -19,7 +18,7 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 `b8c600f` 預先登記的分析工具 + README 示範（decision 015 / 016）→ `9baae38`…`63bde0b` 第七輪審查修正（decision 017）→
 第八輪審查修正（decision 018）→ `7a94d24` 第九輪（decision 019）→ `724f3b9` 第十輪（decision 020）→ `f750931` 第十一輪（decision 021）→ `88bdb02` 第十二輪（decision 022）→ `9cf7f8f` 付費流程模擬（decision 023）→ `8695714` 023 的審查（decision 024）→ 使用者確認的 run 設計（decision 025）。
 
-## 上次完成（2026-10-08 / 10-09）
+## 上次完成（2026-10-08 / 10-09 / 10-11 / 10-15）
 
 全程 TDD（契約 stub → 測試紅燈 → 實作 → 對抗式審查 → 回歸測試 → 修正）。只用 Mac CPU；沒有使用 Mac heavy lock、遠端 RTX、Docker，
 沒有呼叫任何 LLM、沒有讀取或保存任何 credential。
@@ -166,7 +165,31 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
      loopback URL，正式 run（eval baseline、sweep）另外要求凍結的設定且 server 相符；Anthropic 路徑（`--provider anthropic
      --confirm-paid-run`）保留為 Optional。
 
-測試：`uv run pytest` → 8897 passed、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 4–6 分鐘；`ruff check` 通過。
+19. **本 Project 自己的 Ollama server**（decision 029，使用者 2026-10-11 選擇 A0 的選項 1）：
+   - `agents/ollama_serve.py`（遠端 helper，只用標準函式庫，經 ssh stdin 傳到 WSL 的 python3 執行）：
+     - flock(2) 取得 GPU lock；
+     - 事前檢查：已有 Ollama 程序、port 被占用、GPU 已使用 ≥ 4096 MiB → exit 75，什麼都不啟動、不停止；
+     - 本 Project 的 models 目錄：manifest 複本 + 指向共用 blob 的 symlink，不複製模型；
+     - 以固定的 `SERVER_ENV` 與本 Project 的 HOME 啟動 `ollama serve`（127.0.0.1:11436）。server 繼承 lock 的 fd，Linux 上父程序消失時收到 SIGTERM；
+     - 結束時停止整個 process group，確認沒有留下程序，並比對共用目錄的快照；
+     - stop 模式：第二條連線的備援，只停止身分相符的 server。
+   - 共用目錄只讀的原因：唯讀檢查發現 Ollama 會在 `OLLAMA_MODELS` 寫 metadata 快取，所以 server 不能直接指向對方的目錄。
+   - `tools/with-gpu-lock` 改寫：
+     - 只在 server 回報 READY 之後才經通道送請求；以隨機值確認通道接到的是這次的 server，請求必須出現在它的 log；
+     - 指令在背景執行，中斷時先結束指令；
+     - 結束時等 helper 停止 server。沒有確認 → 以第二條連線停止；仍無法確認或共用目錄改變 → exit 70。
+   - `model_config["server_env"]`（在 config_id 中）。`run_baseline` / `run_sweep` / `local_probe` 都要求 wrapper 的 READY 報告
+     （`AGENT_GYM_OLLAMA_SERVER`），而且 env 相符，否則在任何呼叫之前拒絕；新增 `local_probe --verify-server`。
+   - 測試：`tests/remote_fakes.py` 提供假的 Ollama、ssh、nvidia-smi，在 Mac 上端對端執行真正的 helper 與 wrapper。
+   - **2026-10-15 實測**（gpu-server，lock 內）：
+     - `--verify-server`：0.35.0、digest `sha256:6488c96f…`、Q4_K_M、tools；
+     - `--truncation-check`：rejected，不會靜默截斷；
+     - 開發題測試 `runs/local-dev-smoke-20261015`：dev 5 題 × R = 3，15 / 15 成功、75 次呼叫、0 次中止；每次呼叫中位數 0.73 秒；
+       prompt 最大 2,487 tokens；60 個 tool call 中 5 個 `invalid_arguments`，都由模型自行修正；
+     - 每次結束都確認 server 已停止、共用目錄沒有改變、lock 已釋放。
+   - 詳細數據與凍結提案：decision 030。
+
+測試：`uv run pytest` → 8974 passed、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 8 分鐘；`ruff check` 通過。
 
 ## 使用者決策（2026-10-08 / 10-09 / 10-11）
 
@@ -204,67 +227,36 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 
 ## Blocked / 需要使用者
 
-### A0. **需要使用者決定：agent-gym 怎麼取用 gpu-server 上的模型**（2026-10-11 13:08 發現；decision 026 §7）
+### A. **需要使用者確認：凍結本機模型的正式設定**（decision 030 提案，2026-10-15）
 
-gpu-server 上沒有常駐、共用的 Ollama 服務。incident-investigator 的做法：
-- 執行檔：WSL 使用者 home 下釘選的 Ollama 0.35.0；
-- 模型：它專用的 models 目錄（註明「只給本 project 用」）；
-- 執行方式：每次在 GPU lock 內啟動 `ollama serve`，結束就停止。
+依開發題測試的結果，提案**完全沿用 decision 026 的草案**，開發題測試沒有顯示需要改的地方：
+- model `qwen3.5:9b-q4_K_M`；digest `sha256:6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7`；Q4_K_M；
+  Ollama 0.35.0；server 環境見 decision 029 §2；
+- prompt `baseline/v1`、tool schema `issue_tracker/v1`、max_turns 20；
+- 推論參數：think 關、num_ctx 32,768、num_predict 4,096、temperature 0.7、top_p 0.8、top_k 20、min_p 0、presence_penalty 1.5，
+  每次呼叫隨機 seed，timeout 600 秒。
 
-13:08 lock 釋放後 server 就不在了，所以開發題測試在 server 檢查時停止（沒有任何模型呼叫）。在你決定之前，本 Project 不啟動那個 server、
-不使用它的 models 目錄、也不複製模型。選項：
+預算（沒有金錢成本，只有 GPU 時間）：
+- eval baseline：`--max-model-calls 1800`，即理論上限；預期約 250 次、5–10 分鐘。
+- sweep：每段 `--max-model-calls 3000`（約 40–60 分鐘），段與段之間釋放 GPU lock，以 `--resume-from` 接續到完成；粗估總共約 1.4 萬次、3 小時。
 
-1. **（建議）共用執行檔與 models 目錄、各自啟動 server**：agent-gym 的 wrapper 在自己的 GPU lock 內，用同一個 Ollama 0.35.0 執行檔、
-   以 `OLLAMA_MODELS` 指向 incident-investigator 的 models 目錄啟動自己的 `ollama serve`：
-   - 只讀使用，加 `OLLAMA_NOPRUNE=1` 避免清理檔案；
-   - 只綁 loopback、`OLLAMA_NO_CLOUD=1`；
-   - 執行結束就停止，並確認通道連到的是這次啟動的 server。
+確認後的步驟（decision 030「確認後的步驟」）：
+1. 填入凍結值；
+2. 正式 eval baseline（R = 3）；
+3. 正式 sweep（選項 A，分段）；
+4. `analyze_baseline` / `analyze_sweep`，結果寫進 README；Gate 依 decision 025 §4 機械化判定，`advanced` 才進 Advanced。
 
-   不下載、不複製；兩個 project 用同一把 lock，不會同時使用。需要 incident-investigator 那邊知悉這個目錄會被共用。
-2. **改成兩個 project 共用的 models 目錄**（例如 `~/ai-portfolio-ollama-models`）：比較乾淨，但要由 incident-investigator 的 session
-   調整它的 wrapper。
-3. **複製一份給 agent-gym**（約 6.6 GB）：不是重新下載，但是重複的檔案，空間與一致性都要另外管理。
+全部在 `tools/with-gpu-lock` 內執行；lock 被占用（exit 75）就改做其他工作，稍後再試。
 
-決定之後：依選項擴充 `tools/with-gpu-lock`（啟動 / 停止 server、確認是這次的 server）並測試，再做下方 A 的開發題測試。
-
-### A. 遠端 GPU
-
-狀態（2026-10-11 12:25，唯讀檢查）：
-- Ollama 0.35.0 已由 incident-investigator 部署，從 WSL 與 Windows 的 127.0.0.1:11434 都連得到（WSL 內沒有 ollama 指令，
-  應該是 Windows 端的服務）。
-- 模型 `qwen3.5:9b-q4_K_M`：digest `sha256:6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7`，Q4_K_M，9.7B，
-  能力 completion / vision / tools / thinking，模型 context 上限 262,144。
-- 模型自帶的預設：temperature 1、top_p 0.95、top_k 20、presence_penalty 1.5。adapter 一律明確覆寫。
-- 經不取 lock 的唯讀通道，`verify_server` 對真實 server 通過；version / tags / show 不會載入模型。
-- 當時 GPU lock 被其他 Project 持有：模型以 num_ctx 262,144 載入，占用約 13.8 GB VRAM。依規則不等待，lock 釋放後再做開發題測試。
-- 13:08 lock 釋放後 Ollama 也停止了（見 A0）：這個 server 只在 incident-investigator 自己的 lock 內存在。
-
-依序；全部在 GPU lock 內執行，lock 被占用就改做其他工作（MACHINE_POLICY）：
-
-1. ~~確認 Ollama 可用~~：已確認（上方狀態）；**不自行安裝、不 pull**。
-2. ~~GPU lock wrapper~~：已完成（`tools/with-gpu-lock`，decision 026 §6；2026-10-11 以測試用的 lock 檔與臨時 HTTP 服務實測通過）。
-   Ollama 可用後只需確認通道連得到 `/api/version`。
-3. 少量開發題測試（dev split 5 題，草案設定）：
-   `tools/with-gpu-lock -- uv run python -m experiments.run_baseline --split dev --confirm-local-run --max-model-calls 200`；
-   確認模型能正確呼叫工具，量測每次呼叫的秒數與 token 數，並確認 `truncate: false` 時 server 對超長 prompt 的行為：
-   - `uv run python -m experiments.local_probe --summarize runs/local-dev`（結果、每次呼叫的耗時與 token、tool call 的有效性與錯誤種類）；
-   - `tools/with-gpu-lock -- uv run python -m experiments.local_probe --truncation-check`（num_ctx 1024 送超長 prompt；
-     `rejected` 才代表 server 不會靜默截斷）。
-4. **凍結（需使用者確認）**：依開發題測試的結果寫一份 decision，凍結 model tag、量化版本與 digest、Ollama 版本、prompt（`baseline/v1`）、
-   tool schema、推論參數（草案：think 關、num_ctx 32768、num_predict 4096、temperature 0.7、top_p 0.8、top_k 20、min_p 0、
-   presence_penalty 1.5、每次呼叫隨機 seed；temperature 必須 > 0，否則 rerun 沒有變異）與各階段的呼叫次數上限
-   （粗估：eval baseline R = 3 最多約 900 次；sweep 選項 A 約數千到 1.8 萬次，時間依實測的每次秒數換算）。
-   凍結後把 `agents.ollama.LOCAL_MODEL_CONFIG` 的 `model_digest` / `ollama_version` 填入。
-5. 正式 eval baseline（R = 3）：`tools/with-gpu-lock -- uv run python -m experiments.run_baseline --split eval --rollouts 3
-   --confirm-local-run --max-model-calls <凍結的上限>`。
-6. 正式 sweep（選項 A）：`tools/with-gpu-lock -- uv run python -m experiments.run_sweep --baseline-run runs/<eval> --plan 2,10,48,0.3
-   --criterion bonferroni95 --confirm-local-run --max-model-calls <上限>`；中斷或停止時以 `--run-name <新名稱> --resume-from <所有先前的 sweep 目錄>` 續跑（decision 018 – 024）。
-7. `analyze_baseline` / `analyze_sweep`，把結果寫進 README 的「結果」段；Gate 依 decision 025 §4 機械化判定，`advanced` 才進 Advanced。
+已完成（2026-10-15）：
+- ~~A0 取用方式~~：使用者選擇共用模型檔案、各自管理 server（decision 029）；
+- ~~wrapper 啟動 / 停止 server~~；
+- ~~`--verify-server`、截斷自我測試、開發題測試~~（見上方第 19 項）。
 
 ### B. 研究設計（已確認，沿用）
 
 decision 025 的 R = 3、SweepPlan 選項 A（`bonferroni95` + (2, 10, 48, 0.3)）、Gate 三種結果不變；模型改為本機模型（decision 026），
-凍結值待 A.4 經使用者確認。
+凍結值待 A 經使用者確認（decision 030）。
 
 ### C. Optional：付費 API（不是 Core blocker；decision 026 §4）
 
@@ -292,7 +284,12 @@ Anthropic 路徑完整保留：`--provider anthropic --dry-run` / `--confirm-pai
   成本加總中），重跑必須用新目錄。分析工具可直接同時讀中斷的目錄與重跑的目錄（decision 017）；sweep 以 `--resume-from` 續跑
   （decision 018 / 019 / 020，必須列出所有先前的 sweep 目錄）。續跑前的後代檢查只看相關目錄的上層目錄（不遞迴）：
   搬到其他位置的後續 sweep 目錄偵測不到。沒有 `--resume-from` 的新 sweep 不做這個檢查（無法分辨刻意重新開始與忘了續跑）。
-- 本機模型（decision 026）：`prompt_eval_count` 在 prompt 有快取時是否只計未快取的部分，以及 `truncate: false` 時 server 是否真的拒絕超長 prompt，都待開發題測試確認；adapter 的防護不依賴這兩點（送出前的 fit check 以 bytes ÷ 2 保守估計）。Ollama 的 tool call 參數可能是 JSON 字串或 null，adapter 會解析；解析不了的原樣交給 env（記為 invalid_arguments）。
+- 本機模型（decision 026 / 029 / 030）：
+  - `truncate: false` 時 server 會拒絕超長 prompt（2026-10-15 實測）。server 的最小 context 是 2,048。
+  - 送出前的 fit check（bytes ÷ 2）比實測的 3.6–3.9 bytes / token 保守約 1.9 倍。
+  - `prompt_eval_count` 在 prompt 有快取時是否只計未快取的部分，仍未確認；adapter 的防護不依賴這一點。
+  - 開發題全部成功：eval 的成功率若也接近 100%，多數 sweep 曲線可能一直維持在高點，Gate 的結果會是 `gradual` 或 `no_repeated_pattern`，
+    這是已登記協定下的合法結果，不因此調整題目或判定規則。Ollama 的 tool call 參數可能是 JSON 字串或 null，adapter 會解析；解析不了的原樣交給 env（記為 invalid_arguments）。
 - 每次分析都要用新的 `--out`（或空目錄；decision 022）。
 - dry-run 標記由 CLI 的 `--dry-run` 決定（decision 021 §1）；直接以 Python 呼叫 `run_split` / `run_sweeps` 時預設 `dry_run=False`。
   dry-run 的輸出永遠不能與付費輸出一起分析或互相續跑；預演續跑要用 dry-run 鏈。sweep 目錄一定有 manifest（可能是空的，decision 024 §1），可以照常傳入；baseline 目錄中斷在第一次嘗試之前時沒有 manifest，沒有可分析的內容，不要傳入分析工具。

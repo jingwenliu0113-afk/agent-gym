@@ -21,6 +21,7 @@
 ## 遠端 gpu-server（Windows 11 + WSL2 `Ubuntu-22.04`）
 
 用途只有一個：以 Ollama 執行 Core 的本機模型推論（`qwen3.5:9b-q4_K_M`，凍結值見 decision 026 §5 之後的凍結 decision）。
+遠端的路徑一律以 `~`（WSL 使用者的 home）表示；WSL 的使用者名稱不得出現在 repo 中。
 
 遠端命令的基本形式：
 
@@ -28,31 +29,41 @@
 ssh gpu-server 'wsl.exe -d Ubuntu-22.04 -- bash -lc "<command>"'
 ```
 
-### Ollama 與模型
+### Ollama 與模型（decision 026、029）
 
-- Ollama 0.35.0 與模型由 incident-investigator 部署：它的 server 只在它自己的 GPU lock 內啟動、結束就停止，模型放在它專用的
-  models 目錄（decision 026 §7）。本 Project **不得**安裝、升級、重新安裝 Ollama，**不得**下載（pull）、建立、刪除或複製任何模型；
-  在使用者決定共用方式之前，也不啟動那個 server、不使用它的 models 目錄。
-- adapter 程式上只會呼叫 `/api/chat`、`/api/version`、`/api/tags`、`/api/show`，只連 loopback 位址（從 Mac 經 SSH 通道）。
-- 不使用 Ollama 的 cloud 模型（tag 以 `cloud` 結尾者一律拒絕）。
+- 模型檔案與 incident-investigator **共用**、各自管理 server（使用者決定，2026-10-11）：
+  - 執行檔：incident-investigator 部署的 Ollama 0.35.0（`~/opt/ollama-0.35.0/bin/ollama`），只執行、不修改。
+  - 共用的 models 目錄（`~/ii-ollama-models`）**只讀**：不寫入、不刪除、不在裡面建立任何東西。
+  - 本 Project 自己的目錄 `~/agent-gym-ollama/`：`models/`（manifest 的複本與指向共用 blob 的 symlink，不複製模型）與 `home/`
+    （server 的 HOME）。Ollama 執行時寫的快取都在這裡。
+- 本 Project **不得**安裝、升級、重新安裝 Ollama，**不得**下載（pull）、建立、刪除或複製任何模型檔案。
+- server 只由 `tools/with-gpu-lock` 在 GPU lock 內啟動（127.0.0.1:11436，固定環境見 decision 029 §2），指令結束就停止。
+  不使用、不停止其他 Project 的 server。
+- 每次結束都比對共用目錄的快照；有任何改變 → wrapper exit 70，回報使用者。
+- adapter 只呼叫 `/api/chat`、`/api/version`、`/api/tags`、`/api/show`，只連 loopback（從 Mac 經 SSH 通道）。
+- 不使用 Ollama 的 cloud 模型（tag 以 `cloud` 結尾者一律拒絕；server 以 `OLLAMA_NO_CLOUD=1` 啟動）。
 - 正式 run 前確認 server 的 Ollama 版本與模型 digest 等於凍結值；不符就不執行，回報使用者。
 
 ### GPU lock
 
-- 統一使用 WSL 內的 `/tmp/ai-portfolio-gpu.lock`，以 `flock -n` 取得：
+- 統一使用 WSL 內的 `/tmp/ai-portfolio-gpu.lock`（flock(2)，與 `flock -n` 是同一把鎖）。
+- 本 Project **所有**會把模型載進 GPU 的工作（開發題測試、正式 eval baseline、正式 sweep）都必須在 lock 內執行，並且整個推論期間持有：
+  `tools/with-gpu-lock -- <command>`（decision 026 §6、029）。wrapper 會：
+  1. 取得 lock；
+  2. 啟動本 Project 的 server；
+  3. 確認通道接到的正是這次啟動的 server；
+  4. 執行指令，並設定 `AI_PORTFOLIO_GPU_LOCK=held`、`AGENT_GYM_OLLAMA_URL`、`AGENT_GYM_OLLAMA_SERVER`；
+  5. 結束時停止 server、比對快照，再釋放 lock。
 
-  ```bash
-  ssh gpu-server 'wsl.exe -d Ubuntu-22.04 -- bash -lc "flock -n /tmp/ai-portfolio-gpu.lock <command>"'
-  ```
-
-- 本 Project **所有**會把模型載進 GPU 的工作（開發題測試、正式 eval baseline、正式 sweep）都必須在 lock 內執行。
-  CLI 要求環境變數 `AI_PORTFOLIO_GPU_LOCK=held`，這個變數只由 lock wrapper 設定；沒有就拒絕執行。
-- 拿不到 lock（其他 Project 正在使用）→ 不執行、不等待、不搶，改做其他工作。
-- 執行前另外看 `nvidia-smi`：其他 Project 已經把模型載進 GPU 時不執行（16 GB 容不下兩邊同時載入）。
-- 不得刪除 `/tmp/ai-portfolio-gpu.lock` 或其他 Project 的 lock 檔，也不得終止其他 Project 的 process（wrapper 測試用的 lock 檔只用本 Project 自己建立的）。
-- lock wrapper：`tools/with-gpu-lock -- <command>`（decision 026 §6）。Mac 端經 `ssh gpu-server` 在 WSL 內取得 `flock -n`，
-  同一條連線建立到 Ollama 的通道（`http://127.0.0.1:11435` → 遠端 loopback 的 11434），設定 `AI_PORTFOLIO_GPU_LOCK=held`；
-  指令結束或中斷時釋放。lock 被占用 → exit 75，改做其他工作。
+  server 繼承 lock 的 fd，所以 server 還在，lock 就不會被釋放。
+- CLI 沒有 wrapper 設定的環境變數就拒絕執行。
+- 拿不到 lock（其他 Project 正在使用）→ exit 75：不執行、不等待、不搶，改做其他工作。下列情況同樣 exit 75，而且不使用也不停止那些程序：
+  - 已有任何 Ollama 程序；
+  - port 被占用；
+  - `nvidia-smi` 回報已用 ≥ 4096 MiB（其他 Project 已把模型載進 GPU；16 GB 容不下兩邊同時載入）。
+- 無法確認 server 已停止或共用目錄沒有改變 → wrapper 印出警告與檢查方式（exit 70）。**不得**自行刪除 lock 或終止其他程序；回報使用者。
+- 不得刪除 `/tmp/ai-portfolio-gpu.lock` 或其他 Project 的 lock 檔，也不得終止其他 Project 的 process（wrapper 的 stop 只停止本次
+  session 啟動、身分相符的 server；測試用的 lock 檔只用本 Project 自己建立的）。
 
 ## Docker
 

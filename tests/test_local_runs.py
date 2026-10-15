@@ -26,7 +26,6 @@ from experiments.analyze_sweep import analyze_sweep_runs
 from experiments.run_baseline import (
     FAKE_OLLAMA_DIGEST,
     FAKE_OLLAMA_VERSION,
-    GPU_LOCK_ENV,
     OllamaOracleFakeClient,
     OracleFakeClient,
     check_budget_args,
@@ -38,6 +37,7 @@ from replay.checkpoint import make_checkpoint, rerun
 from replay.localization import SweepPlan
 from replay.trajectory import Trajectory
 from tasks.generator import week1_pool
+from tests.wrapper_env import inside_wrapper, outside_wrapper
 
 ZERO = lambda: 0.0  # noqa: E731
 POOL = week1_pool("eval")
@@ -195,10 +195,10 @@ def test_the_default_provider_is_the_local_model(tmp_path: Path, monkeypatch: py
 def test_local_baseline_runs_are_refused_before_any_call(argv: list[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
                                                          made: list[str]) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv(GPU_LOCK_ENV, raising=False)
+    outside_wrapper(monkeypatch)
     if "--lock" in argv:
         argv = [item for item in argv if item != "--lock"]
-        monkeypatch.setenv(GPU_LOCK_ENV, "held")
+        inside_wrapper(monkeypatch)
     with pytest.raises(SystemExit):
         run_baseline.main(["--split", "dev", "--run-name", "x", *argv])
     assert made == [] and not (tmp_path / "runs" / "x").exists()
@@ -207,7 +207,7 @@ def test_local_baseline_runs_are_refused_before_any_call(argv: list[str], tmp_pa
 def test_a_local_dev_smoke_run_with_the_draft_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, made: list[str],
                                                      capsys: pytest.CaptureFixture[str]) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv(GPU_LOCK_ENV, "held")
+    inside_wrapper(monkeypatch)
     assert run_baseline.main(["--split", "dev", "--confirm-local-run", "--max-model-calls", "200", "--run-name", "smoke"]) == 0
     assert made == ["http://127.0.0.1:11434"]
     summary = _summary(tmp_path / "runs" / "smoke")
@@ -220,7 +220,7 @@ def test_a_local_dev_smoke_run_with_the_draft_config(tmp_path: Path, monkeypatch
 def test_a_formal_local_eval_baseline_needs_the_frozen_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
                                                               made: list[str]) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv(GPU_LOCK_ENV, "held")
+    inside_wrapper(monkeypatch)
     with pytest.raises(SystemExit):  # 草案設定
         run_baseline.main(["--split", "eval", "--rollouts", "3", "--confirm-local-run", "--max-model-calls", "50", "--run-name", "e"])
     assert made == [] and not (tmp_path / "runs" / "e").exists()
@@ -229,7 +229,7 @@ def test_a_formal_local_eval_baseline_needs_the_frozen_config(tmp_path: Path, mo
 def test_a_formal_local_eval_baseline_with_the_frozen_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, made: list[str],
                                                              frozen: None) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv(GPU_LOCK_ENV, "held")
+    inside_wrapper(monkeypatch)
     with pytest.raises(SystemExit):  # R 必須是 3（decision 025 §2）
         run_baseline.main(["--split", "eval", "--confirm-local-run", "--max-model-calls", "50", "--run-name", "r1"])
     assert run_baseline.main(["--split", "eval", "--rollouts", "3", "--confirm-local-run", "--max-model-calls", "30",
@@ -241,7 +241,7 @@ def test_a_formal_local_eval_baseline_with_the_frozen_config(tmp_path: Path, mon
 def test_a_frozen_config_that_does_not_match_the_server_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
                                                                    made: list[str]) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv(GPU_LOCK_ENV, "held")
+    inside_wrapper(monkeypatch)
     monkeypatch.setitem(ollama.LOCAL_MODEL_CONFIG, "model_digest", "sha256:" + "f" * 64)
     monkeypatch.setitem(ollama.LOCAL_MODEL_CONFIG, "ollama_version", FAKE_OLLAMA_VERSION)
     with pytest.raises(SystemExit):
@@ -288,9 +288,9 @@ REGISTERED = ["--plan", "2,10,48,0.3", "--criterion", "bonferroni95"]
 def test_local_sweeps_are_refused_before_any_call(extra: list[str], lock: bool, frozen_local_baseline: Path, tmp_path: Path,
                                                   monkeypatch: pytest.MonkeyPatch, made: list[str], frozen: None) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv(GPU_LOCK_ENV, raising=False)
+    outside_wrapper(monkeypatch)
     if lock:
-        monkeypatch.setenv(GPU_LOCK_ENV, "held")
+        inside_wrapper(monkeypatch)
     with pytest.raises(SystemExit):
         _sweep(frozen_local_baseline, *extra)
     assert made == [] and not (tmp_path / "runs" / "s").exists()
@@ -299,7 +299,7 @@ def test_local_sweeps_are_refused_before_any_call(extra: list[str], lock: bool, 
 def test_a_formal_local_sweep_needs_the_frozen_config(local_baseline: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
                                                       made: list[str]) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv(GPU_LOCK_ENV, "held")
+    inside_wrapper(monkeypatch)
     with pytest.raises(SystemExit):  # 草案設定的 source（dry-run baseline 也不能用於正式 sweep）
         _sweep(local_baseline, "--confirm-local-run", "--max-model-calls", "30", *REGISTERED)
     assert made == []
@@ -308,7 +308,7 @@ def test_a_formal_local_sweep_needs_the_frozen_config(local_baseline: Path, tmp_
 def test_a_formal_local_sweep_runs_with_the_frozen_config(frozen_local_baseline: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
                                                           made: list[str], frozen: None) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv(GPU_LOCK_ENV, "held")
+    inside_wrapper(monkeypatch)
     assert _sweep(frozen_local_baseline, "--confirm-local-run", "--max-model-calls", "30", *REGISTERED) == 0
     summary = _summary(tmp_path / "runs" / "s")
     assert summary["stopped_by_budget"] is True and made == ["http://127.0.0.1:11434"]
@@ -328,7 +328,7 @@ def test_an_unreachable_server_is_a_clean_refusal(error: str, tmp_path: Path, mo
             raise (OllamaTransportError if error == "transport" else OllamaProtocolError)("GET /api/version failed")
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv(GPU_LOCK_ENV, "held")
+    inside_wrapper(monkeypatch)
     monkeypatch.setattr(run_baseline, "make_ollama_client", lambda url, mc=None: Down(POOL))
     with pytest.raises(SystemExit):
         run_baseline.main(["--split", "dev", "--confirm-local-run", "--max-model-calls", "50", "--run-name", "x"])

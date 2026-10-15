@@ -4,6 +4,8 @@
 
     uv run python -m experiments.local_probe --summarize runs/<local-dev-run>
         彙整一次開發題測試（不呼叫模型、不需要 GPU）：結果、每次呼叫的耗時與 token、tool call 的有效性與錯誤種類。
+    tools/with-gpu-lock -- uv run python -m experiments.local_probe --verify-server
+        在 wrapper 啟動的 server 上檢查 Ollama 版本、模型 digest、量化與 capabilities（不載入模型；decision 029）。
     tools/with-gpu-lock -- uv run python -m experiments.local_probe --truncation-check
         在 GPU lock 內送出一個超出小 num_ctx 的 prompt（``truncate: false``），確認 server 拒絕而不是靜默截斷。
 
@@ -22,7 +24,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from agents.baseline import MAX_EPISODE_ATTEMPTS
-from agents.ollama import OLLAMA_POLICY, OllamaContextError, check_local_config, make_ollama_client
+from agents.ollama import OLLAMA_POLICY, OllamaContextError, check_local_config, make_ollama_client, verify_server
 from agents.policy import AgentConfig
 from apps.issue_tracker.tools import TOOL_NAMES
 from replay.aborts import read_manifest
@@ -187,12 +189,13 @@ def truncation_check(client: Any, config: AgentConfig, *, num_ctx: int = TRUNCAT
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    from experiments.run_baseline import GPU_LOCK_ENV, ollama_url_default
+    from experiments.run_baseline import GPU_LOCK_ENV, check_wrapper_server, ollama_url_default
     from agents.ollama import local_agent_config
 
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     task = parser.add_mutually_exclusive_group(required=True)
     task.add_argument("--summarize", metavar="RUN_DIR")
+    task.add_argument("--verify-server", action="store_true")
     task.add_argument("--truncation-check", action="store_true")
     parser.add_argument("--ollama-url", default=ollama_url_default())
     args = parser.parse_args(argv)
@@ -200,9 +203,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         report = summarize_smoke(args.summarize)
     else:
         if os.environ.get(GPU_LOCK_ENV) != "held":
-            parser.error(f"the truncation check loads the model: run it inside tools/with-gpu-lock ({GPU_LOCK_ENV}=held)")
+            parser.error(f"this check talks to the model server: run it inside tools/with-gpu-lock ({GPU_LOCK_ENV}=held)")
         config = local_agent_config()
-        report = truncation_check(make_ollama_client(args.ollama_url, config.model_config), config)
+        try:
+            wrapper_info = check_wrapper_server(config)
+        except ValueError as exc:
+            parser.error(str(exc))
+        client = make_ollama_client(args.ollama_url, config.model_config)
+        if args.verify_server:
+            try:
+                server = verify_server(client, config)
+            except ValueError as exc:
+                parser.error(f"the local model server is not usable: {exc}")
+            report = {"config_id": config.config_id, "server": server, "wrapper": wrapper_info}
+        else:
+            report = truncation_check(client, config)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     print("local_probe: done", file=sys.stderr)
     return 0

@@ -1,27 +1,45 @@
 #!/usr/bin/env bash
-# 在台中 gpu-server 的 GPU lock 內執行一個指令，並在同一條 SSH 連線上建立到 Ollama 的通道（decision 026 §3、MACHINE_POLICY）。
+# 在台中 gpu-server 的 GPU lock 內啟動 agent-gym 自己的 Ollama server、執行一個指令，結束時停止 server、釋放 lock
+# （decision 026 §6、028 §4、029；MACHINE_POLICY）。
 #
-#   tools/with-gpu-lock [--lock-file PATH] [--local-port N] [--remote-port N] -- <command> [args...]
+#   tools/with-gpu-lock [--lock-file PATH] [--local-port N] [--remote-port N] [--server-log PATH] -- <command> [args...]
 #
-# - 經 `ssh gpu-server` 在 WSL（Ubuntu-22.04）內以 `flock -n <lock>` 取得 lock；lock 由遠端一個讀 stdin 的 process 持有，
-#   本機關閉 stdin（或 ssh 結束）時釋放。
-# - 同一條連線以 -L 127.0.0.1:<local>:127.0.0.1:<remote> 建立通道（Windows 的 localhost 會轉到 WSL 的 loopback）。
-# - lock 取得後才執行指令，並設定 AI_PORTFOLIO_GPU_LOCK=held 與 AGENT_GYM_OLLAMA_URL=http://127.0.0.1:<local>。
-# - 拿不到 lock（其他 Project 正在使用）或本機通道的 port 已被占用（可能有另一個 wrapper 正在執行）→ exit 75，不執行、不等待、
-#   不搶；遠端無法連線或逾時 → exit 69；用法錯誤 → exit 64（decision 026 §6 / 028 §4）。
-# - 指令結束（或 wrapper 收到 INT / TERM / HUP）時釋放 lock，回傳指令的 exit code。
-# 不讀取、不保存任何 credential；不刪除任何 lock 檔。
+# 遠端的工作全部由 agents/ollama_serve.py 完成：wrapper 經 ssh 的 stdin 傳過去，以 WSL 的 python3 執行（bootstrap 讀固定的位元組數
+# 後 exec）。它在 WSL 內以 flock(2) 取得 lock（與其他 Project 的 `flock -n` 是同一把鎖）、檢查沒有其他 Ollama 程序 / port 空著 /
+# GPU 沒有被占用、準備本 Project 的 models 目錄（manifest 複本 + 指向共用 blob 的 symlink；共用目錄只讀）、以固定的環境啟動
+# `ollama serve`（127.0.0.1:<remote-port>），之後依 stdin 的結束停止它、比對共用目錄的快照。
+#
+# Mac 端：
+# - 本機通道 port 已被占用 → exit 75（可能有另一個 wrapper 正在執行），不連線。
+# - 一條 ssh 連線（-L 127.0.0.1:<local>:127.0.0.1:<remote>）。lock 被占用、已有 Ollama 程序、遠端 port 被占用、GPU 已被使用
+#   → exit 75：什麼都不啟動、不停止任何程序、不等待、不搶。ssh 無法連線、逾時、server 無法啟動 → exit 69。用法錯誤 → exit 64。
+# - server 回報 READY 之後才經通道送請求（之前通道另一端只可能是別人的程式）：GET /api/version?agent_gym_session=<隨機值>，
+#   並請 helper 確認這個請求出現在這次 server 的 log——證明通道接到的是這次啟動的 server，而不是 Windows 那一側的其他程式。
+#   不符 → exit 69。
+# - 執行指令，環境：AI_PORTFOLIO_GPU_LOCK=held、AGENT_GYM_OLLAMA_URL=http://127.0.0.1:<local>、AGENT_GYM_OLLAMA_SERVER=<READY 的 JSON>。
+# - 結束（含 INT / TERM / HUP：先以 TERM 結束指令）：關閉 stdin → helper 停止 server、比對快照、結束（lock 隨之釋放）。等待最多
+#   WITH_GPU_LOCK_STOP_TIMEOUT_S 秒；沒有收到 STOPPED → 以第二條連線（helper 的 stop 模式，只停止 STARTING 回報的 pid）停止。
+#   最後沒有確認 STOPPED 與 MODELS_UNCHANGED → 印出警告與檢查方式；指令成功時 exit 70，失敗時保留指令的 exit code。
+#   不刪除 lock、不停止其他程序。
+# - --server-log：把 server 的 log 存到這個檔案（預設不保存）。
+# 不讀取、不保存任何 credential。遠端命令只含 cmd.exe 與外層 shell 不會改寫的字元（沒有 " % ^ ! $ ` \ 在引號之內）。
 set -euo pipefail
 
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+HELPER=$ROOT/agents/ollama_serve.py
 LOCK_FILE=/tmp/ai-portfolio-gpu.lock
 LOCAL_PORT=11435
-REMOTE_PORT=11434
+REMOTE_PORT=11436
+SERVER_LOG=
 HOST=gpu-server
 DISTRO=Ubuntu-22.04
-TIMEOUT_S=${WITH_GPU_LOCK_TIMEOUT_S:-30}
+TIMEOUT_S=${WITH_GPU_LOCK_TIMEOUT_S:-30}              # 確認取得 lock
+READY_TIMEOUT_S=${WITH_GPU_LOCK_READY_TIMEOUT_S:-120}  # server 回應
+STOP_TIMEOUT_S=${WITH_GPU_LOCK_STOP_TIMEOUT_S:-120}    # 停止 server、比對快照
+BOOTSTRAP='import sys;n=int(sys.argv[1]);exec(sys.stdin.buffer.read(n),dict(__name__=sys.argv[2]))'
 
 usage() {
-  echo "usage: tools/with-gpu-lock [--lock-file PATH] [--local-port N] [--remote-port N] -- <command> [args...]" >&2
+  echo "usage: tools/with-gpu-lock [--lock-file PATH] [--local-port N] [--remote-port N] [--server-log PATH] -- <command> [args...]" >&2
   exit 64
 }
 
@@ -35,6 +53,7 @@ while [[ $# -gt 0 ]]; do
     --lock-file) [[ $# -ge 2 ]] || usage; LOCK_FILE=$2; shift 2 ;;
     --local-port) [[ $# -ge 2 ]] || usage; LOCAL_PORT=$2; shift 2 ;;
     --remote-port) [[ $# -ge 2 ]] || usage; REMOTE_PORT=$2; shift 2 ;;
+    --server-log) [[ $# -ge 2 && -n "$2" ]] || usage; SERVER_LOG=$2; shift 2 ;;
     --) shift; break ;;
     *) usage ;;
   esac
@@ -44,6 +63,20 @@ done
 for port in "$LOCAL_PORT" "$REMOTE_PORT"; do
   [[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1 && port <= 65535 )) || { echo "with-gpu-lock: invalid port $port" >&2; exit 64; }
 done
+[[ -f "$HELPER" ]] || { echo "with-gpu-lock: $HELPER is missing" >&2; exit 64; }
+
+if (exec 3<>"/dev/tcp/127.0.0.1/$LOCAL_PORT") 2>/dev/null; then
+  echo "with-gpu-lock: the local tunnel port $LOCAL_PORT is already in use (another wrapper may be running); not running" >&2
+  exit 75
+fi
+
+NONCE=$(od -An -N16 -tx1 /dev/urandom | tr -dc '0-9a-f')
+[[ ${#NONCE} -eq 32 ]] || { echo "with-gpu-lock: could not read a random session value" >&2; exit 64; }
+SIZE=$(wc -c < "$HELPER" | tr -d ' ')
+
+remote_command() {  # helper 的參數 → 遠端命令（只含安全的字元）
+  echo "wsl.exe -d $DISTRO -- bash -lc \"python3 -c '$BOOTSTRAP' $SIZE agent_gym_serve $*\""
+}
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/with-gpu-lock.XXXXXX")
 FIFO=$WORK/stdin
@@ -51,54 +84,176 @@ OUT=$WORK/out
 ERR=$WORK/err
 mkfifo "$FIFO"
 SSH_PID=
+CAT_PID=
+CMD_PID=
+exec 8<&0  # 指令的 stdin（背景執行的指令預設會是 /dev/null）
+trap '' PIPE  # 遠端已結束時寫入 stdin 只會失敗，不會讓 wrapper 結束
+
+field() {  # STARTING 行的欄位（key=value），只接受英數字
+  sed -n 's/^STARTING //p' "$OUT" | head -n 1 | tr ' ' '\n' | sed -n "s/^$1=\([0-9a-f-]*\)\$/\1/p"
+}
+
+has() {
+  grep -Eq "$1" "$OUT" 2>/dev/null
+}
+
+server_log_tail() {
+  sed -n 's/^LOG //p' "$OUT" 2>/dev/null | tail -n "${1:-20}" | sed 's/^/  | /' >&2 || true
+}
+
+fallback_stop() {  # 第二條連線：helper 的 stop 模式，只停止這次 session 的 helper 與 server
+  local pid token helper helper_token snapshot
+  pid=$(field pid); token=$(field token); helper=$(field helper); helper_token=$(field helper_token)
+  snapshot=$(sed -n 's/^SNAPSHOT \([0-9a-f]\{64\}\)$/\1/p' "$OUT" | head -n 1)
+  [[ "$pid" =~ ^[0-9]+$ && "$helper" =~ ^[0-9]+$ && "$token" =~ ^[0-9a-f]+$ && "$helper_token" =~ ^[0-9a-f]+$ ]] || return 1
+  local args="--stop-pid $pid --stop-token $token --helper-pid $helper --helper-token $helper_token --port $REMOTE_PORT"
+  [[ -n "$snapshot" ]] && args="$args --expect-snapshot $snapshot"
+  echo "with-gpu-lock: no confirmation over the first connection; stopping this session's server over a second connection" >&2
+  ssh -o BatchMode=yes -o ConnectTimeout=30 -o ServerAliveInterval=30 "$HOST" "$(remote_command "$args")" \
+    < "$HELPER" >> "$OUT" 2>> "$ERR" || true
+}
 
 cleanup() {
+  local status=$?
   trap '' INT TERM HUP  # cleanup 期間不再被中斷（decision 028 §4）
-  exec 9>&- 2>/dev/null || true  # 關閉遠端的 stdin → 遠端的 cat 結束 → flock 釋放
+  if [[ -n "$CMD_PID" ]] && kill -0 "$CMD_PID" 2>/dev/null; then  # 被中斷：先結束指令
+    kill -TERM "$CMD_PID" 2>/dev/null || true
+    local cmd_deadline=$((SECONDS + 30))
+    while kill -0 "$CMD_PID" 2>/dev/null && (( SECONDS < cmd_deadline )); do sleep 0.2; done
+    kill -KILL "$CMD_PID" 2>/dev/null || true
+    wait "$CMD_PID" 2>/dev/null || true
+  fi
+  { exec 9>&-; } 2>/dev/null || true  # 關閉遠端的 stdin → helper 停止 server、釋放 lock
+  [[ -n "$CAT_PID" ]] && kill "$CAT_PID" 2>/dev/null || true
   if [[ -n "$SSH_PID" ]]; then
-    for _ in $(seq 1 50); do kill -0 "$SSH_PID" 2>/dev/null || break; sleep 0.1; done
-    kill "$SSH_PID" 2>/dev/null || true
+    local wait_s=5
+    has '^STARTING ' && wait_s=$STOP_TIMEOUT_S
+    local deadline=$((SECONDS + wait_s))
+    while kill -0 "$SSH_PID" 2>/dev/null && (( SECONDS < deadline )); do sleep 0.2; done
+    kill -KILL "$SSH_PID" 2>/dev/null || true  # 它忽略 TERM / HUP（見啟動處）
     wait "$SSH_PID" 2>/dev/null || true
   fi
+  if has '^STARTING '; then
+    if ! has '^STOPPED$'; then
+      fallback_stop || true
+    fi
+    if has '^STOPPED$' && has '^MODELS_UNCHANGED$' && ! has '^MODELS_CHANGED'; then
+      echo "with-gpu-lock: this session's server on $HOST stopped; the shared models directory is unchanged; GPU lock released" >&2
+    else
+      echo "WARNING: with-gpu-lock could not confirm a clean end of this session's server on $HOST:" >&2
+      grep -E '^(STOP_FAILED|MODELS_CHANGED)' "$OUT" | sed 's/^/  /' >&2 || true
+      has '^STOPPED$' || echo "  the server may still run and hold the GPU lock; check: ssh $HOST 'wsl.exe -d $DISTRO -- pgrep -af ollama'" >&2
+      has '^MODELS_CHANGED' && echo "  the shared models directory changed while this session ran (see above); report it to the user" >&2
+      echo "  do not delete the lock (MACHINE_POLICY.md); report this to the user" >&2
+      [[ $status -eq 0 ]] && status=70
+    fi
+  fi
+  if [[ -n "$SERVER_LOG" ]]; then
+    sed -n 's/^LOG //p' "$OUT" > "$SERVER_LOG" 2>/dev/null || echo "with-gpu-lock: could not write $SERVER_LOG" >&2
+  fi
   rm -rf "$WORK"
+  exit "$status"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
 
-# 遠端：WSL 內 flock -n；取得後印 LOCKED，持有到 stdin 關閉
-REMOTE="wsl.exe -d $DISTRO -- bash -lc \"flock -n $LOCK_FILE bash -c 'echo LOCKED; cat >/dev/null'\""
-ssh -o BatchMode=yes -o ConnectTimeout=10 -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 \
-  -L "127.0.0.1:$LOCAL_PORT:127.0.0.1:$REMOTE_PORT" "$HOST" "$REMOTE" < "$FIFO" > "$OUT" 2> "$ERR" &
+# ssh 忽略 TERM / HUP：送給整個 process group 的信號不會在遠端還在啟動或停止時切斷連線；結束由 cleanup 負責
+( trap '' TERM HUP; exec ssh -o BatchMode=yes -o ConnectTimeout=10 -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 \
+    -o ServerAliveCountMax=4 -L "127.0.0.1:$LOCAL_PORT:127.0.0.1:$REMOTE_PORT" "$HOST" \
+    "$(remote_command --lock-file "$LOCK_FILE" --port "$REMOTE_PORT")" ) < "$FIFO" > "$OUT" 2> "$ERR" &
 SSH_PID=$!
 exec 9> "$FIFO"  # 保持遠端的 stdin 開著
+cat "$HELPER" >&9 &
+CAT_PID=$!
 
-deadline=$((SECONDS + TIMEOUT_S))
-while ! grep -q '^LOCKED$' "$OUT" 2>/dev/null; do
-  if ! kill -0 "$SSH_PID" 2>/dev/null; then
-    status=0
-    wait "$SSH_PID" || status=$?
-    SSH_PID=
-    if [[ $status -eq 1 ]]; then
-      echo "with-gpu-lock: the GPU lock $LOCK_FILE is busy (another project is using the GPU); not running" >&2
-      exit 75
+# 等到 OUT 出現符合 pattern 的行：0 = 出現、1 = ssh 已結束、2 = 逾時
+await_line() {
+  local deadline=$((SECONDS + $2))
+  while ! has "$1"; do
+    if ! kill -0 "$SSH_PID" 2>/dev/null; then
+      has "$1" && return 0
+      return 1
     fi
-    if grep -q -e "Could not request local forwarding" -e "Address already in use" "$ERR" 2>/dev/null; then
-      echo "with-gpu-lock: the local tunnel port $LOCAL_PORT is already in use (another wrapper may be running); not running" >&2
-      exit 75
-    fi
-    echo "with-gpu-lock: could not reach $HOST (ssh exit $status): $(tail -n 3 "$ERR" 2>/dev/null)" >&2
+    (( SECONDS < deadline )) || return 2
+    sleep 0.2
+  done
+}
+
+ssh_ended() {  # ssh 已結束：依它的輸出與 exit code 說明原因
+  local status=0
+  wait "$SSH_PID" || status=$?
+  SSH_PID=
+  if has '^BUSY '; then
+    echo "with-gpu-lock: $(sed -n 's/^BUSY //p' "$OUT" | head -n 1); not running" >&2
+    exit 75
+  fi
+  if grep -q -e "Could not request local forwarding" -e "Address already in use" "$ERR" 2>/dev/null; then
+    echo "with-gpu-lock: the local tunnel port $LOCAL_PORT is already in use (another wrapper may be running); not running" >&2
+    exit 75
+  fi
+  if has '^FAILED '; then
+    echo "with-gpu-lock: the server on $HOST could not be started: $(sed -n 's/^FAILED //p' "$OUT" | head -n 1)" >&2
+    server_log_tail
     exit 69
   fi
-  if (( SECONDS >= deadline )); then
-    echo "with-gpu-lock: $HOST did not confirm the lock within ${TIMEOUT_S}s; not running" >&2
-    exit 69
+  echo "with-gpu-lock: could not reach $HOST or run the helper there (ssh exit $status): $(tail -n 3 "$ERR" 2>/dev/null)" >&2
+  exit 69
+}
+
+rc=0
+await_line '^(LOCKED|BUSY |FAILED )' "$TIMEOUT_S" || rc=$?
+(( rc == 1 )) && ssh_ended
+(( rc == 2 )) && { echo "with-gpu-lock: $HOST did not confirm the lock within ${TIMEOUT_S}s; not running" >&2; exit 69; }
+has '^LOCKED$' || ssh_ended
+rc=0
+await_line '^(READY|BUSY|FAILED) ' "$READY_TIMEOUT_S" || rc=$?
+(( rc == 1 )) && ssh_ended
+(( rc == 2 )) && { echo "with-gpu-lock: the server on $HOST did not become ready within ${READY_TIMEOUT_S}s; not running" >&2; exit 69; }
+if has '^BUSY '; then
+  echo "with-gpu-lock: $(sed -n 's/^BUSY //p' "$OUT" | head -n 1); not running" >&2
+  exit 75
+fi
+if has '^FAILED '; then
+  echo "with-gpu-lock: the server on $HOST could not be started: $(sed -n 's/^FAILED //p' "$OUT" | head -n 1)" >&2
+  server_log_tail
+  exit 69
+fi
+wait "$CAT_PID" 2>/dev/null || true
+CAT_PID=
+
+# 通道接到的必須是這次啟動的 server：這次的隨機值必須出現在它的 log
+answered=0
+for _ in $(seq 1 30); do
+  if curl --noproxy '*' -sf -m 5 -o /dev/null "http://127.0.0.1:$LOCAL_PORT/api/version?agent_gym_session=$NONCE"; then
+    answered=1
+    break
   fi
-  sleep 0.2
+  kill -0 "$SSH_PID" 2>/dev/null || break
+  sleep 1
 done
+if [[ $answered -ne 1 ]]; then
+  echo "with-gpu-lock: the server on $HOST does not answer through the tunnel; not running" >&2
+  exit 69
+fi
+echo "VERIFY $NONCE" >&9 || true
+rc=0
+await_line "^(VERIFIED|UNVERIFIED) $NONCE\$" 30 || rc=$?
+if ! has "^VERIFIED $NONCE\$"; then
+  echo "with-gpu-lock: a server answers through the tunnel, but not the server this session started (its request is not in" \
+       "this session's server log): something else listens on $HOST's Windows-side 127.0.0.1:$REMOTE_PORT; it is neither" \
+       "used nor stopped; not running; ask the user" >&2
+  exit 69
+fi
 
-echo "with-gpu-lock: holding $LOCK_FILE on $HOST; Ollama tunnel at http://127.0.0.1:$LOCAL_PORT" >&2
+SERVER_INFO=$(sed -n 's/^READY //p' "$OUT" | head -n 1)
+echo "with-gpu-lock: holding $LOCK_FILE on $HOST; this session's server answers at http://127.0.0.1:$LOCAL_PORT" >&2
+# 指令在背景執行、以 wait 等待：wrapper 收到 INT / TERM / HUP 時 wait 立刻返回，cleanup 先結束指令（沒有 server 它也無法繼續）
+( trap - PIPE; AI_PORTFOLIO_GPU_LOCK=held AGENT_GYM_OLLAMA_URL="http://127.0.0.1:$LOCAL_PORT" AGENT_GYM_OLLAMA_SERVER="$SERVER_INFO" \
+  exec "$@" <&8 8<&- ) &
+CMD_PID=$!
 status=0
-AI_PORTFOLIO_GPU_LOCK=held AGENT_GYM_OLLAMA_URL="http://127.0.0.1:$LOCAL_PORT" "$@" || status=$?
+wait "$CMD_PID" || status=$?
+CMD_PID=
 exit "$status"

@@ -21,14 +21,16 @@ from agents.ollama import check_local_config, local_agent_config
 from agents.ollama_serve import SERVER_ENV
 from agents.policy import AgentConfig
 from experiments import local_probe, run_baseline
+from agents.ollama import OllamaContextError, OllamaProtocolError, OllamaTransportError
 from experiments.run_baseline import (
     FAKE_OLLAMA_DIGEST,
+    OLLAMA_URL_ENV,
     SERVER_INFO_ENV,
     OllamaOracleFakeClient,
     check_wrapper_server,
 )
 from tasks.generator import week1_pool
-from tests.wrapper_env import SERVER_INFO, inside_wrapper, outside_wrapper
+from tests.wrapper_env import SERVER_INFO, WRAPPER_URL, inside_wrapper, outside_wrapper
 
 # ---------------------------------------------------------------- 設定
 
@@ -64,7 +66,7 @@ def test_invalid_server_environments_are_rejected(server_env: Any) -> None:
 
 def test_check_wrapper_server_accepts_the_wrappers_report(monkeypatch: pytest.MonkeyPatch) -> None:
     inside_wrapper(monkeypatch)
-    assert check_wrapper_server(local_agent_config()) == SERVER_INFO
+    assert check_wrapper_server(local_agent_config(), WRAPPER_URL) == SERVER_INFO
 
 
 @pytest.mark.parametrize(
@@ -74,12 +76,13 @@ def test_check_wrapper_server_accepts_the_wrappers_report(monkeypatch: pytest.Mo
     ids=["missing", "empty", "not-json", "not-object", "other-env", "no-env", "missing-key"],
 )
 def test_check_wrapper_server_refuses_anything_else(raw: str | None, monkeypatch: pytest.MonkeyPatch) -> None:
+    inside_wrapper(monkeypatch)
     if raw is None:
         monkeypatch.delenv(SERVER_INFO_ENV, raising=False)
     else:
         monkeypatch.setenv(SERVER_INFO_ENV, raw)
     with pytest.raises(ValueError):
-        check_wrapper_server(local_agent_config())
+        check_wrapper_server(local_agent_config(), WRAPPER_URL)
 
 
 @pytest.fixture
@@ -174,3 +177,75 @@ def test_the_frozen_config_check_still_applies(monkeypatch: pytest.MonkeyPatch, 
     monkeypatch.setitem(ollama.LOCAL_MODEL_CONFIG, "ollama_version", "0.0.0-dry-run")
     with pytest.raises(SystemExit):
         local_probe.main(["--verify-server"])
+
+
+# ---------------------------------------------------------------- decision 031 §3：URL 與版本必須是 wrapper 確認過的
+
+
+@pytest.mark.parametrize("url", ["http://127.0.0.1:11434", "http://localhost:11435"], ids=["other-port", "other-host"])
+def test_a_local_run_against_another_url_is_refused(url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                                    made: list[str]) -> None:
+    monkeypatch.chdir(tmp_path)
+    inside_wrapper(monkeypatch)
+    with pytest.raises(SystemExit):
+        run_baseline.main(["--split", "dev", "--confirm-local-run", "--max-model-calls", "50", "--run-name", "x",
+                           "--ollama-url", url])
+    assert made == [] and not (tmp_path / "runs" / "x").exists()
+
+
+def test_a_local_run_without_the_wrappers_url_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                                         made: list[str]) -> None:
+    monkeypatch.chdir(tmp_path)
+    inside_wrapper(monkeypatch)
+    monkeypatch.delenv(OLLAMA_URL_ENV)
+    with pytest.raises(SystemExit):
+        run_baseline.main(["--split", "dev", "--confirm-local-run", "--max-model-calls", "50", "--run-name", "x"])
+    assert made == [] and not (tmp_path / "runs" / "x").exists()
+
+
+def test_a_server_whose_version_differs_from_the_wrappers_report_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                                                             made: list[str]) -> None:
+    monkeypatch.chdir(tmp_path)
+    inside_wrapper(monkeypatch, version="0.35.0")  # 假 client 回報的是 dry-run 的版本：不是 wrapper 確認的那個 server
+    with pytest.raises(SystemExit):
+        run_baseline.main(["--split", "dev", "--confirm-local-run", "--max-model-calls", "50", "--run-name", "x"])
+    assert not (tmp_path / "runs" / "x").exists()
+
+
+@pytest.mark.parametrize("flag", ["--verify-server", "--truncation-check"])
+def test_local_probe_refuses_another_url(flag: str, monkeypatch: pytest.MonkeyPatch, made: list[str]) -> None:
+    inside_wrapper(monkeypatch)
+    with pytest.raises(SystemExit):
+        local_probe.main([flag, "--ollama-url", "http://127.0.0.1:11434"])
+    assert made == []
+
+
+@pytest.mark.parametrize("error", [OllamaTransportError("GET /api/version failed: refused"),
+                                   OllamaProtocolError("bad JSON"), OllamaContextError("context")])
+def test_verify_server_reports_server_errors_cleanly(error: Exception, monkeypatch: pytest.MonkeyPatch,
+                                                     capsys: pytest.CaptureFixture[str]) -> None:
+    class Broken(OllamaOracleFakeClient):
+        def version(self) -> Any:
+            raise error
+
+    inside_wrapper(monkeypatch)
+    monkeypatch.setattr(local_probe, "make_ollama_client", lambda url, mc=None: Broken(week1_pool("dev")))
+    with pytest.raises(SystemExit) as exit_info:
+        local_probe.main(["--verify-server"])
+    assert exit_info.value.code == 2 and "not usable" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("tags", [{"models": 5}, {"models": True}, {"models": "x"}, {"models": {"a": 1}}],
+                         ids=["int", "bool", "str", "dict"])
+def test_a_malformed_model_list_is_a_clean_error(tags: Any, monkeypatch: pytest.MonkeyPatch,
+                                                 capsys: pytest.CaptureFixture[str]) -> None:
+    class Odd(OllamaOracleFakeClient):
+        def tags(self) -> Any:
+            return tags
+
+    inside_wrapper(monkeypatch)
+    monkeypatch.setattr(local_probe, "make_ollama_client", lambda url, mc=None: Odd(week1_pool("dev")))
+    with pytest.raises(SystemExit) as exit_info:
+        local_probe.main(["--verify-server"])
+    assert exit_info.value.code == 2 and "not usable" in capsys.readouterr().err
+

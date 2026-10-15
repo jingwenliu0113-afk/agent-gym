@@ -189,7 +189,35 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
      - 每次結束都確認 server 已停止、共用目錄沒有改變、lock 已釋放。
    - 詳細數據與凍結提案：decision 030。
 
-測試：`uv run pytest` → 8974 passed、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 8 分鐘；`ruff check` 通過。
+20. **decision 029 審查後的修正**（decision 031；對抗式審查：34 個 agent，確認 24 項，其中 2 項 medium，是同一個問題）：
+   - 本 Project 的目錄不可能寫進共用目錄（medium）：
+     - 原本 `models/blobs` 若是指向共用目錄的 symlink，會刪掉共用的 blob；
+     - 現在每一層都必須是真正的目錄，`blobs/` 只動 symlink，manifest 以 `mkstemp` 寫入。
+   - server 以 `~/agent-gym-ollama/bin/agent-gym-ollama`（launcher symlink）啟動：incident-investigator 用來停止自己 server 的
+     `pkill -x -f '<binary> serve'` 不會比對到本 Project 的 server。已在實機確認 llama-server 照常啟動。
+   - 身分 token 改用 `/proc` 的 starttime 加 boot_id，不受 WSL2 調整時鐘影響。
+   - 停止後只檢查本 session 的程序（命令列參照本 Project 目錄者，含 llama-server）。
+   - stop 模式：每次送信號前重新確認身分；快照只在持有 lock 的瞬間比較，不把其他 Project 的活動算在本 session 上。
+   - helper 以 `os._exit` 結束；server 啟動前 wrapper 已結束時不啟動（`NOT_STARTED`）。
+   - wrapper：
+     - 結束時一律等遠端結束；指令在自己的 process group 執行，不繼承 FIFO 的 fd；
+     - session 開始時複製一份 helper；cleanup 不受 `set -e` 與 stderr 已關閉的影響；
+     - 通道檢查的失敗原因分開說明；警告時保留診斷檔案。
+   - CLI：本機 run 只接受 wrapper 確認過的 URL，server 版本必須等於 wrapper 的報告；`local_probe` 的 server 錯誤一律是 CLI 錯誤。
+   - 測試：假 ssh 被殺掉等同真正斷線；新增 lock 持有到 server 消失、殘留程序、不停止他人程序、symlink 佈局等回歸測試；
+     等待都有期限，結束時清掉假程序。
+   - **第二輪審查**（18 個 agent，確認 12 項，全部 low；decision 031 §5）：
+     - helper：`metadata/` 與 `home/.ollama` 也必須是真正的目錄；helper 在仍持有 lock 時記下共用目錄的結論，stop 模式優先採用；
+       server 結束時不立即回收（pid 不會在停止期間被重複使用）；macOS 只剩 zombie 的 group 回 EPERM 的處理。
+     - wrapper：
+       - bash 3.2 的 `exec cmd <&8 9>&-` 仍把 FIFO 複製成 fd 12 傳給指令：改成先重導再 exec，並以變異測試確認；
+       - stdin 是終端機時指令得到 `/dev/null`；被停住的指令會被結束；
+       - 「什麼都沒啟動」只認 ssh 自己（`-E`）在連線前的訊息；
+       - 無法確認時，指令還沒執行也是 exit 70；
+       - SIGPIPE / QUIT / TSTP / stdin 已關閉的處理。
+     - CLI：格式錯誤的 model 清單是 CLI 錯誤。
+
+測試：`uv run pytest` → 9031 passed、1 skipped（Linux 專用的 PDEATHSIG 測試）、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 8 分鐘；`ruff check` 通過。
 
 ## 使用者決策（2026-10-08 / 10-09 / 10-11）
 

@@ -34,8 +34,10 @@ ssh gpu-server 'wsl.exe -d Ubuntu-22.04 -- bash -lc "<command>"'
 - 模型檔案與 incident-investigator **共用**、各自管理 server（使用者決定，2026-10-11）：
   - 執行檔：incident-investigator 部署的 Ollama 0.35.0（`~/opt/ollama-0.35.0/bin/ollama`），只執行、不修改。
   - 共用的 models 目錄（`~/ii-ollama-models`）**只讀**：不寫入、不刪除、不在裡面建立任何東西。
-  - 本 Project 自己的目錄 `~/agent-gym-ollama/`：`models/`（manifest 的複本與指向共用 blob 的 symlink，不複製模型）與 `home/`
-    （server 的 HOME）。Ollama 執行時寫的快取都在這裡。
+  - 本 Project 自己的目錄 `~/agent-gym-ollama/`，Ollama 執行時寫的快取都在這裡（每一層都必須是真正的目錄，decision 031）：
+    - `models/`：manifest 的複本與指向共用 blob 的 symlink，不複製模型；
+    - `home/`：server 的 HOME；
+    - `bin/agent-gym-ollama`：指向 Ollama 執行檔的 launcher。server 以它啟動，命令列因此不同於 incident-investigator 的 server。
 - 本 Project **不得**安裝、升級、重新安裝 Ollama，**不得**下載（pull）、建立、刪除或複製任何模型檔案。
 - server 只由 `tools/with-gpu-lock` 在 GPU lock 內啟動（127.0.0.1:11436，固定環境見 decision 029 §2），指令結束就停止。
   不使用、不停止其他 Project 的 server。
@@ -61,7 +63,11 @@ ssh gpu-server 'wsl.exe -d Ubuntu-22.04 -- bash -lc "<command>"'
   - 已有任何 Ollama 程序；
   - port 被占用；
   - `nvidia-smi` 回報已用 ≥ 4096 MiB（其他 Project 已把模型載進 GPU；16 GB 容不下兩邊同時載入）。
-- 無法確認 server 已停止或共用目錄沒有改變 → wrapper 印出警告與檢查方式（exit 70）。**不得**自行刪除 lock 或終止其他程序；回報使用者。
+- 無法確認 server 已停止、共用目錄沒有改變，或無法證明什麼都沒啟動 → wrapper 印出警告與檢查方式，保留診斷檔案（exit 70；
+  只有指令自己失敗時才保留它的 exit code）。**不得**自行刪除 lock 或終止其他程序；回報使用者。
+- 共用目錄的比較在 helper 仍持有 lock 時進行，結論記在 `~/agent-gym-ollama/sessions/`。wrapper 的第二條連線（stop 模式）採用這份結論；
+  只有在它剛結束本 session 仍持有 lock 的程序時，才短暫取得 lock 比較；否則回報 `MODELS_NOT_COMPARED`（decision 031 §5）。
+- wrapper 內的指令拿不到終端機的 stdin（得到 `/dev/null`），不能互動；Ctrl-Z 被忽略。
 - 不得刪除 `/tmp/ai-portfolio-gpu.lock` 或其他 Project 的 lock 檔，也不得終止其他 Project 的 process（wrapper 的 stop 只停止本次
   session 啟動、身分相符的 server；測試用的 lock 檔只用本 Project 自己建立的）。
 

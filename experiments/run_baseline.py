@@ -472,9 +472,16 @@ class OllamaOracleFakeClient:
         return {"capabilities": ["completion", "tools"], "details": {"quantization_level": "Q4_K_M"}}
 
 
-def check_wrapper_server(config: AgentConfig) -> dict[str, Any]:
-    """tools/with-gpu-lock 啟動並確認（通道接到這次啟動的 server）的本 Project server 的報告（decision 029）：環境變數
-    SERVER_INFO_ENV 必須是 JSON 物件，``env`` 等於設定的 ``server_env``。回傳報告；違反 → ValueError。"""
+def check_wrapper_server(config: AgentConfig, url: str) -> dict[str, Any]:
+    """tools/with-gpu-lock 啟動並確認（通道接到這次啟動的 server）的本 Project server 的報告（decision 029 §5、031 §3）：
+    - ``url`` 必須等於 wrapper 設定的通道 URL（OLLAMA_URL_ENV）：wrapper 只確認了那個通道；
+    - SERVER_INFO_ENV 必須是 JSON 物件，``env`` 等於設定的 ``server_env``。
+    回傳報告；違反 → ValueError。"""
+    wrapper_url = os.environ.get(OLLAMA_URL_ENV)
+    if not wrapper_url:
+        raise ValueError(f"no tunnel URL from the wrapper ({OLLAMA_URL_ENV}): run inside tools/with-gpu-lock (decision 029)")
+    if url != wrapper_url:
+        raise ValueError(f"{url} is not the tunnel the wrapper checked ({wrapper_url}); do not override --ollama-url inside the wrapper")
     raw = os.environ.get(SERVER_INFO_ENV)
     if not raw:
         raise ValueError(f"no report of this project's own server ({SERVER_INFO_ENV}): run inside tools/with-gpu-lock, which "
@@ -491,27 +498,39 @@ def check_wrapper_server(config: AgentConfig) -> dict[str, Any]:
     return info
 
 
+def connect_local_server(config: AgentConfig, url: str, *, make_client: Any = None) -> tuple[Any, dict[str, Any], dict[str, Any]]:
+    """連到 wrapper 確認過的本 Project server（decision 029 / 031 §3）：``check_wrapper_server``、只接受 loopback 的 client、
+    ``verify_server``（模型、tools、凍結值），而且 server 回報的 Ollama 版本必須等於 wrapper 報告中的版本。
+    回傳 (client, server 資訊, wrapper 報告)；違反 → ValueError 或 Ollama 的連線 / 協定錯誤（呼叫端轉成 CLI 錯誤）。
+    make_client：建立 client 的函式（預設 ``make_ollama_client``）。"""
+    wrapper_info = check_wrapper_server(config, url)
+    OllamaHTTPClient(url, timeout_s=1)  # 先驗證 URL（只接受 loopback），不連線
+    client = (make_client or make_ollama_client)(url, config.model_config)
+    info = verify_server(client, config)
+    if info["ollama_version"] != wrapper_info.get("version"):
+        raise ValueError(f"the server at {url} reports Ollama {info['ollama_version']}, but the wrapper started "
+                         f"{wrapper_info.get('version')}: it is not the server the wrapper checked")
+    return client, info, wrapper_info
+
+
+SERVER_ERRORS = (ValueError, OllamaTransportError, OllamaProtocolError, OllamaContextError)
+
+
 def start_local_run(parser: argparse.ArgumentParser, config: AgentConfig, *, url: str, formal: bool,
                     max_model_calls: int | None) -> Any:
-    """本機模型 run 的事前檢查（decision 026 §3、029），全部在任何模型呼叫之前；違反 → ``parser.error``：
-    GPU lock 環境變數必須是 "held"；wrapper 啟動的本 Project server 的報告相符（``check_wrapper_server``）；必須給 max_model_calls；
-    正式 run 必須使用凍結的設定；client 必須只連 loopback；``verify_server`` 通過（模型存在、不是 cloud、支援 tools；凍結時版本與
-    digest 相符）。回傳 client，並把 server 資訊印到 stderr。"""
+    """本機模型 run 的事前檢查（decision 026 §3、029、031），全部在任何模型呼叫之前；違反 → ``parser.error``：
+    GPU lock 環境變數必須是 "held"；必須給 max_model_calls；正式 run 必須使用凍結的設定；``connect_local_server`` 通過
+    （wrapper 確認的通道與 server、loopback、模型存在、不是 cloud、支援 tools、凍結時版本與 digest 相符）。
+    回傳 client，並把 server 資訊印到 stderr。"""
     if os.environ.get(GPU_LOCK_ENV) != "held":
         parser.error(f"local model runs must run inside the GPU lock wrapper ({GPU_LOCK_ENV}=held; MACHINE_POLICY)")
-    try:
-        wrapper_info = check_wrapper_server(config)
-    except ValueError as exc:
-        parser.error(str(exc))
     if max_model_calls is None:
         parser.error("local model runs require --max-model-calls (decision 026 §2)")
     if formal and not is_frozen(config):
         parser.error("formal local runs need the frozen model config (model_digest and ollama_version; decision 026 §5)")
     try:
-        OllamaHTTPClient(url, timeout_s=1)  # 先驗證 URL（只接受 loopback），不連線
-        client = make_ollama_client(url, config.model_config)
-        info = verify_server(client, config)
-    except (ValueError, OllamaTransportError, OllamaProtocolError, OllamaContextError) as exc:
+        client, info, wrapper_info = connect_local_server(config, url)
+    except SERVER_ERRORS as exc:
         parser.error(f"the local model server is not usable: {exc}")
     print(f"local model server: {canonical_json(info)}; started by the wrapper: {canonical_json(wrapper_info)}", file=sys.stderr)
     return client

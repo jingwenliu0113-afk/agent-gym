@@ -1,7 +1,8 @@
 # 029 — agent-gym 自己的 Ollama server：共用模型檔案、各自管理 server
 
 日期：2026-10-15（使用者決定：2026-10-11）　狀態：採用（解決 decision 026 §7；不改模型、prompt、tool schema、推論參數、SweepPlan、
-判定規則或主要 metric）
+判定規則或主要 metric）。審查後的修正見 decision 031：目錄的安全檢查、以 launcher 啟動、時鐘無關的身分 token、stop 模式只看
+本 session 的程序、CLI 綁定 wrapper 確認的 URL 與版本。
 
 ## 背景
 

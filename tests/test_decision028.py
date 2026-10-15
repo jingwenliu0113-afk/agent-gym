@@ -262,12 +262,14 @@ def test_a_busy_local_tunnel_port_is_reported_as_busy(tmp_path: Path) -> None:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     ssh = bin_dir / "ssh"
-    ssh.write_text("#!/usr/bin/env bash\necho 'bind [127.0.0.1]:11435: Address already in use' >&2\n"
-                   "echo 'channel_setup_fwd_listener_tcpip: cannot listen to port: 11435' >&2\n"
-                   "echo 'Could not request local forwarding.' >&2\nexit 255\n", encoding="utf-8")
+    # ssh 自己的訊息寫到 -E 指定的檔案（與真正的 OpenSSH 相同；decision 031 第二輪）
+    ssh.write_text("#!/usr/bin/env bash\nlog=/dev/stderr\nwhile [ $# -gt 0 ]; do [ \"$1\" = -E ] && log=$2; shift; done\n"
+                   "{ echo 'bind [127.0.0.1]:11435: Address already in use'\n"
+                   "  echo 'channel_setup_fwd_listener_tcpip: cannot listen to port: 11435'\n"
+                   "  echo 'Could not request local forwarding.'; } >> \"$log\"\nexit 255\n", encoding="utf-8")
     ssh.chmod(ssh.stat().st_mode | stat.S_IEXEC)
     env = {k: v for k, v in os.environ.items() if k != "AI_PORTFOLIO_GPU_LOCK"}
-    env.update(PATH=f"{bin_dir}{os.pathsep}{env['PATH']}", WITH_GPU_LOCK_TIMEOUT_S="5")
+    env.update(PATH=f"{bin_dir}{os.pathsep}{env['PATH']}", WITH_GPU_LOCK_TIMEOUT_S="5", TMPDIR=str(tmp_path))
     marker = tmp_path / "ran"
     result = subprocess.run([str(ROOT / "tools" / "with-gpu-lock"), "--", "touch", str(marker)], env=env, capture_output=True,
                             text=True, timeout=30)

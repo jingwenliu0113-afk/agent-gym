@@ -37,7 +37,7 @@ from replay.checkpoint import make_checkpoint, rerun
 from replay.localization import SweepPlan
 from replay.trajectory import Trajectory
 from tasks.generator import week1_pool
-from tests.wrapper_env import inside_wrapper, outside_wrapper
+from tests.wrapper_env import WRAPPER_URL, inside_wrapper, outside_wrapper
 
 ZERO = lambda: 0.0  # noqa: E731
 POOL = week1_pool("eval")
@@ -209,7 +209,7 @@ def test_a_local_dev_smoke_run_with_the_draft_config(tmp_path: Path, monkeypatch
     monkeypatch.chdir(tmp_path)
     inside_wrapper(monkeypatch)
     assert run_baseline.main(["--split", "dev", "--confirm-local-run", "--max-model-calls", "200", "--run-name", "smoke"]) == 0
-    assert made == ["http://127.0.0.1:11434"]
+    assert made == [WRAPPER_URL]
     summary = _summary(tmp_path / "runs" / "smoke")
     assert summary["config_id"] == local_agent_config().config_id and summary["results"]
     run_json = json.loads((tmp_path / "runs" / "smoke" / "run.json").read_text(encoding="utf-8"))
@@ -311,7 +311,7 @@ def test_a_formal_local_sweep_runs_with_the_frozen_config(frozen_local_baseline:
     inside_wrapper(monkeypatch)
     assert _sweep(frozen_local_baseline, "--confirm-local-run", "--max-model-calls", "30", *REGISTERED) == 0
     summary = _summary(tmp_path / "runs" / "s")
-    assert summary["stopped_by_budget"] is True and made == ["http://127.0.0.1:11434"]
+    assert summary["stopped_by_budget"] is True and made == [WRAPPER_URL]
     run_json = json.loads((tmp_path / "runs" / "s" / "run.json").read_text(encoding="utf-8"))
     assert run_json["dry_run"] is False and run_json["criterion"] == "bonferroni95"
     assert ANTHROPIC_POLICY != OLLAMA_POLICY

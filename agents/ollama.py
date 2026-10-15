@@ -516,7 +516,10 @@ def verify_server(client: Any, config: AgentConfig) -> dict[str, Any]:
     tags = client.tags()
     if not isinstance(version, dict) or not isinstance(version.get("version"), str):
         raise ValueError("the server did not report its version")
-    entries = [entry for entry in (tags.get("models") if isinstance(tags, dict) else None) or [] if isinstance(entry, dict)]
+    models = tags.get("models") if isinstance(tags, dict) else None
+    if not isinstance(models, list):
+        raise ValueError("the server did not report a model list")
+    entries = [entry for entry in models if isinstance(entry, dict)]
     matches = [entry for entry in entries if model in (entry.get("name"), entry.get("model"))]
     if len(matches) != 1:
         raise ValueError(f"the server does not have exactly one model tagged {model!r} (it must not be pulled by this project)")

@@ -127,9 +127,12 @@ def test_the_cli_needs_the_gpu_lock_for_the_truncation_check(monkeypatch: pytest
 
 def test_the_cli_runs_the_truncation_check_inside_the_lock(monkeypatch: pytest.MonkeyPatch,
                                                            capsys: pytest.CaptureFixture[str]) -> None:
+    class Rejecting(OllamaOracleFakeClient):  # server 檢查（version / tags / show）照常；chat 一律拒絕超長 prompt
+        def chat(self, request: dict[str, Any]) -> dict[str, Any]:
+            raise OllamaContextError("the input length exceeds the context length")
+
     inside_wrapper(monkeypatch)
-    client = _Client(OllamaContextError("the input length exceeds the context length"))
-    monkeypatch.setattr(local_probe, "make_ollama_client", lambda url, mc=None: client)
+    monkeypatch.setattr(local_probe, "make_ollama_client", lambda url, mc=None: Rejecting(DEV))
     assert local_probe.main(["--truncation-check"]) == 0
     assert json.loads(capsys.readouterr().out)["result"] == "rejected"
 

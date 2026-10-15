@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from agents.baseline import MAX_EPISODE_ATTEMPTS
-from agents.ollama import OLLAMA_POLICY, OllamaContextError, check_local_config, make_ollama_client, verify_server
+from agents.ollama import OLLAMA_POLICY, OllamaContextError, check_local_config, make_ollama_client
 from agents.policy import AgentConfig
 from apps.issue_tracker.tools import TOOL_NAMES
 from replay.aborts import read_manifest
@@ -189,7 +189,7 @@ def truncation_check(client: Any, config: AgentConfig, *, num_ctx: int = TRUNCAT
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    from experiments.run_baseline import GPU_LOCK_ENV, check_wrapper_server, ollama_url_default
+    from experiments.run_baseline import GPU_LOCK_ENV, SERVER_ERRORS, connect_local_server, ollama_url_default
     from agents.ollama import local_agent_config
 
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -205,19 +205,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         if os.environ.get(GPU_LOCK_ENV) != "held":
             parser.error(f"this check talks to the model server: run it inside tools/with-gpu-lock ({GPU_LOCK_ENV}=held)")
         config = local_agent_config()
-        try:
-            wrapper_info = check_wrapper_server(config)
-        except ValueError as exc:
-            parser.error(str(exc))
-        client = make_ollama_client(args.ollama_url, config.model_config)
-        if args.verify_server:
-            try:
-                server = verify_server(client, config)
-            except ValueError as exc:
-                parser.error(f"the local model server is not usable: {exc}")
-            report = {"config_id": config.config_id, "server": server, "wrapper": wrapper_info}
-        else:
-            report = truncation_check(client, config)
+        try:  # wrapper 確認的通道與 server（decision 031 §3）；錯誤一律是 CLI 錯誤，不是 traceback
+            client, server, wrapper_info = connect_local_server(config, args.ollama_url, make_client=make_ollama_client)
+            if args.verify_server:
+                report = {"config_id": config.config_id, "server": server, "wrapper": wrapper_info}
+            else:
+                report = truncation_check(client, config)
+        except SERVER_ERRORS as exc:
+            parser.error(f"the local model server is not usable: {exc}")
     print(json.dumps(report, ensure_ascii=False, indent=2))
     print("local_probe: done", file=sys.stderr)
     return 0

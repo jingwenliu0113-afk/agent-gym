@@ -16,6 +16,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Iterator
 
 import pytest
 
@@ -27,8 +28,9 @@ PRINT_ENV = [sys.executable, "-c", "import json, os; print(json.dumps({k: os.env
 
 
 class Setup:
-    def __init__(self, tmp_path: Path) -> None:
+    def __init__(self, tmp_path: Path, wrapper: Path = WRAPPER) -> None:
         self.tmp_path = tmp_path
+        self.wrapper = wrapper
         self.remote: Remote = make_remote(tmp_path)
         self.lock = tmp_path / "gpu.lock"
         self.local_port = free_port()
@@ -37,9 +39,11 @@ class Setup:
         self.env = self.remote.env(FAKE_SSH_LOG=str(self.ssh_log), FAKE_SSH_EXTRA_ARGS="--process-names= --stop-grace-s 2",
                                    WITH_GPU_LOCK_TIMEOUT_S="10", WITH_GPU_LOCK_STOP_TIMEOUT_S="30")
         self.env["HOME"] = os.environ.get("HOME", str(tmp_path))  # Mac 端的 HOME 不變；假的 ssh 把遠端的 HOME 換掉
+        (tmp_path / "tmp").mkdir()
+        self.env["TMPDIR"] = str(tmp_path / "tmp")  # wrapper 的工作目錄（警告時保留）留在測試的暫存目錄裡
 
     def args(self, *extra: str) -> list[str]:
-        return [str(WRAPPER), "--lock-file", str(self.lock), "--local-port", str(self.local_port), "--remote-port",
+        return [str(self.wrapper), "--lock-file", str(self.lock), "--local-port", str(self.local_port), "--remote-port",
                 str(self.remote_port), *extra]
 
     def run(self, *command: str, options: tuple[str, ...] = (), **env: str) -> subprocess.CompletedProcess[str]:
@@ -63,8 +67,26 @@ class Setup:
 
 
 @pytest.fixture
-def setup(tmp_path: Path) -> Setup:
-    return Setup(tmp_path)
+def setup(tmp_path: Path) -> Iterator[Setup]:
+    fake = Setup(tmp_path)
+    yield fake
+    _clean(fake)
+
+
+def _clean(setup: Setup) -> None:
+    """失敗的測試也不遺留假 server、runner、helper 或 hang 模式的 stdin holder：holder 結束後 helper 會收到 stdin 的結束；
+    之後仍在的、命令列含這個測試暫存目錄的程序（全部是測試自己的）一律結束。"""
+    holder = setup.tmp_path / "ssh.log.holder"
+    if holder.exists():
+        try:
+            os.kill(int(holder.read_text()), signal.SIGKILL)
+        except (ProcessLookupError, ValueError):
+            pass
+    time.sleep(0.5)
+    for _ in range(2):
+        subprocess.run(["pkill", "-KILL", "-f", str(setup.tmp_path)], capture_output=True)
+        setup.remote.kill_all()
+        time.sleep(0.2)
 
 
 def _servers_stopped(setup: Setup) -> bool:
@@ -133,7 +155,7 @@ def test_a_busy_lock_is_not_taken(setup: Setup) -> None:
         result = _not_run(setup)
     finally:
         os.close(fd)
-    assert result.returncode == EXIT_BUSY and "busy" in result.stderr.lower() and setup.remote.servers() == []
+    assert result.returncode == EXIT_BUSY and "held by another workload" in result.stderr and setup.remote.servers() == []
 
 
 def test_a_running_ollama_process_is_left_alone(setup: Setup) -> None:
@@ -269,8 +291,9 @@ def test_an_unreachable_remote_is_reported(setup: Setup) -> None:
 
 
 def test_a_remote_that_never_confirms_the_lock_times_out(setup: Setup) -> None:
-    result = _not_run(setup, mode="silent", WITH_GPU_LOCK_TIMEOUT_S="2")
-    assert result.returncode == EXIT_FAILED
+    result = _not_run(setup, mode="silent", WITH_GPU_LOCK_TIMEOUT_S="2", WITH_GPU_LOCK_STOP_TIMEOUT_S="2")
+    assert result.returncode == EXIT_DIRTY  # 連線被結束、遠端沒有回答：無法證明什麼都沒啟動 → 回報使用者（MACHINE_POLICY）
+    assert "could not confirm that nothing was started" in result.stderr
 
 
 @pytest.mark.parametrize(
@@ -305,3 +328,243 @@ def test_defaults_are_the_shared_lock_and_this_projects_ports() -> None:
     text = WRAPPER.read_text(encoding="utf-8")
     assert "LOCK_FILE=/tmp/ai-portfolio-gpu.lock" in text and "LOCAL_PORT=11435" in text and "REMOTE_PORT=11436" in text
     assert "/home/" not in text
+
+
+# ---------------------------------------------------------------- decision 031：第 029 輪審查的回歸測試
+
+
+def test_the_remote_server_runs_under_the_launcher(setup: Setup) -> None:
+    assert setup.run("true").returncode == 0
+    [record] = setup.remote.servers()
+    assert record["argv0"] == str(setup.remote.launcher)
+
+
+def test_an_interrupt_before_the_server_starts_starts_nothing(setup: Setup) -> None:
+    """wrapper 在 server 啟動前被中斷：遠端收到 stdin 的結束，不啟動 server；wrapper 有證據（NOT_STARTED），不必警告。"""
+    proc = subprocess.Popen([*setup.args(), "--", "true"], env={**setup.env, "FAKE_GPU_SLEEP": "3"},
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        time.sleep(1.5)  # 已取得 lock，正在檢查 GPU
+        proc.send_signal(signal.SIGTERM)
+        _, stderr = proc.communicate(timeout=60)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+    assert proc.returncode == 143, stderr
+    time.sleep(4)  # 若 helper 仍在跑，它在 GPU 檢查之後就會啟動 server
+    assert setup.remote.servers() == [] and setup.lock_is_free() and "WARNING" not in stderr
+
+
+def test_an_interrupt_before_the_start_on_a_remote_that_never_sees_the_end_is_warned(setup: Setup) -> None:
+    proc = subprocess.Popen([*setup.args(), "--", "true"],
+                            env={**setup.env, "FAKE_GPU_SLEEP": "6", "FAKE_SSH_MODE": "hang", "WITH_GPU_LOCK_STOP_TIMEOUT_S": "2"},
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        time.sleep(1.5)
+        proc.send_signal(signal.SIGTERM)
+        _, stderr = proc.communicate(timeout=60)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+    assert proc.returncode == EXIT_DIRTY  # 指令還沒執行、又無法證明什麼都沒啟動：70，不是 143
+    assert "could not confirm that nothing was started" in stderr and "pgrep" in stderr and "diagnostics kept in" in stderr
+
+
+FIFO_FDS = [sys.executable, "-c", (
+    "import json, os, stat\n"
+    "fifos = []\n"
+    "for fd in range(3, 256):\n"
+    "    try:\n"
+    "        st = os.fstat(fd)\n"
+    "    except OSError:\n"
+    "        continue\n"
+    "    if stat.S_ISFIFO(st.st_mode):\n"
+    "        fifos.append(fd)\n"
+    "print(json.dumps(fifos))\n")]
+
+
+def test_the_command_does_not_inherit_the_remote_stdin(setup: Setup) -> None:
+    """bash 3.2 的 `exec cmd <&8 8<&- 9>&-` 會把 fd 8 / 9 複製到 >= 10 的 fd 並傳給 cmd：指令不可持有任何 FIFO。"""
+    result = setup.run(*FIFO_FDS)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == []
+
+
+def test_a_daemon_left_by_the_command_does_not_keep_the_remote_running(setup: Setup) -> None:
+    program = setup.tmp_path / "daemon.py"
+    # 真正的 daemon：離開 session、0 / 1 / 2 改到 /dev/null（不持有測試擷取輸出的 pipe），其他 fd 照樣繼承
+    program.write_text("import os, time\nif os.fork() == 0:\n    os.setsid()\n    null = os.open(os.devnull, os.O_RDWR)\n"
+                       "    for fd in (0, 1, 2):\n        os.dup2(null, fd)\n    time.sleep(40)\n", encoding="utf-8")
+    started = time.monotonic()
+    result = setup.run(sys.executable, str(program), WITH_GPU_LOCK_STOP_TIMEOUT_S="20")
+    elapsed = time.monotonic() - started
+    assert result.returncode == 0, result.stderr
+    assert "second connection" not in result.stderr, result.stderr  # daemon 沒有持有遠端 stdin 的 FIFO
+    assert elapsed < 15 and _servers_stopped(setup)
+
+
+def test_a_command_that_stops_is_ended(setup: Setup) -> None:
+    """指令被停住（例如在背景 process group 讀取終端機：SIGTTIN）：wrapper 不會無限期持有 lock。"""
+    result = setup.run(sys.executable, "-c", "import os, signal; os.kill(os.getpid(), signal.SIGSTOP)")
+    assert result.returncode != 0 and "stopped" in result.stderr.lower()
+    assert _servers_stopped(setup) and setup.lock_is_free()
+
+
+def test_a_terminal_stdin_is_not_given_to_the_command(setup: Setup) -> None:
+    """從終端機執行：指令在自己的 process group，讀終端機會被停住；改給它 /dev/null（讀到結束），wrapper 正常結束。"""
+    import pty
+
+    pid, master = pty.fork()
+    if pid == 0:  # pragma: no cover - 子程序
+        os.environ.clear()
+        os.environ.update(setup.env)
+        os.execv(str(setup.wrapper), [*setup.args(), "--", sys.executable, "-c",
+                                      "import sys; print('read=%r' % sys.stdin.read())"])
+    output = b""
+    deadline = time.monotonic() + 90
+    status = None
+    while time.monotonic() < deadline:
+        try:
+            chunk = os.read(master, 4096)
+        except OSError:
+            chunk = b""
+        if chunk:
+            output += chunk
+        done, code = os.waitpid(pid, os.WNOHANG)
+        if done:
+            status = code
+            break
+        if not chunk:
+            time.sleep(0.1)
+    if status is None:
+        os.kill(pid, signal.SIGKILL)
+        os.waitpid(pid, 0)
+    os.close(master)
+    assert status is not None and os.waitstatus_to_exitcode(status) == 0, output.decode(errors="replace")
+    assert b"read=''" in output
+
+
+def test_a_connection_lost_after_locked_is_not_taken_as_proof_that_nothing_started(setup: Setup) -> None:
+    result = _not_run(setup, mode="drop_after_locked", WITH_GPU_LOCK_STOP_TIMEOUT_S="2")
+    assert result.returncode == EXIT_DIRTY and "could not confirm" in result.stderr, result.stderr
+
+
+def test_messages_before_the_session_survive_a_closed_stderr(setup: Setup) -> None:
+    def run_closed(*args: str) -> int:
+        proc = subprocess.Popen([str(WRAPPER), *args], env=setup.env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        assert proc.stderr is not None
+        proc.stderr.close()
+        return proc.wait(timeout=60)
+
+    assert run_closed() == 64  # 用法錯誤：不是 SIGPIPE（141）
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", setup.local_port))
+        listener.listen(1)
+        assert run_closed(*setup.args()[1:], "--", "true") == EXIT_BUSY
+
+
+def test_sigquit_still_cleans_up(setup: Setup) -> None:
+    marker = setup.tmp_path / "started"
+    proc = subprocess.Popen([*setup.args(), "--", sys.executable, "-c",
+                             f"import time; open({str(marker)!r}, 'w'); time.sleep(60)"],
+                            env=setup.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        assert _wait_for_file(marker)
+        proc.send_signal(signal.SIGQUIT)
+        proc.communicate(timeout=60)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+    assert proc.returncode == 131 and _servers_stopped(setup) and setup.lock_is_free()
+
+
+def test_a_closed_stdin_is_not_an_error(setup: Setup) -> None:
+    result = subprocess.run(["bash", "-c", 'exec "$@" <&-', "_", *setup.args(), "--", "true"], env=setup.env,
+                            capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    assert list((setup.tmp_path / "tmp").iterdir()) == []  # 沒有遺留的工作目錄
+
+
+def test_an_interrupt_ends_the_commands_whole_process_group(setup: Setup) -> None:
+    marker = setup.tmp_path / "grandchild"
+    program = setup.tmp_path / "grandchild.py"
+    program.write_text(f"import os, time\nopen({str(marker)!r}, 'w').write(str(os.getpid()))\ntime.sleep(60)\n", encoding="utf-8")
+    script = f"python3 {program}; echo done"  # bash 不轉送 TERM：只對 bash 送信號會留下 python
+    proc = subprocess.Popen([*setup.args(), "--", "bash", "-c", script], env=setup.env, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True)
+    try:
+        assert _wait_for_file(marker)
+        time.sleep(0.2)
+        grandchild = int(marker.read_text())
+        proc.send_signal(signal.SIGTERM)
+        proc.communicate(timeout=60)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+    assert proc.returncode == 143 and not alive(grandchild) and _servers_stopped(setup)
+
+
+def test_background_processes_left_by_the_command_are_ended(setup: Setup) -> None:
+    marker = setup.tmp_path / "left"
+    program = setup.tmp_path / "left.py"
+    program.write_text(f"import os, time\nopen({str(marker)!r}, 'w').write(str(os.getpid()))\ntime.sleep(60)\n", encoding="utf-8")
+    script = f"python3 {program} & sleep 0.5"
+    result = setup.run("bash", "-c", script)
+    assert result.returncode == 0, result.stderr
+    assert not alive(int(marker.read_text())) and "second connection" not in result.stderr
+
+
+def test_the_fallback_uses_the_helper_copied_at_the_start(tmp_path: Path) -> None:
+    """執行期間 agents/ollama_serve.py 被修改（例如切換分支）：第二條連線仍送出與開始時相同的 helper。"""
+    tree = tmp_path / "tree"
+    (tree / "tools").mkdir(parents=True)
+    (tree / "agents").mkdir()
+    wrapper = tree / "tools" / "with-gpu-lock"
+    wrapper.write_bytes(WRAPPER.read_bytes())
+    wrapper.chmod(0o755)
+    helper = tree / "agents" / "ollama_serve.py"
+    helper.write_bytes((WRAPPER.parents[1] / "agents" / "ollama_serve.py").read_bytes())
+    setup = Setup(tmp_path, wrapper=wrapper)
+    try:
+        edit = f"p = {str(helper)!r}; t = open(p).read(); open(p, 'w').write('# edited during the run\\n' + t)"
+        result = setup.run(sys.executable, "-c", edit, FAKE_SSH_MODE="hang", WITH_GPU_LOCK_STOP_TIMEOUT_S="3")
+        assert result.returncode == 0, result.stderr
+        assert "second connection" in result.stderr and _servers_stopped(setup)
+    finally:
+        _clean(setup)
+
+
+def test_a_closed_stderr_does_not_change_the_exit_code(setup: Setup) -> None:
+    log = setup.tmp_path / "server.log"
+    proc = subprocess.Popen([*setup.args("--server-log", str(log)), "--", "true"], env=setup.env,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    assert proc.stderr is not None
+    proc.stderr.close()  # 讀取端已不在：wrapper 寫 stderr 會失敗
+    assert proc.wait(timeout=120) == 0
+    assert log.exists() and _servers_stopped(setup) and setup.lock_is_free()
+
+
+def test_a_connection_that_ends_during_the_tunnel_check_is_not_blamed_on_windows(setup: Setup) -> None:
+    result = _not_run(setup, mode="drop_at_verify")
+    assert result.returncode == EXIT_FAILED
+    assert "ended during the tunnel check" in result.stderr and "not the server this session started" not in result.stderr
+    deadline = time.monotonic() + 20
+    while not _servers_stopped(setup) and time.monotonic() < deadline:
+        time.sleep(0.1)
+    assert _servers_stopped(setup)
+
+
+def test_a_warning_keeps_the_diagnostics(setup: Setup) -> None:
+    result = setup.run("true", FAKE_OLLAMA_MODE="touch_source")
+    assert result.returncode == EXIT_DIRTY
+    kept = [line for line in result.stderr.splitlines() if "diagnostics kept in" in line]
+    assert kept
+    path = Path(kept[0].split("diagnostics kept in ", 1)[1].split(" ", 1)[0])
+    assert path.parent == setup.tmp_path / "tmp"
+    assert (path / "out").exists() and "MODELS_CHANGED" in (path / "out").read_text(encoding="utf-8")
+
+
+def test_a_surviving_process_of_the_session_is_a_failure(setup: Setup) -> None:
+    result = setup.run("true", FAKE_OLLAMA_MODE="detached_runner")
+    assert result.returncode == EXIT_DIRTY and "WARNING" in result.stderr and "STOP_FAILED" in result.stderr
+

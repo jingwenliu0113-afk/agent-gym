@@ -47,16 +47,21 @@ def test_pools_are_cached_and_shared() -> None:
     assert suite_pool("study2", "eval") is suite_pool("study2", "eval")
 
 
-def test_study2_model_runs_are_locked_until_approval_and_freeze() -> None:
-    """decision 034：使用者確認前不對 Study 2 做任何模型推論；凍結前不對 eval seed 做推論。"""
-    assert suites.STUDY2_APPROVED is False
+def test_study2_model_runs_are_approved_but_not_frozen() -> None:
+    """decision 034：使用者已確認（2026-10-17），dev 可以推論；凍結前不對 eval seed 做推論。"""
+    assert suites.STUDY2_APPROVED is True
     assert suites.STUDY2_FROZEN is False
-    with pytest.raises(ValueError, match="approv"):
-        suites.check_model_run("study2", "dev")
-    with pytest.raises(ValueError):
+    assert suites.STUDY2_SWEEP_CAP == 70_000
+    suites.check_model_run("study2", "dev")
+    with pytest.raises(ValueError, match="frozen"):
         suites.check_model_run("study2", "eval")
     suites.check_model_run("week1", "eval")
-    suites.check_model_run("week1", "dev")
+
+
+def test_the_approval_lock_still_works(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(suites, "STUDY2_APPROVED", False)
+    with pytest.raises(ValueError, match="approv"):
+        suites.check_model_run("study2", "dev")
 
 
 def test_model_run_guard_logic(monkeypatch: pytest.MonkeyPatch) -> None:

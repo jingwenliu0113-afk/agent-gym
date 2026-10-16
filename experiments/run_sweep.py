@@ -109,28 +109,43 @@ def load_sources(baseline_run_dirs: str | Path | Sequence[str | Path]) -> tuple[
       不算；最早的時間有兩條以上 → ValueError（與傳入順序無關，decision 020 §5）。
     - 它完成（success / failure / refusal）→ 它的 trajectory（已 verify）；agent_error / aborted，或沒有任何結束的 rollout 0 → None
       （不得以其他 rollout 補上，其他目錄的 rollout 0 也一樣）。
+    - Study 2（suite study2；decision 034，使用者確認的規則 B）：每個 (task, rollout_index < R) 取所有目錄中最早結束者；
+      index 最小的**失敗** rollout（完成而且沒有成功：failure / refusal）就是 source；沒有失敗時用 rollout 0（規則同上）。
+      agent_error / aborted 沒有 trajectory，不能當 source。R 取自 run.json（每個目錄必須相同）。第一輪（week1）不變。
     - 任何檔案不一致 → ValueError。
     """
-    loaded = load_runs(baseline_directories(baseline_run_dirs))
-    finished: dict[str, list[RolloutRecord]] = {}
+    directories = baseline_directories(baseline_run_dirs)
+    loaded = load_runs(directories)
+    rollouts = 1
+    if loaded.suite == "study2":
+        counts = {load_strict_json((Path(d) / RUN_FILE).read_bytes())["rollouts"] for d in directories}
+        if len(counts) != 1:
+            raise ValueError("every baseline directory must have the same number of rollouts (run.json)")
+        rollouts = counts.pop()
+    first: dict[tuple[str, int], RolloutRecord] = {}  # (task, rollout_index) → 所有目錄中最早結束者
+    finished: dict[tuple[str, int], list[RolloutRecord]] = {}
     for record in loaded.records:
-        if record.rollout_index == 0 and record.outcome != "interrupted":
-            finished.setdefault(record.task_id, []).append(record)
-    first: dict[str, RolloutRecord] = {}
-    for task_id, records in finished.items():
+        if record.rollout_index < rollouts and record.outcome != "interrupted":
+            finished.setdefault((record.task_id, record.rollout_index), []).append(record)
+    for key, records in finished.items():
         earliest = min(utc_instant(record.utc_time) for record in records)
         at_earliest = [record for record in records if utc_instant(record.utc_time) == earliest]
         if len(at_earliest) > 1:  # 只看最早的時間：與傳入順序無關（decision 020 §5）
-            raise ValueError(f"two rollout_index 0 runs of {task_id} ended at the same earliest time; the source is ambiguous")
-        first[task_id] = at_earliest[0]
+            raise ValueError(f"two rollout_index {key[1]} runs of {key[0]} ended at the same earliest time; the source is ambiguous")
+        first[key] = at_earliest[0]
     sources: dict[str, Trajectory | None] = {}
     for instance in suite_pool(loaded.suite, "eval"):  # baseline 的 suite（decision 034；第一輪為 week1）
         task_id = instance.task.task_id
-        record = first.get(task_id)
+        record = first.get((task_id, 0))
+        if loaded.suite == "study2":  # 規則 B：index 最小的失敗 rollout，沒有失敗時用 rollout 0（decision 034，使用者確認）
+            failed = [first[(task_id, i)] for i in range(rollouts)
+                      if (task_id, i) in first and first[(task_id, i)].outcome in ("failure", "refusal")]
+            if failed:
+                record = failed[0]
         if record is None or record.outcome not in COMPLETED_OUTCOMES:
             sources[task_id] = None
         else:
-            sources[task_id] = loaded.trajectories[(record.run, task_id, 0)]
+            sources[task_id] = loaded.trajectories[(record.run, task_id, record.rollout_index)]
     return sources, loaded.dry_run
 
 

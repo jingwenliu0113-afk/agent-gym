@@ -107,7 +107,7 @@ CONCLUSION_LINE = 0.5
 BOOTSTRAP_REPLICATES = 10_000
 TASKS_PER_LEVEL = len(FAMILIES) * len(EVAL_SEEDS)  # 12
 RULES = ("round1", "excluding")
-PRIMARY_RULE = "round1"  # 凍結時依使用者的決定設定（decision 034「凍結前模擬」第 1 點）
+PRIMARY_RULE = "excluding"  # 使用者於 2026-10-17 確認（decision 034「凍結前模擬」第 1 點）；第一輪的規則為次要結果
 CURVE_CLASSES = ("undecidable", "cliff_mechanical", "cliff_behavioral", "max_turns_confounded", "gradual")
 RQ1_OUTCOMES = ("mostly_cliff", "mostly_gradual", "undetermined", "ceiling", "incomplete", "no_decidable", "blocked")
 

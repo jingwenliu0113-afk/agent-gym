@@ -20,9 +20,9 @@ from tasks.generator_v2 import GENERATOR_VERSION as STUDY2_GENERATOR, study2_poo
 SUITES: tuple[str, ...] = ("week1", "study2")
 _GENERATORS = {WEEK1_GENERATOR: "week1", STUDY2_GENERATOR: "study2"}
 
-STUDY2_APPROVED = False
+STUDY2_APPROVED = True  # 使用者於 2026-10-17 核准 decision 034（source 規則 B、排除後仍合格的規則、上限 70,000）
 STUDY2_FROZEN = False
-STUDY2_SWEEP_CAP: int | None = None  # 正式 sweep 的累計呼叫上限（decision 034 §8；使用者選擇 source 規則後、凍結時填入）
+STUDY2_SWEEP_CAP: int | None = 70_000  # 正式 sweep 的累計呼叫上限（decision 034 §8；使用者選擇 source 規則 B，2026-10-17）
 STUDY2_SEGMENT_CAP = 3000  # 正式 sweep 每段的呼叫上限；段與段之間釋放 GPU lock（decision 034 §8）
 STUDY2_BASELINE_CAPS = {"dev": 2880, "eval": 4320}  # 每輪 dev / eval baseline 的呼叫上限（24 或 36 題 × R 3 × max_turns 20 × 2 次嘗試）
 

@@ -76,6 +76,14 @@ def test_study2_cli_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
 
 
 @pytest.fixture
+def unapproved(monkeypatch: pytest.MonkeyPatch) -> None:
+    """模擬使用者確認之前（STUDY2_APPROVED 為 False）。"""
+    from tasks import suites
+
+    monkeypatch.setattr(suites, "STUDY2_APPROVED", False)
+
+
+@pytest.fixture
 def made(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     urls: list[str] = []
 
@@ -89,7 +97,7 @@ def made(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 @pytest.mark.parametrize("split", ["dev", "eval"])
 def test_study2_model_runs_are_refused_before_approval(split: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-                                                       made: list[str], capsys: pytest.CaptureFixture[str]) -> None:
+                                                       made: list[str], capsys: pytest.CaptureFixture[str], unapproved: None) -> None:
     monkeypatch.chdir(tmp_path)
     inside_wrapper(monkeypatch)
     argv = ["--split", split, "--suite", "study2", "--confirm-local-run", "--max-model-calls", "50", "--run-name", "x"]
@@ -123,7 +131,7 @@ def test_study2_dev_runs_are_allowed_after_approval_but_eval_needs_the_freeze(tm
 
 
 def test_a_study2_formal_sweep_is_refused_before_approval(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, made: list[str],
-                                                         capsys: pytest.CaptureFixture[str]) -> None:
+                                                         capsys: pytest.CaptureFixture[str], unapproved: None) -> None:
     baseline = tmp_path / "b"
     run_split("eval", OllamaOracleFakeClient(EVAL), run_dir=baseline, clock=ZERO, agent_config=local_agent_config(), rollouts=1,
               suite="study2")  # 以 Python 直接建立（非 dry-run）的 baseline，只用來測 CLI 的檢查
@@ -186,7 +194,7 @@ class _RealLooking:
 
 
 def test_run_split_and_run_sweeps_check_the_locks_themselves(study2_baseline: Path, tmp_path: Path,
-                                                             monkeypatch: pytest.MonkeyPatch) -> None:
+                                                             monkeypatch: pytest.MonkeyPatch, unapproved: None) -> None:
     """decision 034 審查：開關不只在 CLI；直接以 Python 呼叫、client 不是 oracle 假 client 時也拒絕。"""
     import experiments.run_baseline as rb
     import experiments.run_sweep as rs
@@ -221,3 +229,23 @@ def test_function_level_limits_for_study2(study2_baseline: Path, tmp_path: Path,
         run_sweeps(select_sources(study2_baseline), _RealLooking(), plan=SMALL_PLAN, criterion="bonferroni95", run_dir=tmp_path / "s",
                    agent_config=local_agent_config(), call_log=True, max_model_calls=None)
     assert not any((tmp_path / d).exists() for d in ("a", "b", "s"))
+
+
+def test_study2_sources_follow_rule_b(tmp_path: Path) -> None:
+    """規則 B（使用者確認）：index 最小的失敗 rollout；沒有失敗時用 rollout 0。"""
+    from replay.trajectory import Trajectory
+    from tests.test_study2_analysis import ForkingClient
+
+    task = "gen2-sync-repair-L1-s2"
+    for seed in range(6):  # 不同的 seed 會產生不同的成敗組合（其中至少有「r0 成功、之後失敗」與「全部成功」）
+        run_dir = tmp_path / f"b{seed}"
+        run_split("eval", ForkingClient({task: ("Y1:partial", 0.5)}, seed=seed), run_dir=run_dir, clock=ZERO,
+                  agent_config=local_agent_config(), rollouts=3, dry_run=True, suite="study2")
+        summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+        outcomes = {r["rollout_index"]: r["outcome"] for r in summary["results"] if r["task_id"] == task}
+        failed = [i for i in range(3) if outcomes[i] == "failure"]
+        expected = failed[0] if failed else 0
+        sources = select_sources(run_dir)
+        assert sources[task].trajectory_id == Trajectory.load(run_dir / "trajectories" / f"{task}-r{expected}.json").trajectory_id
+        others = {t: s for t, s in sources.items() if t != task}
+        assert all(s.trajectory_id == Trajectory.load(run_dir / "trajectories" / f"{t}-r0.json").trajectory_id for t, s in others.items())

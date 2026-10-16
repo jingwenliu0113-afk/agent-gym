@@ -22,7 +22,7 @@ from typing import Any, Sequence
 
 from agents.baseline import MAX_EPISODE_ATTEMPTS
 from env.hashing import canonical_json
-from experiments.analyze_baseline import directory_identity, run_labels
+from experiments.analyze_baseline import baseline_suite, directory_identity, run_labels
 from experiments.run_sweep import (
     RUN_FILE,
     SWEEP_SUMMARY_FORMAT,
@@ -48,7 +48,7 @@ from replay.localization import (
 from replay.stats import BootstrapResult, stratified_task_bootstrap
 from replay.checkpoint import make_checkpoint
 from replay.trajectory import Trajectory, TrajectoryError, load_strict_json
-from tasks.generator import week1_pool
+from tasks.suites import suite_for_task_ids, suite_pool
 
 # v2：decision 017 §5；v3：baseline_runs（019 §4）；v4：dry_run（021 §1）；v5：Gate 的 outcome（025 §4）
 SWEEP_ANALYSIS_FORMAT = "agent-gym/sweep-analysis/v5"
@@ -419,7 +419,7 @@ def resume_state(
         raise ValueError("each sweep directory must be given once and must differ from the baseline runs")
     labels = run_labels(directories)
     sources, baseline_dry_run = load_sources(baselines)
-    pool_families = {instance.task.task_id: instance.task.family for instance in week1_pool("eval")}
+    pool_families = {instance.task.task_id: instance.task.family for instance in suite_pool(suite_for_task_ids(list(sources)), "eval")}
     pool_order = list(pool_families)
     source_ids = {source.trajectory_id: task_id for task_id, source in sources.items() if source is not None}
     config_ids = {source.agent.config_id for source in sources.values() if source is not None}
@@ -1128,6 +1128,8 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - CLI
     out = Path(args.out)
     if out.exists() and (not out.is_dir() or any(out.iterdir())):
         parser.error(f"{out} already exists and is not empty; give a new --out (decision 022)")
+    if baseline_suite(baseline_directories(args.baseline_run)) != "week1":
+        parser.error("this is the round-1 analysis (with the Core Gate); Study 2 has its own analysis (decision 034 §1)")
     analysis = analyze_sweep_runs(args.sweep_runs, args.baseline_run)
     (out / "curves").mkdir(parents=True, exist_ok=True)
     (out / "analysis.json").write_text(canonical_json(analysis.to_dict()) + "\n", encoding="utf-8")

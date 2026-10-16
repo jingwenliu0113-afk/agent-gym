@@ -56,7 +56,8 @@ from replay.atomic import write_atomic
 from replay.localization import classify_rollout
 from replay.runner import Clock, run_episode
 from replay.trajectory import load_strict_json
-from tasks.generator import GeneratedInstance, week1_pool
+from tasks.generator import GeneratedInstance
+from tasks.suites import SUITES, check_model_run, suite_pool
 
 SUMMARY_FORMAT = "agent-gym/baseline-run/v2"  # v2：run.json（decision 021 §1）；run.json 與 summary.json 共用
 RUN_FILE = "run.json"
@@ -197,8 +198,9 @@ def run_split(
     dry_run: bool = False,
     max_model_calls: int | None = None,
     call_log: bool = False,
+    suite: str = "week1",
 ) -> RunSummary:
-    """在 ``week1_pool(split)``（"dev" / "eval"）上執行 baseline。
+    """在 ``suite_pool(suite, split)``（suite 預設為第一輪的 "week1" = ``week1_pool(split)``；"study2" 見 decision 034）上執行 baseline。
 
     - 事前檢查（ValueError，不執行）：split ∈ {"dev", "eval"}；rollouts 為 int >= 1；``check_budget_args``（有上限時模型必須在
       PRICING）；run_dir 不存在或為空目錄（不覆寫既有 run，避免重複計費與混淆）；dry_run 為 bool。
@@ -218,6 +220,8 @@ def run_split(
     """
     if split not in ("dev", "eval"):
         raise ValueError("split must be 'dev' or 'eval'")
+    if suite not in SUITES:
+        raise ValueError(f"suite must be one of: {', '.join(SUITES)}")
     if type(rollouts) is not int or rollouts < 1:
         raise ValueError("rollouts must be an int >= 1")
     if not isinstance(dry_run, bool):
@@ -229,7 +233,7 @@ def run_split(
         raise ValueError(f"{run_dir} already exists and is not an empty directory")
     make_policy(client, config)  # 設定與 client 的檢查在任何呼叫之前完成
 
-    instances = week1_pool(split)
+    instances = suite_pool(suite, split)
     trajectories_dir = run_dir / "trajectories"
     trajectories_dir.mkdir(parents=True, exist_ok=True)
     description = {"format": SUMMARY_FORMAT, "split": split, "rollouts": rollouts, "config_id": config.config_id, "dry_run": dry_run}
@@ -554,6 +558,8 @@ def start_local_run(parser: argparse.ArgumentParser, config: AgentConfig, *, url
 def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - CLI
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--split", choices=("dev", "eval"), required=True)
+    parser.add_argument("--suite", choices=SUITES, default="week1",
+                        help="題目集合：week1（第一輪，預設）或 study2（decision 034；模型推論需要使用者確認與凍結）")
     parser.add_argument("--rollouts", type=int, default=1)
     parser.add_argument("--run-name", default=None, help="runs/<run-name>；預設依 split 與模式命名")
     parser.add_argument("--provider", choices=("ollama", "anthropic"), default="ollama",
@@ -570,9 +576,10 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - CLI
 
     config = local_agent_config() if args.provider == "ollama" else baseline_agent_config()
     budget = args.max_cost_usd
+    prefix = "" if args.suite == "week1" else f"{args.suite}-"
     if args.dry_run:
-        client: Any = (OllamaOracleFakeClient if args.provider == "ollama" else OracleFakeClient)(week1_pool(args.split))
-        name = args.run_name or f"dry-run-{args.split}"
+        client: Any = (OllamaOracleFakeClient if args.provider == "ollama" else OracleFakeClient)(suite_pool(args.suite, args.split))
+        name = args.run_name or f"{prefix}dry-run-{args.split}"
     elif args.confirm_local_run:
         if args.provider != "ollama":
             parser.error("--confirm-local-run is only for --provider ollama")
@@ -580,13 +587,19 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - CLI
             parser.error("cost caps do not apply to local models; use --max-model-calls (decision 026 §2)")
         if args.split == "eval" and args.rollouts != REGISTERED_EVAL_ROLLOUTS:
             parser.error(f"a formal eval baseline must use --rollouts {REGISTERED_EVAL_ROLLOUTS} (decision 025 §2)")
+        try:
+            check_model_run(args.suite, args.split)  # Study 2：使用者確認、凍結之前不推論（decision 034）
+        except ValueError as exc:
+            parser.error(str(exc))
         client = start_local_run(parser, config, url=args.ollama_url, formal=args.split == "eval",
                                  max_model_calls=args.max_model_calls)
         interrupt_on_termination()  # 中斷時正在進行的呼叫也記進 calls.jsonl（decision 032）
-        name = args.run_name or f"local-{args.split}"
+        name = args.run_name or f"{prefix}local-{args.split}"
     else:
         if args.provider != "anthropic":
             parser.error("--confirm-paid-run is only for --provider anthropic (Optional, decision 026 §4)")
+        if args.suite != "week1":
+            parser.error("paid runs are only registered for the week1 suite (Optional, decision 026 §4)")
         if args.max_cost_usd is None:
             parser.error("--confirm-paid-run requires --max-cost-usd")
         if args.split == "eval" and args.rollouts != REGISTERED_EVAL_ROLLOUTS:
@@ -595,7 +608,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - CLI
         name = args.run_name or f"baseline-{args.split}"
     summary = run_split(
         args.split, client, run_dir=Path("runs") / name, rollouts=args.rollouts, max_cost_usd=budget, dry_run=args.dry_run,
-        agent_config=config, max_model_calls=args.max_model_calls, call_log=bool(args.confirm_local_run),
+        agent_config=config, max_model_calls=args.max_model_calls, call_log=bool(args.confirm_local_run), suite=args.suite,
     )
     for result in summary.results:
         print(

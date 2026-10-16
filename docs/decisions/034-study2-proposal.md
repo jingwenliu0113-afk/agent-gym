@@ -70,7 +70,7 @@
   - task_id 為 `gen2-<題型>-L<n>-s<seed>`。
 - **RNG key** 為 `study2/<題型>/L<n>/<seed>`，不含版本號。修正 generator 時不會重抽其他欄位或其他 instance。
 - **規則**：
-  - 每條規則都逐字寫在 instruction 中，並帶規則代號；predicate 的 `description` 記下代號，供報告使用；
+  - 每條規則都逐字寫在 instruction 中；predicate 與 forbid rule 的 `description` 記下規則代號，供報告使用；
   - 必含的 comment 字串在 instruction 中逐字給出，例如 `include the text "Blocks #12"`；
   - 人一律以 id 指稱。
 - **comment 政策**：每個題型的 instruction 都寫明「除了規定的 comment，不要留其他 comment」。
@@ -149,7 +149,7 @@ oracle 長度 = 取得判斷證據的讀取次數 + 每個目標的寫入次數�
 | | L3 | E1–E4 | 6 個（1 個已 closed） | #E 的 body | 3 | 22–28 | 8 |
 | scoped-triage | L1 | S1, S4–S5 | 2 個（權限內 1） | instruction | 0 | 10–14 | 4 |
 | | L2 | S1–S2, S4–S5 | 4 個（權限內 2） | 一次 search | 2 | 10–14 | 7 |
-| | L3 | S1–S5 | 5 個（權限內 3） | 一次 search | 3 | 22–28 | 9 |
+| | L3 | S1–S5 | 5 個（權限內 2；權限外 3，各對應 S1 / S2 / S3） | 一次 search | 3 | 22–28 | 8 |
 | sync-repair | L1 | Y1 | 2 項（priority / status） | #R 的 body | 0 | 10–14 | 4 |
 | | L2 | Y1–Y3 | 3 項（≥ 1 項 label） | #R 的 body | 2 | 10–14 | 8 |
 | | L3 | Y1–Y4 | 5 項（≥ 2 項 label、1 項已處理） | #R 的 body | 3 | 22–28 | 10 |
@@ -158,13 +158,15 @@ oracle 長度 = 取得判斷證據的讀取次數 + 每個目標的寫入次數�
 | | L3 | V1–V4 | 4 個（確認 2） | 一次 search | 3 | 22–28 | 9 |
 
 - **分級的定義**：同一題型、同一 seed 時，oracle 長度與規則數 L1 < L2 < L3，其他參數不遞減。逐 instance 機械檢查。
+- **只在部分分支有作用的規則**：例如 epic-closeout 的 E3 / E4 只在「有阻擋」的分支有作用。
+  每個 instance 記錄實際有作用的規則（`params.binding_rules`），每條都必須有 negative；同一級別在所有 seed 合起來（dev 也一樣）涵蓋全部規則。
 - **turn 的餘裕**：第一輪中，需要 search 的題型模型比 oracle 多用 1–2 個 call，L3 預估用 12–16 個 turn（max_turns 20）。
   dev 中 L3 用完 turn 的比例，凍結前必須報告。
 
 ### 規則語言的擴充（task format v2）
 
-- **v1 / v2 並存**：Task 帶自己的 format。v1 拒絕新的 rule type 與 `max_count`，它們只在 v2 合法。
-  v1 題目的驗證、評分與 GradeReport（含 grader 版本）都與第一輪逐 byte 相同。
+- **v1 / v2 並存**：format 由內容決定：用到 `max_count` 或 `unless` 的 task 是 v2，其他一律是 v1；宣告的 format 與內容不符就拒絕。
+  v1 題目的序列化、驗證、評分與 GradeReport（含 grader 版本）都與第一輪逐 byte 相同。
 - **新的 forbid rule**：`forbid_change` 加上 `unless`。`unless` 是一組單一狀態的 predicate，以**那一步之前**重放得到的狀態判定。
   變更符合條件、且 `unless` 不全成立時，才算 violation。
   - forbidden_attempts 使用同一個前狀態，包含失敗的 call，維持 decision 008 的不變式。
@@ -357,3 +359,18 @@ eval instance 若違反檢查，屬於規格錯誤：依 C 的缺陷程序記錄
 
 - 新增 Study 2 的 suite；第一輪的題目、結果、分析與 Gate 判定都不變。
 - 確認前只做不需要模型的工程：suite、generator v2、規則擴充、分析、報告。
+
+## 實作進度（確認前的工程；不需要模型）
+
+- **第一輪封存**：`experiments/round1_seal.py`、`docs/results/round1-seal.json`（`3e12dd6`）。
+  另有測試以目前的程式把第一輪報告重新產生到暫存目錄，與封存的檔案逐 byte 相同。
+- **task format v2**：`tasks/schema.py`（`max_count`、`unless`）、`grader/grader.py`（保存每個 step 之前的狀態）。
+- **generator v2**：`tasks/generator_v2.py`，dev 與 eval 共 60 個 instance 都通過 A 類檢查。
+  - golden hash `GOLDEN_POOL_SHA256` 是暫定值；在第一次 dev 模型呼叫之前定案並 commit；
+  - eval instance 只做程式檢查。
+- **suite**：`tasks/suites.py`。run 與分析工具由 suite 取得 pool；分析時由 manifest 的 generator_version 推出 suite，
+  第一輪的檔案格式不變。
+- **兩道開關**：`STUDY2_APPROVED`（使用者確認）、`STUDY2_FROZEN`（凍結紀錄）。
+  開關打開之前，`run_baseline` / `run_sweep` 的 `--confirm-local-run` 拒絕 Study 2，而且在建立任何 client 之前就拒絕。
+- **第一輪的工具拒絕 Study 2 的目錄**：`analyze_sweep` 的 CLI（含 Gate 段落）與 `results_report`（寫入第一輪的結果檔）。
+

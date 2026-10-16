@@ -92,3 +92,15 @@ def test_missing_readme_block_is_a_mismatch(tmp_path: Path) -> None:
     (tmp_path / "README.md").write_text("no block\n", encoding="utf-8")
     (tmp_path / ROUND1_REPO_FILES[1]).unlink()
     assert verify_seal(tmp_path, seal, runs=False)["repo_mismatches"] == sorted([ROUND1_REPO_FILES[1], README_BLOCK])
+
+
+@pytest.mark.skipif(not all((ROOT / "runs" / d).is_dir() for d in ROUND1_RUN_DIRS), reason="runs/ 不在 repo；只在有原始 run 目錄的機器上檢查")
+def test_round1_report_regenerates_byte_identical(tmp_path: Path) -> None:
+    """目前的程式（含 task format v2 與 grader 的 unless 支援）重新產生第一輪報告，必須與封存的檔案逐 byte 相同。"""
+    from experiments.results_report import render_readme_block, write_report
+
+    summary = write_report([ROOT / "runs" / "local-eval-20261016"], [ROOT / "runs" / "local-sweep-20261016-1"], tmp_path)
+    for name in ROUND1_REPO_FILES:
+        assert (tmp_path / Path(name).name).read_bytes() == (ROOT / name).read_bytes(), name
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert render_readme_block(summary) in readme

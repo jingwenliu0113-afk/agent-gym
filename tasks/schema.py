@@ -52,6 +52,14 @@ Forbid rule（評估輸入：每一步的每個 Change）::
 
 Scope entry（``ScopeEntry``；序列化為 ``{"issue_id": int, "fields": [F3, ...]}``）。
 
+Task format v2（decision 034 §3；只有用到下列功能的 task 是 v2，``Task.format`` 由內容決定，其餘一律 v1）::
+
+    comment_added 的選填 "max_count": int（>= 1、>= min_count）
+        passed ⇔ 符合的數量 >= min_count ∧ 該 issue 新增 comment 的**總數**（不論內容）<= max_count。
+    forbid_change 的選填 "unless": [P, ...]       # P 的 type ∈ UNLESS_PREDICATE_TYPES（只看單一狀態）
+        matches ⇔ 上面的條件 ∧ ¬（每個 P 在**該 step 之前**的狀態成立）。評估時以 (before, before) 呼叫 evaluate_predicate。
+        grader 在重放時保存每個 step 之前的狀態；forbidden_attempts 用同一個前狀態（含失敗的 call）。
+
 驗證規則（``Task.validate``）：
 1. 所有 int（issue_id、min_count、issue_ids 元素、ScopeEntry.issue_id）必須 ``type(x) is int``；
    issue id 另須落在 int64 範圍（與 state schema 一致）；min_count >= 1。
@@ -91,6 +99,8 @@ from env.environment import COMMENTS_FIELD, Change
 from env.hashing import canonical_json
 
 TASK_FORMAT = "agent-gym/task/v1"
+TASK_FORMAT_V2 = "agent-gym/task/v2"
+TASK_FORMATS: tuple[str, ...] = (TASK_FORMAT, TASK_FORMAT_V2)
 
 TASK_KEYS: tuple[str, ...] = (
     "format",
@@ -118,6 +128,9 @@ PREDICATE_TYPES: tuple[str, ...] = (
 
 FORBID_RULE_TYPES: tuple[str, ...] = ("forbid_change",)
 
+# forbid_change.unless 可用的 predicate（只看單一狀態；以該 step 之前的狀態判定；task format v2）。
+UNLESS_PREDICATE_TYPES: tuple[str, ...] = ("issue_field_equals", "issue_field_in", "issue_has_labels", "issue_lacks_labels")
+
 # issue_field_equals / issue_field_in / to_values 可用的欄位。
 SCALAR_PREDICATE_FIELDS: tuple[str, ...] = ("title", "body", "status", "priority", "assignee_id")
 
@@ -133,10 +146,10 @@ _PREDICATE_KEYS: dict[str, tuple[frozenset[str], frozenset[str]]] = {
     "issue_has_labels": (frozenset({"type", "issue_id", "labels"}), frozenset()),
     "issue_lacks_labels": (frozenset({"type", "issue_id", "labels"}), frozenset()),
     "issue_unchanged": (frozenset({"type", "issue_id"}), frozenset({"fields"})),
-    "comment_added": (frozenset({"type", "issue_id"}), frozenset({"min_count", "contains"})),
+    "comment_added": (frozenset({"type", "issue_id"}), frozenset({"min_count", "contains", "max_count"})),
 }
 _FORBID_KEYS: dict[str, tuple[frozenset[str], frozenset[str]]] = {
-    "forbid_change": (frozenset({"type", "issue_ids", "fields"}), frozenset({"to_values"})),
+    "forbid_change": (frozenset({"type", "issue_ids", "fields"}), frozenset({"to_values", "unless"})),
 }
 _SCOPE_KEYS = frozenset({"issue_id", "fields"})
 _LIST_SECTIONS: tuple[str, ...] = ("expected_outcome", "success_constraints", "forbidden", "mutation_scope")
@@ -212,17 +225,27 @@ class Task:
             _require(isinstance(fields, (tuple, list)), f"{where}.fields must be a sequence")
             _check_list(list(fields), f"{where}.fields", lambda f, w: _check_choice(f, CHANGE_FIELDS, w))
 
+    @property
+    def format(self) -> str:
+        """由內容決定（decision 034 §3）：用到任一 v2 功能（``comment_added.max_count``、``forbid_change.unless``）→
+        TASK_FORMAT_V2，否則 TASK_FORMAT。v1 題目因此與第一輪逐 byte 相同。"""
+        uses_v2 = any(
+            isinstance(p, dict) and p.get("type") == "comment_added" and "max_count" in p
+            for p in (*self.expected_outcome, *self.success_constraints)
+        ) or any(isinstance(rule, dict) and "unless" in rule for rule in self.forbidden)
+        return TASK_FORMAT_V2 if uses_v2 else TASK_FORMAT
+
     def initial_state_obj(self) -> IssueTrackerState:
         """回傳 initial_state 的新 IssueTrackerState（每次呼叫都是新物件）。"""
         return IssueTrackerState.from_dict(self.initial_state)
 
     def to_dict(self) -> dict[str, Any]:
-        """剛好回傳 TASK_KEYS 這 12 個 key（``format`` = TASK_FORMAT）；所有 tuple 轉 list；
+        """剛好回傳 TASK_KEYS 這 12 個 key（``format`` = ``self.format``）；所有 tuple 轉 list；
         mutation_scope 為 ``[{"issue_id": int, "fields": [str, ...]}, ...]``（保留原順序）。
         回傳深拷貝，可通過 canonical_json。
         """
         return {
-            "format": TASK_FORMAT,
+            "format": self.format,
             "task_id": self.task_id,
             "family": self.family,
             "generator_version": self.generator_version,
@@ -240,7 +263,7 @@ class Task:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Task:
-        """輸入必須是 dict，key 集合剛好等於 TASK_KEYS，``format == TASK_FORMAT``。
+        """輸入必須是 dict，key 集合剛好等於 TASK_KEYS，``format`` ∈ TASK_FORMATS，而且等於內容決定的 format（``Task.format``）。
 
         缺 key、多 key、型別錯（例如 list 欄位不是 list、scope entry 的 key 不剛好是
         {"issue_id", "fields"}）一律 raise TaskError，不得漏出 KeyError / TypeError / SchemaError。
@@ -254,7 +277,7 @@ class Task:
         _require(not missing, "task is missing key(s): " + ", ".join(missing))
         extra = sorted(str(k) for k in keys if k not in TASK_KEYS)
         _require(not extra, "task has unexpected key(s): " + ", ".join(extra))
-        _require(data["format"] == TASK_FORMAT, f"unsupported task format {_describe(data['format'])}")
+        _require(isinstance(data["format"], str) and data["format"] in TASK_FORMATS, f"unsupported task format {_describe(data['format'])}")
         for section in _LIST_SECTIONS:
             _require(isinstance(data[section], list), f"{section} must be a list")
         scope: list[ScopeEntry] = []
@@ -281,6 +304,10 @@ class Task:
             mutation_scope=tuple(copy.deepcopy(scope)),
         )
         task.validate()
+        _require(
+            data["format"] == task.format,
+            f"task format {data['format']!r} does not match its content (expected {task.format!r})",
+        )
         return task
 
 
@@ -404,6 +431,10 @@ def _validate_predicate(predicate: Any, state: IssueTrackerState, where: str) ->
         if "min_count" in predicate:
             min_count = predicate["min_count"]
             _require(type(min_count) is int and min_count >= 1, f"{where}.min_count must be an integer >= 1")
+        if "max_count" in predicate:
+            max_count = predicate["max_count"]
+            _require(type(max_count) is int and max_count >= 1, f"{where}.max_count must be an integer >= 1")
+            _require(max_count >= predicate.get("min_count", 1), f"{where}.max_count must be >= min_count")
         if "contains" in predicate:
             _check_list(
                 predicate["contains"],
@@ -432,6 +463,16 @@ def _validate_forbid_rule(rule: Any, state: IssueTrackerState, where: str) -> No
         )
         field = fields[0]
         _check_list(rule["to_values"], f"{where}.to_values", lambda v, w: _check_field_value(field, v, state, w))
+    if "unless" in rule:
+        _check_list(rule["unless"], f"{where}.unless", lambda p, w: _validate_unless_predicate(p, state, w))
+
+
+def _validate_unless_predicate(predicate: Any, state: IssueTrackerState, where: str) -> None:
+    _require(
+        isinstance(predicate, dict) and predicate.get("type") in UNLESS_PREDICATE_TYPES,
+        f"{where} must be one of: {', '.join(UNLESS_PREDICATE_TYPES)}",
+    )
+    _validate_predicate(predicate, state, where)
 
 
 def _field_value(state: IssueTrackerState, issue_id: int, field: str) -> Any:
@@ -487,14 +528,26 @@ def evaluate_predicate(
         if cid not in initial.comments and c.issue_id == issue_id
     ]
     matching = [c for c in new_comments if all(s in c.body.casefold() for s in contains)]
+    if "max_count" not in predicate:
+        return (
+            len(matching) >= min_count,
+            f"#{issue_id}: {len(matching)} matching new comment(s) of {len(new_comments)} new, need >= {min_count}",
+        )
+    max_count = predicate["max_count"]
     return (
-        len(matching) >= min_count,
-        f"#{issue_id}: {len(matching)} matching new comment(s) of {len(new_comments)} new, need >= {min_count}",
+        len(matching) >= min_count and len(new_comments) <= max_count,
+        f"#{issue_id}: {len(matching)} matching new comment(s) of {len(new_comments)} new, "
+        f"need >= {min_count} matching and <= {max_count} new",
     )
 
 
-def forbid_rule_matches(rule: dict[str, Any], change: Change) -> bool:
-    """判斷單一 Change 是否觸犯 forbid rule（語義見模組 docstring）。"""
+def forbid_rule_matches(rule: dict[str, Any], change: Change, *, before: IssueTrackerState | None = None) -> bool:
+    """判斷單一 Change 是否觸犯 forbid rule（語義見模組 docstring）。
+
+    rule 有 ``unless`` 時必須提供 ``before``（該 step 之前的狀態），否則 ValueError；unless 的每個 predicate 都在 before
+    成立 → 不觸犯。沒有 unless 的 rule 不看 before。"""
+    if "unless" in rule and before is None:
+        raise ValueError("a forbid rule with 'unless' needs the before state of the step")
     issue_ids = rule["issue_ids"]
     if issue_ids != WILDCARD and change.issue_id not in issue_ids:
         return False
@@ -502,6 +555,8 @@ def forbid_rule_matches(rule: dict[str, Any], change: Change) -> bool:
     if fields != WILDCARD and change.field not in fields:
         return False
     if "to_values" in rule and change.after not in rule["to_values"]:
+        return False
+    if "unless" in rule and all(evaluate_predicate(p, before, before)[0] for p in rule["unless"]):
         return False
     return True
 

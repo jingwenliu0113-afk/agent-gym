@@ -60,7 +60,7 @@ from replay.localization import CLIFF_CRITERIA, RolloutOutcome, SweepPlan, Sweep
 from replay.runner import Clock
 from replay.stats import BootstrapResult, stratified_task_bootstrap
 from replay.trajectory import Trajectory
-from tasks.generator import week1_pool
+from tasks.suites import check_model_run, suite_for_task_ids, suite_pool
 
 COMPLETED_OUTCOMES = ("success", "failure", "refusal")
 
@@ -123,7 +123,7 @@ def load_sources(baseline_run_dirs: str | Path | Sequence[str | Path]) -> tuple[
             raise ValueError(f"two rollout_index 0 runs of {task_id} ended at the same earliest time; the source is ambiguous")
         first[task_id] = at_earliest[0]
     sources: dict[str, Trajectory | None] = {}
-    for instance in week1_pool("eval"):
+    for instance in suite_pool(loaded.suite, "eval"):  # baseline 的 suite（decision 034；第一輪為 week1）
         task_id = instance.task.task_id
         record = first.get(task_id)
         if record is None or record.outcome not in COMPLETED_OUTCOMES:
@@ -351,9 +351,11 @@ def run_sweeps(
         raise ValueError("plan must be a SweepPlan")
     if criterion not in CLIFF_CRITERIA:
         raise ValueError(f"criterion must be one of {CLIFF_CRITERIA}")
-    pool = [instance.task.task_id for instance in week1_pool("eval")]
-    if not isinstance(sources, Mapping) or set(sources) != set(pool):
-        raise ValueError("sources must map every eval task (see select_sources) to its source or None")
+    try:  # sources 的 key 剛好是某個 suite 的 eval pool（decision 034；第一輪為 week1）
+        suite = suite_for_task_ids(list(sources) if isinstance(sources, Mapping) else [])
+    except ValueError:
+        raise ValueError("sources must map every eval task (see select_sources) to its source or None") from None
+    pool = [instance.task.task_id for instance in suite_pool(suite, "eval")]
     if isinstance(skip, (str, bytes)) or not all(isinstance(task_id, str) for task_id in skip):
         raise ValueError("skip must be a collection of task ids")
     skipped = set(skip)
@@ -423,7 +425,7 @@ def run_sweeps(
                                                          attempt=attempt, k=k)
         return CostMeter(make_policy(bound, config), ledger)
 
-    families = {instance.task.task_id: instance.task.family for instance in week1_pool("eval")}
+    families = {instance.task.task_id: instance.task.family for instance in suite_pool(suite, "eval")}
     results: dict[str, SweepResult] = {}
     stopped = False
     for task_id in pool:
@@ -592,14 +594,21 @@ def main(argv: list[str] | None = None) -> int:
         if all(source is None or task_id in skip for task_id, source in sources.items()):
             print("nothing left to run: analyze the existing directories with experiments.analyze_sweep", file=sys.stderr)
             return 0
+    suite = suite_for_task_ids(list(sources))
     if args.dry_run:
-        client: Any = (OllamaOracleFakeClient if config.policy == OLLAMA_POLICY else OracleFakeClient)(week1_pool("eval"))
+        client: Any = (OllamaOracleFakeClient if config.policy == OLLAMA_POLICY else OracleFakeClient)(suite_pool(suite, "eval"))
     elif args.confirm_local_run:
+        try:
+            check_model_run(suite, "eval")  # Study 2：使用者確認、凍結之前不推論（decision 034）
+        except ValueError as exc:
+            parser.error(str(exc))
         client = start_local_run(parser, config, url=args.ollama_url, formal=True, max_model_calls=args.max_model_calls)
         interrupt_on_termination()  # 中斷時正在進行的呼叫也記進 calls.jsonl（decision 032）
     else:
         if args.max_cost_usd is None:
             parser.error("--confirm-paid-run requires --max-cost-usd")
+        if suite != "week1":
+            parser.error("paid runs are only registered for the week1 suite (Optional, decision 026 §4)")
         client = make_anthropic_client()
     summary = run_sweeps(
         sources, client, plan=plan, criterion=args.criterion, run_dir=run_dir, max_cost_usd=args.max_cost_usd,

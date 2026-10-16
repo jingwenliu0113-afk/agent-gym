@@ -171,6 +171,8 @@ def _walkthrough(trajectories: Sequence[Trajectory], sources: Sequence[dict[str,
 def _build(baseline_runs: Sequence[str | Path], sweep_runs: Sequence[str | Path], replicates: int) -> tuple[dict[str, Any], str, str]:
     baseline_dirs = [Path(path) for path in baseline_runs]
     sweep_dirs = [Path(path) for path in sweep_runs]
+    if analyze_baseline.baseline_suite(baseline_dirs) != "week1":
+        raise ValueError("this report is the sealed round-1 report; Study 2 has its own report (decision 034 §1)")
     base_analysis = analyze_baseline.analyze_runs(baseline_dirs, replicates=replicates)
     sweep_analysis = analyze_sweep.analyze_sweep_runs(sweep_dirs, baseline_dirs, replicates=replicates)
     base, sweep = base_analysis.to_dict(), sweep_analysis.to_dict()

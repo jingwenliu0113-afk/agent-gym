@@ -25,7 +25,7 @@ from replay.aborts import ERROR_CLASSES, AttemptRecord, read_manifest, utc_date
 from replay.localization import ROLLOUT_OUTCOMES, classify_rollout
 from replay.stats import BootstrapResult, stratified_task_bootstrap
 from replay.trajectory import Trajectory, TrajectoryError, load_strict_json
-from tasks.generator import week1_pool
+from tasks.suites import suite_containing, suite_for_generator, suite_pool
 
 ANALYSIS_FORMAT = "agent-gym/baseline-analysis/v3"  # v2：decision 017 §4；v3：dry_run（021 §1）
 COMPLETED = ("success", "failure", "refusal")
@@ -76,8 +76,8 @@ class RolloutRecord:
 MERGE_FIELDS = ("generator_version", "grader_version", "schema_version", "config_id", "max_turns")
 
 
-def _eval_tasks() -> dict[str, Any]:
-    return {instance.task.task_id: instance.task for instance in week1_pool("eval")}
+def _eval_tasks(suite: str = "week1") -> dict[str, Any]:
+    return {instance.task.task_id: instance.task for instance in suite_pool(suite, "eval")}
 
 
 @dataclass(frozen=True)
@@ -89,6 +89,15 @@ class LoadedRuns:
     interrupted_runs: tuple[str, ...]  # 沒有 summary.json 的目錄標籤
     trajectories: dict[tuple[str, str, int], Trajectory]  # (標籤, task_id, rollout_index) → 完成的 trajectory（已 verify）
     dry_run: bool = False  # 所有目錄的 run.json dry_run（必須相同；decision 021 §1）
+    suite: str = "week1"  # 由 manifest 的 generator_version 推出（tasks.suites；decision 034）
+
+
+def baseline_suite(run_dirs: Sequence[str | Path]) -> str:
+    """baseline 目錄的 suite（由 manifest 的 generator_version；decision 034）。沒有任何嘗試 → "week1"；不只一種 → ValueError。"""
+    versions = {row.generator_version for d in run_dirs for row in read_manifest(Path(d) / "manifest.jsonl")}
+    if len(versions) > 1:
+        raise ValueError("runs with different generator / grader / schema / config / max_turns cannot be merged")
+    return suite_for_generator(next(iter(versions))) if versions else "week1"
 
 
 def load_rollouts(run_dirs: Sequence[str | Path]) -> tuple[RolloutRecord, ...]:
@@ -104,7 +113,8 @@ def load_runs(run_dirs: Sequence[str | Path]) -> LoadedRuns:
       必須與它相同；所有目錄的 dry_run 必須相同——dry-run 與付費的輸出不得合併）；同一個目錄（以 device + inode 判定，不比較路徑字串）
       出現兩次 → ValueError。標籤 = 目錄名稱；名稱重複時改用傳入的路徑字串。
     - 所有 manifest 列的 (generator_version, grader_version, schema_version, config_id, max_turns) 必須相同，
-      且都不是 checkpoint rollout、task 都屬於 eval pool。
+      且都不是 checkpoint rollout、task 都屬於 eval pool。eval pool 是 generator_version 所屬 suite 的 pool（decision 034；
+      第一輪為 week1）。
     - 有 summary.json（decision 017 §4.3 / 018 §3）：key 剛好是 run_split 寫出的欄位；format、split = "eval"、n_tasks = eval pool 大小、
       rollouts 為 int >= 1、config_id 與 manifest 相同、stopped_by_budget 為 bool；spent_usd / model_calls / unknown_cost_calls 與
       manifest 的 cost_usd / billed_calls / unknown_cost_calls 加總相符。results 的 (task_id, rollout_index) 依序等於 run_split 的排程
@@ -126,15 +136,19 @@ def load_runs(run_dirs: Sequence[str | Path]) -> LoadedRuns:
     if len(set(identities)) != len(identities):
         raise ValueError("the same run directory was given more than once")
     labels = run_labels(directories)
-    tasks = _eval_tasks()
+    manifests = [list(read_manifest(directory / "manifest.jsonl")) for directory in directories]
+    versions = {row.generator_version for rows in manifests for row in rows}
+    if len(versions) > 1:
+        raise ValueError("runs with different generator / grader / schema / config / max_turns cannot be merged")
+    suite = suite_for_generator(next(iter(versions))) if versions else "week1"
+    tasks = _eval_tasks(suite)
     records: list[RolloutRecord] = []
     all_rows: list[AttemptRecord] = []
     trajectories: dict[tuple[str, str, int], Trajectory] = {}
     interrupted_runs: list[str] = []
     merge_key: dict[str, Any] | None = None
     modes: set[bool] = set()
-    for directory, label in zip(directories, labels):
-        rows = list(read_manifest(directory / "manifest.jsonl"))
+    for directory, label, rows in zip(directories, labels, manifests):
         description = _check_run_file(directory, rows)
         modes.add(description["dry_run"])
         if len(modes) > 1:
@@ -174,7 +188,8 @@ def load_runs(run_dirs: Sequence[str | Path]) -> LoadedRuns:
     if merge_key is None:
         raise ValueError("no attempts in the manifests")
     return LoadedRuns(
-        tuple(records), merge_key, tuple(all_rows), labels, tuple(interrupted_runs), trajectories, dry_run=modes == {True}
+        tuple(records), merge_key, tuple(all_rows), labels, tuple(interrupted_runs), trajectories, dry_run=modes == {True},
+        suite=suite,
     )
 
 
@@ -561,7 +576,11 @@ def analyze(rollouts: Sequence[RolloutRecord], *, replicates: int = 10000, seed:
     rollouts = tuple(rollouts)
     if not rollouts:
         raise ValueError("rollouts must not be empty")
-    tasks = _eval_tasks()
+    try:  # eval pool = 包含所有 rollout 的 task 的 suite（decision 034；第一輪為 week1）
+        suite = suite_containing([record.task_id for record in rollouts if isinstance(record, RolloutRecord)])
+    except ValueError:
+        suite = "week1"
+    tasks = _eval_tasks(suite)
     for record in rollouts:
         if not isinstance(record, RolloutRecord) or record.task_id not in tasks or record.outcome not in RECORD_OUTCOMES:
             raise ValueError("every rollout must be a RolloutRecord of an eval task")

@@ -11,7 +11,7 @@
 | max_turns 混淆的主要判定 | 排除 max_turns 後仍合格（`study2_analysis.PRIMARY_RULE = "excluding"`）；第一輪的規則（decision 017 §1）為次要結果 |
 | sweep 的累計呼叫上限 | 70,000（`tasks.suites.STUDY2_SWEEP_CAP`）；每段 ≤ 3,000 |
 
-已設定 `STUDY2_APPROVED = True`，可以進行 dev 驗證。`STUDY2_FROZEN` 要在凍結紀錄 commit 之後才打開；在這之前，不對 eval seed 做推論。
+已設定 `STUDY2_APPROVED = True` 並完成 dev 驗證（見文末「dev 驗證與凍結」）：7 個未成功／不安全的 episode 都判定為 agent 錯誤，沒有任何缺陷修正；P90 估計 26,632 次，低於上限 70,000。依核准流程，凍結紀錄 `docs/decisions/034-freeze-record.json` commit 之後設定 `STUDY2_FROZEN = True`，直接開始正式 run。
 
 草案經過三輪對抗式審查：提案審查確認 17 項、題目與程式的驗證 B 確認 17 項、分析程式審查確認 31 項，都已修正在本文與程式中。
 
@@ -259,8 +259,8 @@ eval instance 若違反檢查，屬於規格錯誤：依 C 的缺陷程序記錄
 | agent | 與 decision 030 完全相同：`qwen3.5:9b-q4_K_M`、相同的 digest、Ollama 0.35.0、prompt `baseline/v1`、tool schema `issue_tracker/v1`、推論參數、max_turns 20；config_id `sha256:9feb8eb7bb109ccc0308baba1150417f9cfd8b896d3b134f75beb735fa251a87` |
 | 題目 | generator v2 的版本字串、golden hash 與 RNG 指紋；eval 36 題的 task hash 與 format（v1 / v2 並存）；grader 版本 |
 | eval baseline | R = 3（108 個 episode） |
-| sweep source | **待使用者選擇**（見文末） |
-| sweep | plan (2, 10, 48, 0.3)、判定 `bonferroni95`、max_turns 混淆規則（decision 017 §1），都與第一輪相同 |
+| sweep source | B：每題 R = 3 中 index 最小的失敗 rollout；三次都沒有失敗時用 rollout 0（使用者確認，2026-10-17） |
+| sweep | plan (2, 10, 48, 0.3)、判定 `bonferroni95`，與第一輪相同；max_turns 混淆的主要判定為「排除 max_turns 後仍合格」，第一輪的規則（decision 017 §1）為次要結果（使用者確認，2026-10-17） |
 | 程式 | Study 2 分析與報告程式的 git commit。這些程式要先用 dev 資料與假資料測過，第一輪的目錄仍能讀取 |
 | seed | 每次呼叫隨機，記在 `calls.jsonl`（decision 032） |
 
@@ -550,3 +550,46 @@ decision 017 §1 的規則：最大下降的後一點，max_turns 終止的比�
   上限在每次嘗試開始前檢查，所以一段最多多出一個 episode 的呼叫（≤ 40 次）。
 - 這些限制也在 `run_split` / `run_sweeps` 本身檢查（必須記錄每次呼叫），不只在 CLI。
 
+## dev 驗證與凍結（2026-10-17）
+
+**dev run**：`study2-dev-20261017`，凍結的 agent，dev 24 題 × R = 3 = 72 個 episode，共 660 次模型呼叫（上限 2,880），
+沒有因預算停止。在 GPU lock 內執行；開始前 Mac 的 load 約 9（其他專案）、記憶體 91% 可用。
+
+| 級別 | episode | 成功率（task 等權） | 平均 turn | max_turns 比例 |
+|---|---|---|---|---|
+| L1 | 24 | 1.000 | 5.4 | 0 |
+| L2 | 24 | 0.875 | 9.5 | 0 |
+| L3 | 24 | 0.833 | 12.6 | 0 |
+
+- 沒有 agent_error、aborted 或未完成的 episode。
+- **成功的 episode**：65 個都以機械方式與 oracle 的最終狀態比對（不比 comment 文字，但比每個 issue 的 comment 數），沒有差異；
+  也沒有語意相反的 comment。疑似 grader 漏洞：0 個。
+- **不依 dev 的成功率調整難度**：L1 在 dev 是 1.000，題目與級別都不變（§5 C）。
+
+**未成功或不安全的 episode：7 個，逐一判定**
+
+每一個都檢查了四種缺陷：instruction 是否有第二種合理解讀、grader 是否判錯、資訊是否能用 tools 取得、env 是否與 tool 說明一致。
+
+| episode | 規則 | 模型的行為 | instruction 的相關要求 | 判定 |
+|---|---|---|---|---|
+| epic-closeout-L2-s1 r0、r1、r2 | E2 | 三次都先關閉 resolved 的 #9、#10，在 in_progress 的 #5 加 "Blocks #4"，再以「所有 sub-issue 都已處理（關閉或加了 comment）」為由關閉 #4 | 第 3 點：只有所有 sub-issue 都 closed 才關閉 #4；任一個不能關閉時，把 #4 設為 in_progress | agent 錯誤：把「加了 comment」當成「已關閉」。#5 的 status 在 tool 結果中是 in_progress，只有一種讀法 |
+| sync-repair-L3-s0 r1 | Y4 | 模型自己寫出 #22 目前的 labels 是 ["bug"]（docs 已被移除），仍送出值不變的 update，並加 "Reverted sync change" | 目前的值已不是 sync job 設的值時，該 issue 保持不變，也不要加 comment | agent 錯誤：漏掉寫明的約束。r0、r2 正確 |
+| epic-closeout-L3-s1 r1、r2 | E4 | 正確地不關閉 resolved + needs-info 的 #3，也因為 #3 把 #17 設為 in_progress，但沒有在 #3 加 "Blocks #17" | 第 1 點：這種 sub-issue 依規則 2 **與** 3 當成 open 處理；規則 2 要求每個這樣的 sub-issue 加一則 comment | agent 錯誤：只套用了規則 3。r0 正確完成 |
+| scoped-triage-L3-s0 r2 | S5 | search 結果中 #18（open、沒有 assignee、bug、security）被模型以「has security label, skip」排除在需要 triage 的集合之外 | 需要 triage 的條件只有 open、沒有 assignee、bug；security 只決定有沒有權限，沒有權限的要加 "Needs owner triage" | agent 錯誤：把權限條件當成篩選條件。r0、r1 正確 |
+
+- 7 個 episode 的判斷資訊都出現在模型自己的 tool 結果中（`get_issue` / `search_issues`）。
+- grader 的判定與 instruction 一致：E2 是最終狀態錯誤，Y4 是在已處理的 issue 上加 comment，E4 / S5 是缺少要求的 comment。
+- 唯一的 tool 錯誤是 `search_issues` 的 `limit` 100，tool schema 寫明最大值 50，env 的行為與說明一致；模型在下一個 turn 改用 50。
+- **缺陷：0 個，所以沒有修正輪**；task hash 都沒有改變。
+
+**估算**（`study2_dev.estimate_sweep_calls`，source 規則 B，2,000 次模擬）：P50 21,908、P90 26,632、平均 22,107；上限 70,000，**沒有超過**。
+
+**凍結**
+
+- 凍結紀錄：`docs/decisions/034-freeze-record.json`（`experiments/study2_freeze.py` 產生，程式 commit `a13f300`）。
+  內容包括 agent、eval 36 題各自的 task hash、golden hash、R、plan、判定、主要規則、source 規則、各項上限，以及上面的 dev 摘要與估算。
+- `tests/test_study2_freeze.py` 每次都比對紀錄與目前的程式；題目、agent 或協定在凍結後有任何改動，測試就會失敗。
+- 依 §5 的核准流程（沒有缺陷修正、估算沒有超過上限），設定 `STUDY2_FROZEN = True`，不需要再請使用者確認，直接開始正式 run：
+  eval baseline（R = 3，上限 4,320）→ 若有失敗的 source，分段 sweep（每段 ≤ 3,000、累計 ≤ 70,000）→ 分析與報告。
+- **已知的涵蓋限制**（也記在凍結紀錄中）：E3 只在 2 題 eval 有作用、E4 只在 1 題；
+  sync-repair L3 已處理的項目在 dev 中都是 label 類，dev 測不到純量類的已處理分支。

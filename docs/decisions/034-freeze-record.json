@@ -1,0 +1,354 @@
+{
+ "agent": {
+  "config_id": "sha256:9feb8eb7bb109ccc0308baba1150417f9cfd8b896d3b134f75beb735fa251a87",
+  "max_turns": 20,
+  "model": "qwen3.5:9b-q4_K_M",
+  "model_digest": "sha256:6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7",
+  "ollama_version": "0.35.0"
+ },
+ "code_commit": "a13f300feb8653eb371c01d1d156788f59d51b55",
+ "decision": "034",
+ "dev": {
+  "levels": {
+   "L1": {
+    "aborted": 0,
+    "agent_error": 0,
+    "episodes": 24,
+    "max_turns_rate": 0.0,
+    "mean_turns": 5.375,
+    "success_rate": 1.0
+   },
+   "L2": {
+    "aborted": 0,
+    "agent_error": 0,
+    "episodes": 24,
+    "max_turns_rate": 0.0,
+    "mean_turns": 9.5,
+    "success_rate": 0.875
+   },
+   "L3": {
+    "aborted": 0,
+    "agent_error": 0,
+    "episodes": 24,
+    "max_turns_rate": 0.0,
+    "mean_turns": 12.625,
+    "success_rate": 0.8333333333333334
+   }
+  },
+  "runs": [
+   "study2-dev-20261017"
+  ],
+  "stopped_by_budget": [],
+  "suspected_grader_issues": 0,
+  "to_classify": 7,
+  "unfinished": 0
+ },
+ "estimate": {
+  "cap": 70000,
+  "mean": 22107,
+  "over_cap": false,
+  "p50": 21908,
+  "p90": 26632,
+  "reps": 2000
+ },
+ "format": "agent-gym/study2-freeze/v1",
+ "protocol": {
+  "baseline_caps": {
+   "dev": 2880,
+   "eval": 4320
+  },
+  "bootstrap_replicates": 10000,
+  "criterion": "bonferroni95",
+  "eval_rollouts": 3,
+  "plan": {
+   "coarse_stride": 2,
+   "drop_threshold": 0.3,
+   "n_coarse": 10,
+   "n_fine": 48
+  },
+  "primary_rule": "excluding",
+  "segment_cap": 3000,
+  "source_rule": "first_failure",
+  "sweep_cap": 70000
+ },
+ "tasks": {
+  "binding_rules_in_eval": {
+   "E1": 9,
+   "E2": 9,
+   "E3": 2,
+   "E4": 1,
+   "S1": 9,
+   "S2": 6,
+   "S3": 3,
+   "S4": 9,
+   "S5": 9,
+   "V1": 9,
+   "V2": 9,
+   "V3": 6,
+   "V4": 3,
+   "Y1": 9,
+   "Y2": 6,
+   "Y3": 6,
+   "Y4": 3
+  },
+  "eval": [
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:4406903193af000fe963a2a2a6cd2c41e5bf9d44053c5e160c802dc946368424",
+    "task_id": "gen2-epic-closeout-L1-s2"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:a961f3cf2d5ec89b05f7bd2f49fad2783cf263b391f593499ce2ab67038dea06",
+    "task_id": "gen2-scoped-triage-L1-s2"
+   },
+   {
+    "format": "agent-gym/task/v1",
+    "sha256": "sha256:57c486281556bd496c99dc2ec845ab2d90cd3dcfb92d0b0e1b1522e22096ec55",
+    "task_id": "gen2-sync-repair-L1-s2"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:2b085d636ea81c242c0eb26ef81caa91fa8931169aeaa0cabc27cbb0050f45bd",
+    "task_id": "gen2-verified-close-L1-s2"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:9efef919d6c6388c8c82cf2cc9be2f0a0bc08c7618742d030a5398e4520b294f",
+    "task_id": "gen2-epic-closeout-L2-s2"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:20e6954697d7159694949da52c08c459e4a79d2904005ab04176a4f8036bf1ec",
+    "task_id": "gen2-scoped-triage-L2-s2"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:b7ef9f27958d99f5e7f400b39ebcd687658e41272726d57474cc921cbb9adcb3",
+    "task_id": "gen2-sync-repair-L2-s2"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:1844553b181afb3268e570d73fe162e336f2e6fcfee833faf0b342adeeb2ad0f",
+    "task_id": "gen2-verified-close-L2-s2"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:28065d90f6a540e54b1b7ce10400b024f666d690e4303c547c96b9ede5079417",
+    "task_id": "gen2-epic-closeout-L3-s2"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:3d26d896c764f6d3fa8dcb3496ab802a8ee9d14404f2064bd8595da12b09331e",
+    "task_id": "gen2-scoped-triage-L3-s2"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:9c17255677f56ceece3ef5019d874f793c9cff73e63dea56599c9bddc7c1fa7c",
+    "task_id": "gen2-sync-repair-L3-s2"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:45f7f0cf8fe26d758df6660c5cf55e4cfbcd22678be67c559ee4731ccbe7c0b8",
+    "task_id": "gen2-verified-close-L3-s2"
+   },
+   {
+    "format": "agent-gym/task/v1",
+    "sha256": "sha256:c972a1fff9626867e57a87198858d8603b4667f2fd4790fbe8d29838a3473b14",
+    "task_id": "gen2-epic-closeout-L1-s3"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:9d699b5370d3990b0ad4a0763df38bc600f8fad928a5d344657146c85d551d8a",
+    "task_id": "gen2-scoped-triage-L1-s3"
+   },
+   {
+    "format": "agent-gym/task/v1",
+    "sha256": "sha256:d0d492a443b2a6a4412ad045696d4e3dd44da131949f332b4371552e593265d0",
+    "task_id": "gen2-sync-repair-L1-s3"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:cd0b3ffd93d10e8c1b07d49c5c472d083b69785d30a6ed92e44195787b68bcf7",
+    "task_id": "gen2-verified-close-L1-s3"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:2d3f127c31972b9717aed430fcf0ef15cc09cfbc7b8f1658086a637371c8a411",
+    "task_id": "gen2-epic-closeout-L2-s3"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:adff7c857af5ae8b1e4665d7baab46dd831f523148b39ef52ab3f6d473cf25c4",
+    "task_id": "gen2-scoped-triage-L2-s3"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:558d7747a104af4b6de59ba4ad75f276c2027b434f461a10ce5186170db84f81",
+    "task_id": "gen2-sync-repair-L2-s3"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:b5635406be050b58e34e3040c5ed3b24b8a05ba046a2fb02dd71b6e243648127",
+    "task_id": "gen2-verified-close-L2-s3"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:bd2d2f4bd7ad5f86ee4c20a796cabcedbb3ee885ebc1126bcadb22b6adf7a7fb",
+    "task_id": "gen2-epic-closeout-L3-s3"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:3def0a9e351c617d4147ad7f18cfdeb810643559634324cc5b0f9bd258a299d2",
+    "task_id": "gen2-scoped-triage-L3-s3"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:51a97b9c96c2b18edb1d4a018e04d3a3a8ecbc299a731f84cd887e71c3330929",
+    "task_id": "gen2-sync-repair-L3-s3"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:3ceecc88ad9a5d6b4fd6a854aa5908d8753d498c173e2af74c9af054bdc0d589",
+    "task_id": "gen2-verified-close-L3-s3"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:7a33f1bcd947f811ca31d2f94a1b22a6ede4c531a8166f2cf0b5c3f0f5a751b7",
+    "task_id": "gen2-epic-closeout-L1-s4"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:a393b980a278c835691a5b00e6d019f53597c8872252543371d8254e621d6a05",
+    "task_id": "gen2-scoped-triage-L1-s4"
+   },
+   {
+    "format": "agent-gym/task/v1",
+    "sha256": "sha256:930a5ebd666f56c7eabc3ce9e6f6c77a6d9cd78ad8961a28661b0ca345f9a3ae",
+    "task_id": "gen2-sync-repair-L1-s4"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:624f87650fe037c78fb16e8b0d35cd6abd6092aabdf241e25b443d4c02980f54",
+    "task_id": "gen2-verified-close-L1-s4"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:90ced8af3e99779be310731fd5171fb503ff24df3435e221f6cad84641f18858",
+    "task_id": "gen2-epic-closeout-L2-s4"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:2a83e7ab6a7758c5e9fbd91867e5afa3b40e15935e67b429b232c6feaecdbb3c",
+    "task_id": "gen2-scoped-triage-L2-s4"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:bf9db9ab6595d79ae76b616d5e0bc7afe401a9dc81ae8087f20d4a7b4af11061",
+    "task_id": "gen2-sync-repair-L2-s4"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:af169465735255ac7d9303ad19b34790c08a84e2578f5abf4838a783a23b15f5",
+    "task_id": "gen2-verified-close-L2-s4"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:936de64539d2d3b1087b9c0b1849adbc8ea3e7d7ee3e569e48762a490788a6d1",
+    "task_id": "gen2-epic-closeout-L3-s4"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:6a38a2121e863a328f68f4cad20467e87653d53c0cfb54726b9e1148a2069048",
+    "task_id": "gen2-scoped-triage-L3-s4"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:06b12387f36cebd0202d42a960b3dd1cf586f69ca8061ff1d3da0699bdb4bd1f",
+    "task_id": "gen2-sync-repair-L3-s4"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:7f49cdbc859f797320815a164977ae6bde23b003c7e0741a6b919164ce060e1d",
+    "task_id": "gen2-verified-close-L3-s4"
+   }
+  ],
+  "generator_version": "issue-tracker-gen/v2",
+  "golden_pool_sha256": "0cdfc1bcdac7d226b233ae9ebc6818859dcee7f09cac43bca9c2aa98ea33143d",
+  "golden_rng_sha256": "ad1f4e4a6ab1bcae369bf2761acd0a3437fa71a2d22d2234caa0b5d5ef19d451",
+  "grader_version": "agent-gym/grader/v2",
+  "rules": {
+   "epic-closeout": {
+    "L1": [
+     "E1",
+     "E2"
+    ],
+    "L2": [
+     "E1",
+     "E2",
+     "E3"
+    ],
+    "L3": [
+     "E1",
+     "E2",
+     "E3",
+     "E4"
+    ]
+   },
+   "scoped-triage": {
+    "L1": [
+     "S1",
+     "S4",
+     "S5"
+    ],
+    "L2": [
+     "S1",
+     "S2",
+     "S4",
+     "S5"
+    ],
+    "L3": [
+     "S1",
+     "S2",
+     "S3",
+     "S4",
+     "S5"
+    ]
+   },
+   "sync-repair": {
+    "L1": [
+     "Y1"
+    ],
+    "L2": [
+     "Y1",
+     "Y2",
+     "Y3"
+    ],
+    "L3": [
+     "Y1",
+     "Y2",
+     "Y3",
+     "Y4"
+    ]
+   },
+   "verified-close": {
+    "L1": [
+     "V1",
+     "V2"
+    ],
+    "L2": [
+     "V1",
+     "V2",
+     "V3"
+    ],
+    "L3": [
+     "V1",
+     "V2",
+     "V3",
+     "V4"
+    ]
+   }
+  },
+  "schema_version": "issue_tracker/v1"
+ }
+}

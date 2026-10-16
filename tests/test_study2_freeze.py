@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from experiments import study2_freeze as fz
 from tasks import suites
 
@@ -33,9 +31,13 @@ def test_check_record_detects_drift() -> None:
     assert fz.check_record(tampered) == ["tasks", "protocol"]
 
 
-@pytest.mark.skipif(not (ROOT / fz.RECORD_PATH).exists(), reason="凍結紀錄在 dev 驗證完成後才寫入")
 def test_the_committed_freeze_record_matches_the_code() -> None:
-    """凍結之後，題目、agent 與協定都不得再改動（decision 034 §6 / §9）。"""
+    """凍結之後，題目、agent 與協定都不得再改動（decision 034 §6 / §9）；eval 的開關只在紀錄存在時打開。"""
+    assert suites.STUDY2_FROZEN is True
     record = json.loads((ROOT / fz.RECORD_PATH).read_text(encoding="utf-8"))
     assert fz.check_record(record) == []
-    assert suites.STUDY2_FROZEN is True
+    # 依核准流程直接開始正式 run 的條件：P90 未超過上限、dev 沒有疑似 grader 漏洞與未完成的 episode
+    assert record["estimate"]["over_cap"] is False and record["estimate"]["cap"] == suites.STUDY2_SWEEP_CAP
+    assert record["dev"]["suspected_grader_issues"] == 0 and record["dev"]["unfinished"] == 0
+    assert record["dev"]["stopped_by_budget"] == []
+    assert all(level["episodes"] == 24 for level in record["dev"]["levels"].values())

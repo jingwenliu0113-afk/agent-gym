@@ -117,6 +117,7 @@ def test_study2_dev_runs_are_allowed_after_approval_but_eval_needs_the_freeze(tm
     monkeypatch.chdir(tmp_path)
     inside_wrapper(monkeypatch)
     monkeypatch.setattr(suites, "STUDY2_APPROVED", True)
+    monkeypatch.setattr(suites, "STUDY2_FROZEN", False)  # 凍結之前的狀態（凍結紀錄已於 2026-10-17 commit）
     with pytest.raises(SystemExit):  # dev baseline 的上限固定為 2,880（decision 034 §8）
         run_baseline.main(["--split", "dev", "--suite", "study2", "--confirm-local-run", "--max-model-calls", "40", "--run-name", "d0"])
     assert "--max-model-calls 2880" in capsys.readouterr().err and made == []

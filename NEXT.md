@@ -15,7 +15,7 @@ lock 已釋放。**2026-10-16 使用者確認凍結**（decision 030 採用；co
 這是天花板效應：這組題目對凍結的模型太容易，沒有可以定位的失敗。照實呈現，不調整題目、參數或 Gate（見 `docs/results/README.md`）。
 **Core 依 SPEC 的收尾完成。** 2026-10-16 使用者選擇方向 2：以**獨立的第二輪研究（Study 2）**進行分級的多步驟任務。
 Study 2 不重新開啟 Core Gate，也不進 Advanced；第一輪全部封存（`docs/results/round1-seal.json`，`3e12dd6`）。
-研究方案為 decision 034（提案），**待使用者確認**，見「Blocked / 需要使用者」A。確認前不做 Study 2 的模型推論，只做工程。
+研究方案為 decision 034，**使用者已核准（2026-10-17）**。dev 驗證完成：7 個未成功／不安全的 episode 都是 agent 錯誤，沒有缺陷修正；P90 26,632 ≤ 70,000。**已凍結**（`docs/decisions/034-freeze-record.json`、`STUDY2_FROZEN = True`），正在跑正式的 eval baseline，見「Blocked / 需要使用者」A。
 keyless Core infrastructure（含分析工具、驟降判定選項、README 示範）已完成；第七輪對抗式審查找出的 keyless 缺口
 （已登記但漏實作的規則、只信任 summary 的分析）已依 decision 017 補齊；第八～十二輪審查與付費流程模擬找出的缺口已依 decision 018 – 024 補齊。
 不進 Advanced：正式的 Gate 判定是 `gradual`（2026-10-16，decision 025 §4 的機械化規則）。
@@ -270,14 +270,14 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 
 ## Blocked / 需要使用者
 
-### A. Study 2（decision 034）：**使用者已核准（2026-10-17）**，進行 dev 驗證
+### A. Study 2（decision 034）：**使用者已核准（2026-10-17）**，已凍結，進行正式 run
 
 - 使用者的選擇：
   - 核准方案；
   - sweep 的 source 用規則 B：index 最小的失敗 rollout，三次都成功時用 rollout 0；
   - 主要判定用「排除 max_turns 後仍合格」，第一輪的規則為次要結果；
   - sweep 的累計上限 70,000，每段 ≤ 3,000。
-- 開關：`STUDY2_APPROVED = True`；`STUDY2_FROZEN = False`，凍結紀錄 commit 之後才打開。
+- 開關：`STUDY2_APPROVED = True`；`STUDY2_FROZEN = True`（凍結紀錄 `docs/decisions/034-freeze-record.json`，2026-10-17）。
 - 確認前完成的工程（不需要模型，全部有測試）：
   - 第一輪封存；
   - task format v2（`max_count`、`unless`）；
@@ -299,6 +299,15 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
   7. 跑 eval baseline，再分段跑 sweep；
   8. 執行 `study2_analysis` 與 `study2_report`。
   有任何缺陷修正，或 P90 超過上限，就在第 6 步之前先請使用者確認。
+- **進度（2026-10-17）**：第 1–6 步完成。
+  - dev run `study2-dev-20261017`：72 個 episode、660 次呼叫；成功率 L1 1.000、L2 0.875、L3 0.833；max_turns 比例都是 0（含 L3）。
+  - 成功的 65 個 episode 與 oracle 的最終狀態都相同（疑似 grader 漏洞 0 個）。
+  - 7 個未成功／不安全的 episode 逐一判定，都是 agent 錯誤（epic-closeout-L2-s1 × 3、epic-closeout-L3-s1 × 2、sync-repair-L3-s0、
+    scoped-triage-L3-s0），沒有缺陷，也沒有修正輪（decision 034「dev 驗證與凍結」）。
+  - 估算（source 規則 B）：P50 21,908、P90 26,632，上限 70,000。依核准流程直接凍結，不需要再請使用者確認。
+  - 下一步：第 7 步 eval baseline
+    （`tools/with-gpu-lock -- uv run python -m experiments.run_baseline --split eval --suite study2 --rollouts 3 --confirm-local-run --max-model-calls 4320`）；
+    108 個 episode 全部成功就不跑 sweep（天花板）。GPU lock 被其他工作占用時不搶占，等待後重試。
 
 ### A0. 第一輪正式實驗：已完成並封存（2026-10-16）
 

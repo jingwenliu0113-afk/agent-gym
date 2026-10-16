@@ -47,14 +47,13 @@ def test_pools_are_cached_and_shared() -> None:
     assert suite_pool("study2", "eval") is suite_pool("study2", "eval")
 
 
-def test_study2_model_runs_are_approved_but_not_frozen() -> None:
-    """decision 034：使用者已確認（2026-10-17），dev 可以推論；凍結前不對 eval seed 做推論。"""
+def test_study2_model_runs_are_approved_and_frozen() -> None:
+    """decision 034：使用者已確認（2026-10-17）；dev 驗證沒有缺陷修正、P90 未超過上限，凍結紀錄 commit 後 eval 可以推論。"""
     assert suites.STUDY2_APPROVED is True
-    assert suites.STUDY2_FROZEN is False
+    assert suites.STUDY2_FROZEN is True
     assert suites.STUDY2_SWEEP_CAP == 70_000
     suites.check_model_run("study2", "dev")
-    with pytest.raises(ValueError, match="frozen"):
-        suites.check_model_run("study2", "eval")
+    suites.check_model_run("study2", "eval")
     suites.check_model_run("week1", "eval")
 
 
@@ -66,6 +65,7 @@ def test_the_approval_lock_still_works(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_model_run_guard_logic(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(suites, "STUDY2_APPROVED", True)
+    monkeypatch.setattr(suites, "STUDY2_FROZEN", False)
     suites.check_model_run("study2", "dev")
     with pytest.raises(ValueError, match="frozen"):
         suites.check_model_run("study2", "eval")

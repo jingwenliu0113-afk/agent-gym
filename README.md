@@ -12,8 +12,8 @@ Task → Agent actions → state changes → grader → replay from checkpoint
 
 > **目前狀態**：Core 的 infrastructure 已完成並以 synthetic policy 驗證。Core 的 LLM 改用自行部署的本機模型
 > （`qwen3.5:9b-q4_K_M`，台中 gpu-server 的 Ollama，decision 026）；付費 API 改為 Optional。本 Project 在 GPU lock 內啟動自己的
-> Ollama server（與 incident-investigator 共用模型檔案，decision 029），開發題測試已通過；設定凍結（decision 030，待確認）之後才會有
-> 正式的 LLM 結果（見 [NEXT.md](NEXT.md)）。下面的示範是 **synthetic policy，不是 LLM 結果**。
+> Ollama server（與 incident-investigator 共用模型檔案，decision 029），開發題測試已通過；設定已凍結（decision 030），正式實驗進行中
+> （見 [NEXT.md](NEXT.md)）。下面的示範是 **synthetic policy，不是 LLM 結果**。
 
 ## 示範：replay 能回答什麼（synthetic，keyless，可重現）
 
@@ -91,9 +91,9 @@ Task → Agent actions → state changes → grader → replay from checkpoint
 | 實驗腳本 | `experiments/` | baseline / sweep 的執行（dry-run、本機模型的呼叫次數上限與 GPU lock、Optional 的成本上限、manifest）、偵測力模擬、預先登記的分析、本機模型的檢查與開發題彙整（`local_probe`） |
 | GPU lock 與 server | `tools/with-gpu-lock`、`agents/ollama_serve.py` | 在 gpu-server 的 GPU lock 內啟動本 Project 自己的 Ollama server（共用的模型檔案只讀）、確認通道接到這次的 server、結束時停止並比對快照（decision 029） |
 
-所有實驗設計與格式變更都記在 [docs/decisions/](docs/decisions/)（001–031），包含預先登記的統計協定（005）、baseline 設定（009）、
+所有實驗設計與格式變更都記在 [docs/decisions/](docs/decisions/)（001–032），包含預先登記的統計協定（005）、baseline 設定（009）、
 failure localization 協定（010 / 013）、偵測力模擬（011）、run 協定（012 / 025）、本機模型（026 – 028）、自己的 Ollama server（029 / 031）、
-設定凍結（030，提案）、分析規則（016 / 017）、中斷後續跑與寫入的規則（018 – 020 / 023 / 024）與 dry-run 輸出的區分（021 / 022）。
+設定凍結（030）、逐次呼叫紀錄（032）、分析規則（016 / 017）、中斷後續跑與寫入的規則（018 – 020 / 023 / 024）與 dry-run 輸出的區分（021 / 022）。
 
 ## 怎麼跑
 

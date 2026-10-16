@@ -48,6 +48,7 @@ from agents.ollama import (
     verify_server,
 )
 from agents.policy import AgentConfig, PolicyStep
+from experiments.call_log import CALL_LOG, CallLog
 from env.environment import IssueTrackerEnv
 from env.hashing import canonical_json
 from replay.aborts import RolloutKey, billed_cost, run_with_retries
@@ -195,6 +196,7 @@ def run_split(
     agent_config: AgentConfig | None = None,
     dry_run: bool = False,
     max_model_calls: int | None = None,
+    call_log: bool = False,
 ) -> RunSummary:
     """在 ``week1_pool(split)``（"dev" / "eval"）上執行 baseline。
 
@@ -212,6 +214,7 @@ def run_split(
     - 完成 → trajectory 存成 ``run_dir/trajectories/{task_id}-r{i}.json``；outcome 與 stopped_without_action 由
       ``classify_rollout(trajectory, 0)``；安全指標取 ``trajectory.grade()``。未完成 → infrastructure → "aborted"，否則 "agent_error"。
     - harness 例外原樣往外拋（不寫 summary）。正常結束寫 ``run_dir/summary.json``（canonical_json + "\\n"）並回傳。
+    - call_log：每次模型呼叫記到 ``run_dir/calls.jsonl``（decision 032；含中止與中斷的嘗試的呼叫與 seed）。
     """
     if split not in ("dev", "eval"):
         raise ValueError("split must be 'dev' or 'eval'")
@@ -232,6 +235,7 @@ def run_split(
     description = {"format": SUMMARY_FORMAT, "split": split, "rollouts": rollouts, "config_id": config.config_id, "dry_run": dry_run}
     write_atomic(run_dir / RUN_FILE, (canonical_json(description) + "\n").encode("utf-8"))
     log_path = run_dir / "manifest.jsonl"
+    calls = CallLog(client, run_dir / CALL_LOG) if call_log else None
     ledger = Ledger()
     results: list[EpisodeResult] = []
     stopped = False
@@ -240,7 +244,7 @@ def run_split(
             if budget_reached(ledger, max_cost_usd, max_model_calls):
                 stopped = True
                 break
-            results.append(_run_one(instance, rollout_index, client, config, ledger, trajectories_dir, log_path, clock))
+            results.append(_run_one(instance, rollout_index, client, config, ledger, trajectories_dir, log_path, clock, calls))
         if stopped:
             break
 
@@ -268,11 +272,18 @@ def _run_one(
     trajectories_dir: Path,
     log_path: Path,
     clock: Clock,
+    calls: CallLog | None = None,
 ) -> EpisodeResult:
     task = instance.task
+
+    def client_for(attempt: int) -> Any:
+        if calls is None:
+            return client
+        return calls.bind(task_id=task.task_id, rollout_index=rollout_index, attempt=attempt, k=None)
+
     retried = run_with_retries(
         lambda policy: run_episode(task, policy, max_turns=BASELINE_MAX_TURNS, clock=clock),
-        lambda attempt: CostMeter(make_policy(client, config), ledger),
+        lambda attempt: CostMeter(make_policy(client_for(attempt), config), ledger),
         task=task,
         key=RolloutKey(None, None, None, rollout_index, 1),
         max_turns=BASELINE_MAX_TURNS,
@@ -418,13 +429,17 @@ class OllamaOracleFakeClient:
     request 的第 2 則訊息（第 1 則是 system）是 instruction；t = assistant 訊息數；tool results = tool 訊息的 content。
     t < len(oracle) → ``{"role": "assistant", "content": "", "tool_calls": [{"function": {"name", "arguments"}}]}``；
     否則 content "Done."。回覆的計數固定 prompt_eval_count 1000、eval_count 200；model = request["model"]。
-    version() 回 FAKE_OLLAMA_VERSION；tags() 列出一個 model（預設 local 設定的 tag、digest FAKE_OLLAMA_DIGEST）；
+    version() 回 ``version``（預設 FAKE_OLLAMA_VERSION）；tags() 列出一個 model（預設 local 設定的 tag、digest ``digest``，
+    預設 FAKE_OLLAMA_DIGEST：dry-run 的身分一看就知道是假的）；測試以凍結值模擬真正的 server。
     show() 回 capabilities ["completion", "tools"]、quantization Q4_K_M。``requests`` 保存每次 chat request 的深拷貝。
     """
 
-    def __init__(self, instances: Sequence[GeneratedInstance], *, model: str | None = None) -> None:
+    def __init__(self, instances: Sequence[GeneratedInstance], *, model: str | None = None, version: str = FAKE_OLLAMA_VERSION,
+                 digest: str = FAKE_OLLAMA_DIGEST) -> None:
         self._oracle = OracleFakeClient(instances)
         self._model = local_agent_config().model_config["model"] if model is None else model
+        self._version = version
+        self._digest = digest
         self._requests: list[dict[str, Any]] = []
 
     @property
@@ -462,10 +477,10 @@ class OllamaOracleFakeClient:
         }
 
     def version(self) -> dict[str, Any]:
-        return {"version": FAKE_OLLAMA_VERSION}
+        return {"version": self._version}
 
     def tags(self) -> dict[str, Any]:
-        return {"models": [{"name": self._model, "model": self._model, "digest": FAKE_OLLAMA_DIGEST.removeprefix("sha256:"),
+        return {"models": [{"name": self._model, "model": self._model, "digest": self._digest.removeprefix("sha256:"),
                             "details": {"quantization_level": "Q4_K_M"}}]}
 
     def show(self, model: str) -> dict[str, Any]:
@@ -579,7 +594,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - CLI
         name = args.run_name or f"baseline-{args.split}"
     summary = run_split(
         args.split, client, run_dir=Path("runs") / name, rollouts=args.rollouts, max_cost_usd=budget, dry_run=args.dry_run,
-        agent_config=config, max_model_calls=args.max_model_calls,
+        agent_config=config, max_model_calls=args.max_model_calls, call_log=bool(args.confirm_local_run),
     )
     for result in summary.results:
         print(

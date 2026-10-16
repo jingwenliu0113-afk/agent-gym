@@ -14,7 +14,14 @@ from typing import Any
 
 import pytest
 
-from agents.ollama import OllamaContextError, OllamaProtocolError, OllamaTransportError, local_agent_config
+from agents.ollama import (
+    FROZEN_MODEL_DIGEST,
+    FROZEN_OLLAMA_VERSION,
+    OllamaContextError,
+    OllamaProtocolError,
+    OllamaTransportError,
+    local_agent_config,
+)
 from experiments import local_probe
 from experiments.local_probe import summarize_smoke, truncation_check
 from experiments.run_baseline import OllamaOracleFakeClient, run_split
@@ -132,7 +139,8 @@ def test_the_cli_runs_the_truncation_check_inside_the_lock(monkeypatch: pytest.M
             raise OllamaContextError("the input length exceeds the context length")
 
     inside_wrapper(monkeypatch)
-    monkeypatch.setattr(local_probe, "make_ollama_client", lambda url, mc=None: Rejecting(DEV))
+    monkeypatch.setattr(local_probe, "make_ollama_client",
+                        lambda url, mc=None: Rejecting(DEV, version=FROZEN_OLLAMA_VERSION, digest=FROZEN_MODEL_DIGEST))
     assert local_probe.main(["--truncation-check"]) == 0
     assert json.loads(capsys.readouterr().out)["result"] == "rejected"
 

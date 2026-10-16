@@ -22,15 +22,15 @@ from agents.ollama_serve import SERVER_ENV
 from agents.policy import AgentConfig
 from experiments import local_probe, run_baseline
 from agents.ollama import OllamaContextError, OllamaProtocolError, OllamaTransportError
+from agents.ollama import FROZEN_MODEL_DIGEST, FROZEN_OLLAMA_VERSION
 from experiments.run_baseline import (
-    FAKE_OLLAMA_DIGEST,
     OLLAMA_URL_ENV,
     SERVER_INFO_ENV,
     OllamaOracleFakeClient,
     check_wrapper_server,
 )
 from tasks.generator import week1_pool
-from tests.wrapper_env import SERVER_INFO, WRAPPER_URL, inside_wrapper, outside_wrapper
+from tests.wrapper_env import SERVER_INFO, WRAPPER_URL, frozen_server, inside_wrapper, outside_wrapper
 
 # ---------------------------------------------------------------- 設定
 
@@ -91,7 +91,7 @@ def made(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
     def make(base_url: str, model_config: Any = None) -> OllamaOracleFakeClient:
         urls.append(base_url)
-        return OllamaOracleFakeClient(week1_pool("dev"))
+        return frozen_server(week1_pool("dev"))
 
     monkeypatch.setattr(run_baseline, "make_ollama_client", make)
     monkeypatch.setattr(local_probe, "make_ollama_client", make)
@@ -139,7 +139,7 @@ def test_the_truncation_check_needs_the_servers_report(monkeypatch: pytest.Monke
 
 class _Recording(OllamaOracleFakeClient):
     def __init__(self) -> None:
-        super().__init__(week1_pool("dev"))
+        super().__init__(week1_pool("dev"), version=FROZEN_OLLAMA_VERSION, digest=FROZEN_MODEL_DIGEST)
         self.chats = 0
 
     def chat(self, request: dict[str, Any]) -> dict[str, Any]:
@@ -154,7 +154,7 @@ def test_verify_server_checks_the_server_without_loading_the_model(monkeypatch: 
     monkeypatch.setattr(local_probe, "make_ollama_client", lambda url, mc=None: client)
     assert local_probe.main(["--verify-server"]) == 0
     report = json.loads(capsys.readouterr().out)
-    assert report["server"]["model_digest"] == FAKE_OLLAMA_DIGEST and "tools" in report["server"]["capabilities"]
+    assert report["server"]["model_digest"] == FROZEN_MODEL_DIGEST and "tools" in report["server"]["capabilities"]
     assert report["wrapper"] == SERVER_INFO
     assert report["config_id"] == local_agent_config().config_id and client.chats == 0
 
@@ -206,7 +206,7 @@ def test_a_local_run_without_the_wrappers_url_is_refused(tmp_path: Path, monkeyp
 def test_a_server_whose_version_differs_from_the_wrappers_report_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
                                                                              made: list[str]) -> None:
     monkeypatch.chdir(tmp_path)
-    inside_wrapper(monkeypatch, version="0.35.0")  # 假 client 回報的是 dry-run 的版本：不是 wrapper 確認的那個 server
+    inside_wrapper(monkeypatch, version="0.0.0-other")  # wrapper 啟動的不是回應這個 URL 的 server
     with pytest.raises(SystemExit):
         run_baseline.main(["--split", "dev", "--confirm-local-run", "--max-model-calls", "50", "--run-name", "x"])
     assert not (tmp_path / "runs" / "x").exists()

@@ -61,14 +61,16 @@ from replay.trajectory import check_json_document, load_strict_json
 OLLAMA_POLICY = "ollama-chat"
 OLLAMA_ADAPTER_VERSION = "ollama-chat/v1"
 
-# decision 026 §5 的草案。model_digest / ollama_version 為 None 表示尚未凍結（正式 run 會拒絕）。
+# decision 030（使用者 2026-10-16 確認凍結）：正式設定。model_digest / ollama_version 由每次 run 前的 verify_server 比對。
 # server_env：tools/with-gpu-lock 啟動的 server 的固定環境（decision 029 §2；定義在 agents/ollama_serve.py）。
+FROZEN_MODEL_DIGEST = "sha256:6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7"
+FROZEN_OLLAMA_VERSION = "0.35.0"
 LOCAL_MODEL_CONFIG: dict[str, Any] = {
     "provider": "ollama",
     "adapter": OLLAMA_ADAPTER_VERSION,
     "model": "qwen3.5:9b-q4_K_M",
-    "model_digest": None,
-    "ollama_version": None,
+    "model_digest": FROZEN_MODEL_DIGEST,
+    "ollama_version": FROZEN_OLLAMA_VERSION,
     "think": False,
     "options": {
         "num_ctx": 32768,

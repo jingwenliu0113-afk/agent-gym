@@ -1,6 +1,10 @@
-# 030 — 凍結本機模型的正式設定（提案，待使用者確認）
+# 030 — 凍結本機模型的正式設定
 
-日期：2026-10-15　狀態：**提案**。使用者確認前不填入凍結值、不跑任何正式 run（eval baseline、sweep）。
+日期：2026-10-15（提案）、2026-10-16（使用者確認）　狀態：**採用**。使用者確認：「同意 Decision 030，正式凍結目前的模型、digest、
+Ollama 版本、prompt、tool schema、推論參數及實驗預算，全部沿用提案，不再調整。」凍結值已填入 `agents.ollama.LOCAL_MODEL_CONFIG`
+（`FROZEN_MODEL_DIGEST`、`FROZEN_OLLAMA_VERSION`）；凍結後的 config_id 是
+`sha256:9feb8eb7bb109ccc0308baba1150417f9cfd8b896d3b134f75beb735fa251a87`，所有正式結果都必須是這個 config_id。
+使用者同時要求每次呼叫的 seed 都完整記錄：見 decision 032（`calls.jsonl`）。
 
 decision 026 §5 要求：正式模型、量化版本、prompt、tool schema、推論參數與預算必須先凍結。這份提案以 2026-10-15 的開發題測試為依據
 （decision 029 的 server，GPU lock 內）。
@@ -60,7 +64,7 @@ decision 026 §5 要求：正式模型、量化版本、prompt、tool schema、�
 
 ## 確認後的步驟
 
-1. 把 `model_digest`、`ollama_version` 填入 `agents.ollama.LOCAL_MODEL_CONFIG`。config_id 會因此改變；開發題測試屬於草案設定，
+1. ~~把 `model_digest`、`ollama_version` 填入 `agents.ollama.LOCAL_MODEL_CONFIG`~~（2026-10-16 完成）。config_id 會因此改變；開發題測試屬於草案設定，
    不與正式結果合併。
 2. 正式 eval baseline：
 

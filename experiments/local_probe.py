@@ -26,6 +26,7 @@ from typing import Any, Sequence
 from agents.baseline import MAX_EPISODE_ATTEMPTS
 from agents.ollama import OLLAMA_POLICY, OllamaContextError, check_local_config, make_ollama_client
 from agents.policy import AgentConfig
+from experiments.call_log import CALL_LOG, read_call_log
 from apps.issue_tracker.tools import TOOL_NAMES
 from replay.aborts import read_manifest
 from replay.localization import classify_rollout
@@ -71,7 +72,9 @@ def summarize_smoke(run_dir: str | Path) -> dict[str, Any]:
     """彙整 run_baseline 的本機 run 目錄（不呼叫模型）。agent 不是本機模型 → ValueError。decision 028 §3：
     - 每次呼叫的耗時 / token 與 tool call 統計只涵蓋已完成的 trajectory（``calls.coverage``），``calls.excluded`` = 其餘計費的呼叫數；
     - ``billed_calls`` = manifest 所有嘗試的計費呼叫數；``aborts`` = 每一種中止的 (error_class, exception_type, message) 次數；
-    - ``dry_run`` 取自 run.json；沒有 summary 的中斷目錄由 manifest 重建結果（``interrupted`` = True）。"""
+    - ``dry_run`` 取自 run.json；沒有 summary 的中斷目錄由 manifest 重建結果（``interrupted`` = True）。
+    - ``call_log``（decision 032）：calls.jsonl 的呼叫數、失敗數、有 seed 的呼叫數，以及成功的呼叫數是否等於計費的呼叫數；
+      沒有紀錄 → None。"""
     run_dir = Path(run_dir)
     rows = read_manifest(run_dir / "manifest.jsonl")
     run_json = load_strict_json((run_dir / "run.json").read_bytes()) if (run_dir / "run.json").exists() else {}
@@ -130,6 +133,12 @@ def summarize_smoke(run_dir: str | Path) -> dict[str, Any]:
             key = (row.error_class or "", row.exception_type or "", row.message or "")
             aborts[key] = aborts.get(key, 0) + 1
     episodes = len(results)
+    call_log = None
+    if (run_dir / CALL_LOG).exists():  # decision 032：逐次呼叫紀錄
+        records = read_call_log(run_dir / CALL_LOG)
+        ok = sum(1 for record in records if record["ok"])
+        call_log = {"calls": len(records), "failed": len(records) - ok,
+                    "seeds": sum(1 for record in records if isinstance(record.get("seed"), int)), "matches_manifest": ok == billed}
     return {
         "run": run_dir.name,
         "split": split,
@@ -159,6 +168,7 @@ def summarize_smoke(run_dir: str | Path) -> dict[str, Any]:
             {"error_class": error_class, "exception_type": exception_type, "message": message, "count": count}
             for (error_class, exception_type, message), count in sorted(aborts.items())
         ],
+        "call_log": call_log,
     }
 
 

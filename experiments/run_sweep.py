@@ -43,6 +43,7 @@ from env.hashing import canonical_json
 from experiments.analyze_baseline import RolloutRecord, load_runs
 from replay.trajectory import load_strict_json
 from replay.aborts import utc_instant
+from experiments.call_log import CALL_LOG, CallLog
 from experiments.run_baseline import (
     budget_reached,
     check_budget_args,
@@ -320,6 +321,7 @@ def run_sweeps(
     dry_run: bool = False,
     carried: Mapping[str, Mapping[tuple[int, int], RolloutOutcome]] | None = None,
     max_model_calls: int | None = None,
+    call_log: bool = False,
 ) -> SweepRunSummary:
     """依 eval pool 的順序對每個非 None、且不在 skip 中的 source 執行 ``replay.localization.sweep``（共用一個 manifest）。
 
@@ -407,6 +409,8 @@ def run_sweeps(
     write_atomic(run_dir / RUN_FILE, (canonical_json(description) + "\n").encode("utf-8"))
     log_path = run_dir / "manifest.jsonl"
     write_atomic(log_path, b"")  # 每個 sweep 目錄一定有 manifest（decision 024 §1）
+    calls = CallLog(client, run_dir / CALL_LOG) if call_log else None  # 逐次呼叫紀錄（decision 032）
+    current = {"task_id": ""}
     ledger = Ledger()
 
     def policy_factory(k: int, rollout_index: int, attempt: int) -> CostMeter:
@@ -415,7 +419,9 @@ def run_sweeps(
                 f"spent ${ledger.cost_usd:.4f} over {ledger.calls} calls (cost cap {max_cost_usd}, call cap {max_model_calls}, "
                 f"unknown-cost calls {ledger.unknown_cost_calls})"
             )
-        return CostMeter(make_policy(client, config), ledger)
+        bound = client if calls is None else calls.bind(task_id=current["task_id"], rollout_index=rollout_index,
+                                                         attempt=attempt, k=k)
+        return CostMeter(make_policy(bound, config), ledger)
 
     families = {instance.task.task_id: instance.task.family for instance in week1_pool("eval")}
     results: dict[str, SweepResult] = {}
@@ -424,6 +430,7 @@ def run_sweeps(
         source = sources[task_id]
         if source is None or task_id in skipped:
             continue
+        current["task_id"] = task_id
         try:
             result = sweep(
                 source,
@@ -596,7 +603,7 @@ def main(argv: list[str] | None = None) -> int:
     summary = run_sweeps(
         sources, client, plan=plan, criterion=args.criterion, run_dir=run_dir, max_cost_usd=args.max_cost_usd,
         skip=skip, resumed_from=resumed_from, dry_run=args.dry_run, carried=carried, agent_config=config,
-        max_model_calls=args.max_model_calls,
+        max_model_calls=args.max_model_calls, call_log=bool(args.confirm_local_run),
     )
     for task_id in summary.sources:
         result = summary.results.get(task_id)

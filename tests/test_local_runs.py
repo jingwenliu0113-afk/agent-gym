@@ -19,12 +19,11 @@ import pytest
 
 from agents import ollama
 from agents.baseline import ANTHROPIC_POLICY, AnthropicPolicy, baseline_agent_config
-from agents.ollama import OLLAMA_POLICY, OllamaPolicy, local_agent_config
+from agents.ollama import FROZEN_MODEL_DIGEST, OLLAMA_POLICY, OllamaPolicy, local_agent_config
 from experiments import run_baseline, run_sweep
 from experiments.analyze_baseline import analyze_runs
 from experiments.analyze_sweep import analyze_sweep_runs
 from experiments.run_baseline import (
-    FAKE_OLLAMA_DIGEST,
     FAKE_OLLAMA_VERSION,
     OllamaOracleFakeClient,
     OracleFakeClient,
@@ -37,7 +36,7 @@ from replay.checkpoint import make_checkpoint, rerun
 from replay.localization import SweepPlan
 from replay.trajectory import Trajectory
 from tasks.generator import week1_pool
-from tests.wrapper_env import WRAPPER_URL, inside_wrapper, outside_wrapper
+from tests.wrapper_env import WRAPPER_URL, frozen_server, inside_wrapper, outside_wrapper
 
 ZERO = lambda: 0.0  # noqa: E731
 POOL = week1_pool("eval")
@@ -155,7 +154,7 @@ def made(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
     def make(base_url: str, model_config: Any = None) -> OllamaOracleFakeClient:
         urls.append(base_url)
-        return OllamaOracleFakeClient([*POOL, *week1_pool("dev")])
+        return frozen_server([*POOL, *week1_pool("dev")])  # 模擬凍結的 server（decision 030）
 
     monkeypatch.setattr(run_baseline, "make_ollama_client", make)  # run_sweep 也經 run_baseline.start_local_run 建立 client
     return urls
@@ -163,8 +162,15 @@ def made(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 @pytest.fixture
 def frozen(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setitem(ollama.LOCAL_MODEL_CONFIG, "model_digest", FAKE_OLLAMA_DIGEST)
-    monkeypatch.setitem(ollama.LOCAL_MODEL_CONFIG, "ollama_version", FAKE_OLLAMA_VERSION)
+    """decision 030 之後預設的設定就是凍結的設定。"""
+    assert ollama.is_frozen(local_agent_config())
+
+
+@pytest.fixture
+def draft(monkeypatch: pytest.MonkeyPatch) -> None:
+    """模擬尚未凍結的設定（decision 030 之前）。"""
+    monkeypatch.setitem(ollama.LOCAL_MODEL_CONFIG, "model_digest", None)
+    monkeypatch.setitem(ollama.LOCAL_MODEL_CONFIG, "ollama_version", None)
 
 
 def _summary(path: Path) -> dict[str, Any]:
@@ -204,7 +210,7 @@ def test_local_baseline_runs_are_refused_before_any_call(argv: list[str], tmp_pa
     assert made == [] and not (tmp_path / "runs" / "x").exists()
 
 
-def test_a_local_dev_smoke_run_with_the_draft_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, made: list[str],
+def test_a_local_dev_run_with_the_frozen_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, made: list[str],
                                                      capsys: pytest.CaptureFixture[str]) -> None:
     monkeypatch.chdir(tmp_path)
     inside_wrapper(monkeypatch)
@@ -214,11 +220,11 @@ def test_a_local_dev_smoke_run_with_the_draft_config(tmp_path: Path, monkeypatch
     assert summary["config_id"] == local_agent_config().config_id and summary["results"]
     run_json = json.loads((tmp_path / "runs" / "smoke" / "run.json").read_text(encoding="utf-8"))
     assert run_json["dry_run"] is False
-    assert FAKE_OLLAMA_DIGEST in capsys.readouterr().err  # server 檢查的結果會印出
+    assert FROZEN_MODEL_DIGEST in capsys.readouterr().err  # server 檢查的結果會印出
 
 
 def test_a_formal_local_eval_baseline_needs_the_frozen_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-                                                              made: list[str]) -> None:
+                                                              made: list[str], draft: None) -> None:
     monkeypatch.chdir(tmp_path)
     inside_wrapper(monkeypatch)
     with pytest.raises(SystemExit):  # 草案設定
@@ -264,11 +270,8 @@ def test_a_dry_run_sweep_follows_the_baseline_provider(local_baseline: Path, tmp
 
 @pytest.fixture(scope="module")
 def frozen_local_baseline(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    patched = dict(ollama.LOCAL_MODEL_CONFIG, model_digest=FAKE_OLLAMA_DIGEST, ollama_version=FAKE_OLLAMA_VERSION)
-    config = local_agent_config()
-    config = type(config)(config.policy, config.prompt_version, config.system_prompt, config.developer_prompt, patched)
     run_dir = tmp_path_factory.mktemp("frozen") / "eval"
-    run_split("eval", OllamaOracleFakeClient(POOL), run_dir=run_dir, clock=ZERO, agent_config=config)  # 模擬正式 run
+    run_split("eval", frozen_server(POOL), run_dir=run_dir, clock=ZERO, agent_config=local_agent_config())  # 模擬正式 run
     return run_dir
 
 

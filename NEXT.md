@@ -6,7 +6,8 @@ Core：Day 1 完成；Week 1 除「#5 baseline 真正跑完整 task」以外都�
 **2026-10-11 起 Core 的 LLM 改用自行部署的本機模型**（`qwen3.5:9b-q4_K_M`，台中 gpu-server 的 Ollama；decision 026）；付費 API 改為 Optional。
 **2026-10-15**：本 Project 在 GPU lock 內啟動自己的 Ollama server（與 incident-investigator 共用模型檔案、共用目錄只讀；decision 029），
 已在 gpu-server 實測：server 檢查、截斷自我測試、開發題測試（15 / 15 成功）全部通過，每次結束都確認 server 已停止、共用目錄沒有改變、
-lock 已釋放。**剩下唯一的 blocker：凍結設定需要使用者確認**（decision 030 提案，見下方「Blocked / 需要使用者」A）；確認後就跑正式 run。
+lock 已釋放。**2026-10-16 使用者確認凍結**（decision 030 採用；config_id `sha256:9feb8eb7…a87`），並要求每次呼叫的 seed
+都完整記錄（decision 032：`calls.jsonl`）。正式 run 進行中（見下方 A）。
 keyless Core infrastructure（含分析工具、驟降判定選項、README 示範）已完成；第七輪對抗式審查找出的 keyless 缺口
 （已登記但漏實作的規則、只信任 summary 的分析）已依 decision 017 補齊；第八～十二輪審查與付費流程模擬找出的缺口已依 decision 018 – 024 補齊。
 尚未進 Advanced（Gate 未滿足：還沒有任何真實的 failure localization 結果）。
@@ -217,7 +218,7 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
        - SIGPIPE / QUIT / TSTP / stdin 已關閉的處理。
      - CLI：格式錯誤的 model 清單是 CLI 錯誤。
 
-測試：`uv run pytest` → 9031 passed、1 skipped（Linux 專用的 PDEATHSIG 測試）、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 8 分鐘；`ruff check` 通過。
+測試：`uv run pytest` → 9044 passed、1 skipped（Linux 專用的 PDEATHSIG 測試）、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 8 分鐘；`ruff check` 通過。
 
 ## 使用者決策（2026-10-08 / 10-09 / 10-11）
 
@@ -255,36 +256,34 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 
 ## Blocked / 需要使用者
 
-### A. **需要使用者確認：凍結本機模型的正式設定**（decision 030 提案，2026-10-15）
+### A. 正式實驗（2026-10-16 使用者確認凍結後開始；不需要使用者，進度如下）
 
-依開發題測試的結果，提案**完全沿用 decision 026 的草案**，開發題測試沒有顯示需要改的地方：
-- model `qwen3.5:9b-q4_K_M`；digest `sha256:6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7`；Q4_K_M；
-  Ollama 0.35.0；server 環境見 decision 029 §2；
-- prompt `baseline/v1`、tool schema `issue_tracker/v1`、max_turns 20；
-- 推論參數：think 關、num_ctx 32,768、num_predict 4,096、temperature 0.7、top_p 0.8、top_k 20、min_p 0、presence_penalty 1.5，
-  每次呼叫隨機 seed，timeout 600 秒。
+凍結值（decision 030）：`qwen3.5:9b-q4_K_M`、digest `sha256:6488c96f…3ea7`、Q4_K_M、Ollama 0.35.0、server 環境（029 §2）、
+prompt `baseline/v1`、tool schema `issue_tracker/v1`、max_turns 20、think 關、num_ctx 32,768、num_predict 4,096、
+temperature 0.7、top_p 0.8、top_k 20、min_p 0、presence_penalty 1.5、每次呼叫隨機 seed（記在 trajectory 與 `calls.jsonl`）。
+config_id `sha256:9feb8eb7bb109ccc0308baba1150417f9cfd8b896d3b134f75beb735fa251a87`。
 
-預算（沒有金錢成本，只有 GPU 時間）：
-- eval baseline：`--max-model-calls 1800`，即理論上限；預期約 250 次、5–10 分鐘。
-- sweep：每段 `--max-model-calls 3000`（約 40–60 分鐘），段與段之間釋放 GPU lock，以 `--resume-from` 接續到完成；粗估總共約 1.4 萬次、3 小時。
+使用者的要求（2026-10-16）：
+- GPU 工作全程遵守共用 lock、分段執行並釋放資源；
+- 保留所有成功、失敗與中斷紀錄；
+- 不得因結果不理想而修改題目、參數或 Gate；
+- 沒有重複的 cliff 也如實呈現，不強行進 Advanced；
+- 完成後完善 Demo、圖表、失敗案例與 README。
 
-確認後的步驟（decision 030「確認後的步驟」）：
-1. 填入凍結值；
-2. 正式 eval baseline（R = 3）；
-3. 正式 sweep（選項 A，分段）；
-4. `analyze_baseline` / `analyze_sweep`，結果寫進 README；Gate 依 decision 025 §4 機械化判定，`advanced` 才進 Advanced。
+另外：Mac 上有其他工作不使用 lock，每段開始前要檢查 Mac 的 CPU、GPU 與 RAM 負載。
 
-全部在 `tools/with-gpu-lock` 內執行；lock 被占用（exit 75）就改做其他工作，稍後再試。
-
-已完成（2026-10-15）：
-- ~~A0 取用方式~~：使用者選擇共用模型檔案、各自管理 server（decision 029）；
-- ~~wrapper 啟動 / 停止 server~~；
-- ~~`--verify-server`、截斷自我測試、開發題測試~~（見上方第 19 項）。
+步驟（全部在 `tools/with-gpu-lock` 內；lock 被占用 → 稍後再試）：
+1. 正式 eval baseline（R = 3）：`tools/with-gpu-lock -- uv run python -m experiments.run_baseline --split eval --rollouts 3
+   --confirm-local-run --max-model-calls 1800 --run-name local-eval-20261016`。
+2. 正式 sweep（選項 A），每段 `--max-model-calls 3000`。第二段起以 `--resume-from` 列出所有先前的 sweep 目錄：
+   `tools/with-gpu-lock -- uv run python -m experiments.run_sweep --baseline-run runs/local-eval-20261016 --plan 2,10,48,0.3
+   --criterion bonferroni95 --confirm-local-run --max-model-calls 3000 --run-name local-sweep-20261016-<n>`。
+3. `analyze_baseline` / `analyze_sweep`；結果寫進 README（圖表、失敗案例）；Gate 依 decision 025 §4 機械化判定。
 
 ### B. 研究設計（已確認，沿用）
 
 decision 025 的 R = 3、SweepPlan 選項 A（`bonferroni95` + (2, 10, 48, 0.3)）、Gate 三種結果不變；模型改為本機模型（decision 026），
-凍結值待 A 經使用者確認（decision 030）。
+凍結值已由使用者確認（decision 030，2026-10-16）。
 
 ### C. Optional：付費 API（不是 Core blocker；decision 026 §4）
 

@@ -23,6 +23,8 @@ from agents.baseline import (
     InfrastructureError,
 )
 from agents.ollama import (
+    FROZEN_MODEL_DIGEST,
+    FROZEN_OLLAMA_VERSION,
     LOCAL_MODEL_CONFIG,
     OLLAMA_ADAPTER_VERSION,
     OLLAMA_POLICY,
@@ -103,7 +105,7 @@ def _response(message: dict[str, Any] | None = None, **changes: Any) -> dict[str
 # ---------------------------------------------------------------- 設定
 
 
-def test_local_agent_config_is_the_draft_of_decision_026() -> None:
+def test_local_agent_config_is_the_frozen_config_of_decision_030() -> None:
     config = local_agent_config()
     assert config.policy == OLLAMA_POLICY and config.prompt_version == BASELINE_PROMPT_VERSION
     assert config.system_prompt == BASELINE_SYSTEM_PROMPT and config.developer_prompt == BASELINE_DEVELOPER_PROMPT
@@ -112,7 +114,10 @@ def test_local_agent_config_is_the_draft_of_decision_026() -> None:
     assert model_config["model"] == MODEL and set(model_config) == set(LOCAL_MODEL_CONFIG)
     assert model_config["options"]["temperature"] > 0  # greedy 會讓 rerun 都相同（decision 026 §5）
     assert "seed" not in model_config["options"]  # seed 每次呼叫隨機、記在 meta
-    assert model_config["model_digest"] is None and model_config["ollama_version"] is None and is_frozen(config) is False
+    assert model_config["model_digest"] == FROZEN_MODEL_DIGEST and model_config["ollama_version"] == FROZEN_OLLAMA_VERSION
+    assert FROZEN_MODEL_DIGEST == "sha256:6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7"  # decision 030
+    assert FROZEN_OLLAMA_VERSION == "0.35.0" and is_frozen(config) is True
+    assert is_frozen(_config(model_digest=None, ollama_version=None)) is False
     assert local_agent_config() is not config and local_agent_config().config_id == config.config_id
     assert is_frozen(_config(model_digest=DIGEST, ollama_version="0.35.0")) is True
 
@@ -558,7 +563,7 @@ class _ServerFake:
 
 
 def test_verify_server_reports_the_running_model() -> None:
-    info = verify_server(_ServerFake(), local_agent_config())
+    info = verify_server(_ServerFake(), _config(model_digest=None, ollama_version=None))  # 未凍結：只回報
     assert info == {"ollama_version": "0.35.0", "model": MODEL, "model_digest": DIGEST, "quantization": "Q4_K_M",
                     "capabilities": ["completion", "tools"]}
 
@@ -584,3 +589,11 @@ def test_verify_server_checks_frozen_values() -> None:
 def test_verify_server_refuses(server_fake: Callable[[], _ServerFake]) -> None:
     with pytest.raises(ValueError):
         verify_server(server_fake(), local_agent_config())
+
+
+def test_verify_server_accepts_the_frozen_server() -> None:
+    info = verify_server(_ServerFake(digest=FROZEN_MODEL_DIGEST, version=FROZEN_OLLAMA_VERSION), local_agent_config())
+    assert info["model_digest"] == FROZEN_MODEL_DIGEST and info["ollama_version"] == FROZEN_OLLAMA_VERSION
+    with pytest.raises(ValueError):
+        verify_server(_ServerFake(), local_agent_config())  # 其他 digest
+

@@ -147,3 +147,26 @@ def test_the_round1_analysis_and_report_refuse_study2(study2_baseline: Path, tmp
     with pytest.raises(ValueError, match="Study 2 has its own report"):
         results_report.write_report([study2_baseline], [tmp_path / "s"], tmp_path / "r")
     assert not (tmp_path / "r").exists()
+
+
+def test_a_study2_formal_sweep_must_use_the_registered_total_cap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, made: list[str],
+                                                                capsys: pytest.CaptureFixture[str]) -> None:
+    from tasks import suites
+
+    baseline = tmp_path / "b"
+    run_split("eval", OllamaOracleFakeClient(EVAL), run_dir=baseline, clock=ZERO, agent_config=local_agent_config(), rollouts=1,
+              suite="study2")
+    monkeypatch.chdir(tmp_path)
+    inside_wrapper(monkeypatch)
+    monkeypatch.setattr(suites, "STUDY2_APPROVED", True)
+    monkeypatch.setattr(suites, "STUDY2_FROZEN", True)
+    monkeypatch.setattr(suites, "STUDY2_SWEEP_CAP", 60000)
+    common = ["--baseline-run", str(baseline), "--plan", "2,10,48,0.3", "--criterion", "bonferroni95", "--confirm-local-run",
+              "--max-model-calls", "30"]
+    for wrong in ([], ["--total-model-calls", "100"]):
+        with pytest.raises(SystemExit):
+            run_sweep.main([*common, "--run-name", "w", *wrong])
+        assert "must use --total-model-calls 60000" in capsys.readouterr().err
+    assert made == [] and not (tmp_path / "runs" / "w").exists()
+    assert run_sweep.main([*common, "--run-name", "ok", "--total-model-calls", "60000"]) == 0
+    assert made == [WRAPPER_URL]

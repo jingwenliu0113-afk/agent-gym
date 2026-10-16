@@ -22,7 +22,7 @@ import signal
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from env.hashing import canonical_json
 from replay.trajectory import load_strict_json
@@ -125,6 +125,17 @@ def read_call_log(path: Path) -> list[dict[str, Any]]:
             raise ValueError(f"{path}:{number}: not a {CALL_LOG_FORMAT} record")
         records.append(record)
     return records
+
+
+def count_calls(run_dirs: "Sequence[str | Path]") -> int:
+    """這些目錄 ``calls.jsonl`` 的呼叫總數（累計呼叫上限用；decision 034 §8）。任一目錄沒有紀錄 → ValueError。"""
+    total = 0
+    for run_dir in run_dirs:
+        path = Path(run_dir) / CALL_LOG
+        if not path.exists():
+            raise ValueError(f"{run_dir} has no {CALL_LOG}; the cumulative call count cannot be computed")
+        total += len(read_call_log(path))
+    return total
 
 
 def reconcile(run_dirs: "list[Path] | tuple[Path, ...]") -> dict[str, Any] | None:

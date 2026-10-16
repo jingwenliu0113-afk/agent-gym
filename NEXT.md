@@ -273,11 +273,34 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 ### A. Study 2 的研究方案（decision 034）：**待使用者確認**
 
 - 方案：4 個題型（狀態依賴、權限限制、錯誤恢復、不可逆操作）× 3 個級別；dev seeds 0–1（24 題）、eval seeds 2–4（36 題）；
-  agent 與第一輪完全相同（config_id `sha256:9feb8eb7…a87`）；sweep 的 plan 與判定不變；最多一輪正式研究。
-- 需要使用者選擇：sweep 的 source。A = 每題 rollout 0（上限 40,000 次呼叫）；B（建議）= 每題 index 最小的失敗 rollout，
-  三次都成功時用 rollout 0（上限 60,000 次）。
-- 確認前可做的工程（不需要模型）：suite 的參數化、generator v2、task format v2（`unless`、`max_count`）、Study 2 的分析與報告、
-  累計呼叫上限的工具。
+  agent 與第一輪完全相同（config_id `sha256:9feb8eb7…a87`）；sweep 的 plan 與判定門檻不變；最多一輪正式研究。
+- 需要使用者決定的三件事：
+  1. **是否核准方案**。
+  2. **sweep 的 source**：A = 每題 rollout 0；B（建議）= 每題 index 最小的失敗 rollout，三次都成功時用 rollout 0。
+  3. **凍結前模擬的兩個發現**（只用 CPU，沒有任何 Study 2 的模型結果；`runs/study2-prefreeze/`）：
+     - 第一輪的 max_turns 混淆規則：只要 5% 的失敗 rerun 用完 turn，cliff 的偵測率就從約 0.92 降到約 0.24。
+       建議 Study 2 的主要判定改為「原始下降合格，而且排除 max_turns rerun 之後仍合格」（偵測率 0.88–0.94、誤判 ≤ 0.005）；
+       第一輪的規則改列為次要結果。
+     - sweep 的呼叫數估計偏高（P90：A 約 29,000–54,000，B 約 37,000–60,000，依 trajectory 長度而定）。
+       建議上限：A 60,000、B 70,000。
+- 確認前已完成的工程（不需要模型，全部有測試）：
+  - 第一輪封存；
+  - task format v2（`max_count`、`unless`）；
+  - generator v2（60 個 instance 通過 A 類檢查）；
+  - suite 與兩道開關（`STUDY2_APPROVED` / `STUDY2_FROZEN`）；
+  - 累計呼叫上限（`run_sweep --total-model-calls`）；
+  - Study 2 的分析（`experiments/study2_analysis.py`）、dev 驗證與估算（`experiments/study2_dev.py`）、報告（`experiments/study2_report.py`）。
+- 進行中：驗證 B（審查 agent 逐題型審查 dev 題目的措辭與評分；不看 eval 題目）。
+- 使用者確認之後的步驟：
+  1. 依決定更新 decision 034 與程式（source 規則、混淆規則、上限）；
+  2. 定案 golden hash 並 commit；
+  3. 打開 `STUDY2_APPROVED`，在 GPU lock 內跑 dev baseline（R = 3）；
+  4. 執行 `study2_dev review` 並逐一判定；
+  5. 執行 `study2_dev estimate`，判斷 P90 是否超過上限；
+  6. 凍結並 commit，打開 `STUDY2_FROZEN`；
+  7. 跑 eval baseline，再分段跑 sweep；
+  8. 執行 `study2_analysis` 與 `study2_report`。
+  有任何缺陷修正，或 P90 超過上限，就在第 6 步之前先請使用者確認。
 
 ### A0. 第一輪正式實驗：已完成並封存（2026-10-16）
 

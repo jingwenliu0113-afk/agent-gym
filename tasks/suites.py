@@ -22,6 +22,7 @@ _GENERATORS = {WEEK1_GENERATOR: "week1", STUDY2_GENERATOR: "study2"}
 
 STUDY2_APPROVED = False
 STUDY2_FROZEN = False
+STUDY2_SWEEP_CAP: int | None = None  # 正式 sweep 的累計呼叫上限（decision 034 §8；使用者選擇 source 規則後、凍結時填入）
 
 
 @functools.lru_cache(maxsize=None)

@@ -43,7 +43,7 @@ from env.hashing import canonical_json
 from experiments.analyze_baseline import RolloutRecord, load_runs
 from replay.trajectory import load_strict_json
 from replay.aborts import utc_instant
-from experiments.call_log import CALL_LOG, CallLog, interrupt_on_termination
+from experiments.call_log import CALL_LOG, CallLog, count_calls, interrupt_on_termination
 from experiments.run_baseline import (
     budget_reached,
     check_budget_args,
@@ -511,6 +511,9 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--confirm-paid-run", action="store_true", help="Anthropic API（Optional；source 必須是 Anthropic agent）")
     parser.add_argument("--max-cost-usd", type=float, default=None, help="付費 run 必填的成本上限")
     parser.add_argument("--max-model-calls", type=int, default=None, help="本機 run 必填的模型呼叫次數上限")
+    parser.add_argument("--total-model-calls", type=int, default=None,
+                        help="本機 sweep 的累計呼叫上限：這一段的上限 = min(--max-model-calls, 上限 − --resume-from 目錄 calls.jsonl 的呼叫數)"
+                             "（decision 034 §8）")
     parser.add_argument("--ollama-url", default=ollama_url_default(),
                         help="只接受 loopback；預設取 tools/with-gpu-lock 設定的通道 URL")
     parser.add_argument(
@@ -595,6 +598,22 @@ def main(argv: list[str] | None = None) -> int:
             print("nothing left to run: analyze the existing directories with experiments.analyze_sweep", file=sys.stderr)
             return 0
     suite = suite_for_task_ids(list(sources))
+    max_model_calls = args.max_model_calls
+    if args.total_model_calls is not None:
+        if not args.confirm_local_run:
+            parser.error("--total-model-calls is only for local runs (--confirm-local-run)")
+        if args.max_model_calls is None:
+            parser.error("--total-model-calls needs --max-model-calls (the cap of this segment)")
+        try:
+            previous_calls = count_calls(args.resume_from or [])
+        except ValueError as exc:
+            parser.error(str(exc))
+        remaining = args.total_model_calls - previous_calls
+        if remaining <= 0:
+            parser.error(f"the cumulative cap of {args.total_model_calls} model calls is reached ({previous_calls} in the "
+                         "--resume-from directories); the sweep stops here (decision 034 §8)")
+        max_model_calls = min(args.max_model_calls, remaining)
+        print(f"cumulative calls: {previous_calls} of {args.total_model_calls}; this segment may use {max_model_calls}", file=sys.stderr)
     if args.dry_run:
         client: Any = (OllamaOracleFakeClient if config.policy == OLLAMA_POLICY else OracleFakeClient)(suite_pool(suite, "eval"))
     elif args.confirm_local_run:
@@ -602,7 +621,12 @@ def main(argv: list[str] | None = None) -> int:
             check_model_run(suite, "eval")  # Study 2：使用者確認、凍結之前不推論（decision 034）
         except ValueError as exc:
             parser.error(str(exc))
-        client = start_local_run(parser, config, url=args.ollama_url, formal=True, max_model_calls=args.max_model_calls)
+        if suite == "study2":
+            from tasks import suites  # 讀取目前的值（凍結時才填入）
+
+            if suites.STUDY2_SWEEP_CAP is None or args.total_model_calls != suites.STUDY2_SWEEP_CAP:
+                parser.error(f"a formal Study 2 sweep must use --total-model-calls {suites.STUDY2_SWEEP_CAP} (decision 034 §8)")
+        client = start_local_run(parser, config, url=args.ollama_url, formal=True, max_model_calls=max_model_calls)
         interrupt_on_termination()  # 中斷時正在進行的呼叫也記進 calls.jsonl（decision 032）
     else:
         if args.max_cost_usd is None:
@@ -613,7 +637,7 @@ def main(argv: list[str] | None = None) -> int:
     summary = run_sweeps(
         sources, client, plan=plan, criterion=args.criterion, run_dir=run_dir, max_cost_usd=args.max_cost_usd,
         skip=skip, resumed_from=resumed_from, dry_run=args.dry_run, carried=carried, agent_config=config,
-        max_model_calls=args.max_model_calls, call_log=bool(args.confirm_local_run),
+        max_model_calls=max_model_calls, call_log=bool(args.confirm_local_run),
     )
     for task_id in summary.sources:
         result = summary.results.get(task_id)

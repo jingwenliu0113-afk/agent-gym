@@ -13,7 +13,9 @@ lock 已釋放。**2026-10-16 使用者確認凍結**（decision 030 採用；co
 - Gate 的機械化判定是 `gradual`，**不進 Advanced**。
 
 這是天花板效應：這組題目對凍結的模型太容易，沒有可以定位的失敗。照實呈現，不調整題目、參數或 Gate（見 `docs/results/README.md`）。
-**Core 依 SPEC 的收尾完成；之後的方向需要使用者決定**（見「Blocked / 需要使用者」A）。
+**Core 依 SPEC 的收尾完成。** 2026-10-16 使用者選擇方向 2：以**獨立的第二輪研究（Study 2）**進行分級的多步驟任務。
+Study 2 不重新開啟 Core Gate，也不進 Advanced；第一輪全部封存（`docs/results/round1-seal.json`，`3e12dd6`）。
+研究方案為 decision 034（提案），**待使用者確認**，見「Blocked / 需要使用者」A。確認前不做 Study 2 的模型推論，只做工程。
 keyless Core infrastructure（含分析工具、驟降判定選項、README 示範）已完成；第七輪對抗式審查找出的 keyless 缺口
 （已登記但漏實作的規則、只信任 summary 的分析）已依 decision 017 補齊；第八～十二輪審查與付費流程模擬找出的缺口已依 decision 018 – 024 補齊。
 不進 Advanced：正式的 Gate 判定是 `gradual`（2026-10-16，decision 025 §4 的機械化規則）。
@@ -268,7 +270,16 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 
 ## Blocked / 需要使用者
 
-### A. 正式實驗：已完成（2026-10-16）；**之後的方向需要使用者決定**
+### A. Study 2 的研究方案（decision 034）：**待使用者確認**
+
+- 方案：4 個題型（狀態依賴、權限限制、錯誤恢復、不可逆操作）× 3 個級別；dev seeds 0–1（24 題）、eval seeds 2–4（36 題）；
+  agent 與第一輪完全相同（config_id `sha256:9feb8eb7…a87`）；sweep 的 plan 與判定不變；最多一輪正式研究。
+- 需要使用者選擇：sweep 的 source。A = 每題 rollout 0（上限 40,000 次呼叫）；B（建議）= 每題 index 最小的失敗 rollout，
+  三次都成功時用 rollout 0（上限 60,000 次）。
+- 確認前可做的工程（不需要模型）：suite 的參數化、generator v2、task format v2（`unless`、`max_count`）、Study 2 的分析與報告、
+  累計呼叫上限的工具。
+
+### A0. 第一輪正式實驗：已完成並封存（2026-10-16）
 
 凍結值（decision 030）：`qwen3.5:9b-q4_K_M`、digest `sha256:6488c96f…3ea7`、Ollama 0.35.0、prompt `baseline/v1`、
 tool schema `issue_tracker/v1`、think 關、num_ctx 32,768、temperature 0.7、top_p 0.8、top_k 20、每次呼叫隨機 seed。
@@ -288,11 +299,7 @@ config_id `sha256:9feb8eb7bb109ccc0308baba1150417f9cfd8b896d3b134f75beb735fa251a
 **這個結果的意思（照實）**：這組題目對這個模型太容易（天花板效應），所以沒有可以定位的失敗。這不是 replay 方法的結論，也不是「失敗是逐步累積」的證據。
 依使用者的規則，不因結果調整題目、參數或 Gate。
 
-需要使用者決定的方向（都會改變研究設計，必須另立 decision）：
-1. **到此為止**：依 SPEC「收尾」，以這個結果與 infrastructure 完成 Core（README 已照實呈現）。
-2. **更難的題目或更弱的設定，重新登記後再跑一輪**：例如更長的 multi-step 題型、更多干擾，或更小的模型。要先登記新的題目或設定與分析，
-   不能沿用這次的結果去挑題。
-3. 其他方向。
+使用者的決定（2026-10-16）：選方向 2，作為獨立的後續研究（Study 2，decision 034），第一輪的結果與 Gate 判定全部封存。
 
 ### B. 研究設計（已確認，沿用）
 

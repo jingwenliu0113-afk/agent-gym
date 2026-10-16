@@ -170,3 +170,27 @@ def test_a_study2_formal_sweep_must_use_the_registered_total_cap(tmp_path: Path,
     assert made == [] and not (tmp_path / "runs" / "w").exists()
     assert run_sweep.main([*common, "--run-name", "ok", "--total-model-calls", "60000"]) == 0
     assert made == [WRAPPER_URL]
+
+
+class _RealLooking:
+    """不是 oracle 假 client 的 client：函式層的開關必須在建立 policy 之後、任何呼叫之前拒絕。"""
+
+    def __getattr__(self, name: str):  # noqa: ANN204
+        raise AssertionError(f"the model must not be called ({name})")
+
+
+def test_run_split_and_run_sweeps_check_the_locks_themselves(study2_baseline: Path, tmp_path: Path,
+                                                             monkeypatch: pytest.MonkeyPatch) -> None:
+    """decision 034 審查：開關不只在 CLI；直接以 Python 呼叫、client 不是 oracle 假 client 時也拒絕。"""
+    import experiments.run_baseline as rb
+    import experiments.run_sweep as rs
+
+    monkeypatch.setattr(rb, "make_policy", lambda client, config: None)
+    monkeypatch.setattr(rs, "make_policy", lambda client, config: None)
+    with pytest.raises(ValueError, match="approval of decision 034"):
+        run_split("dev", _RealLooking(), run_dir=tmp_path / "d", agent_config=local_agent_config(), suite="study2")
+    assert not (tmp_path / "d").exists()
+    with pytest.raises(ValueError, match="approval of decision 034"):
+        run_sweeps(select_sources(study2_baseline), _RealLooking(), plan=SMALL_PLAN, criterion="bonferroni95", run_dir=tmp_path / "s",
+                   agent_config=local_agent_config())
+    assert not (tmp_path / "s").exists()

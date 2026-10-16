@@ -232,6 +232,8 @@ def run_split(
     if run_dir.exists() and (not run_dir.is_dir() or any(run_dir.iterdir())):
         raise ValueError(f"{run_dir} already exists and is not an empty directory")
     make_policy(client, config)  # 設定與 client 的檢查在任何呼叫之前完成
+    if not is_oracle_fake(client):  # 真正的模型推論：Study 2 的開關（decision 034；以 client 型別判定，不看 dry_run 標籤）
+        check_model_run(suite, split)
 
     instances = suite_pool(suite, split)
     trajectories_dir = run_dir / "trajectories"
@@ -355,6 +357,11 @@ class _Response:
     stop_details: Any = None
     input_transformations: Any = None
     _request_id: str | None = None
+
+
+def is_oracle_fake(client: Any) -> bool:
+    """dry-run 用的 oracle 假 client（不會呼叫任何模型）。"""
+    return isinstance(client, (OracleFakeClient, OllamaOracleFakeClient))
 
 
 class OracleFakeClient:

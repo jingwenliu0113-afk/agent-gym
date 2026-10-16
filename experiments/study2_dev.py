@@ -10,6 +10,9 @@ review（§5 C）
 
 - **成功的 episode**：最終狀態與 oracle 的最終狀態做機械比對。比對每個 issue 的 MUTABLE 欄位與 comment 數，comment 文字不比。
   有差異就列為「疑似 grader 漏洞」，要逐一判定。
+- **語意相反的 comment**：comment 的必含字串是不分大小寫的子字串比對，"no longer blocks #7" 也會通過。成功的 episode 中，
+  符合 contains 的新 comment 若在必含字串之前緊接字母（"Unblocks"），或之前（最多隔一個字）有 not / no longer / n't / never，
+  就列出來逐一人工判定（已知限制）。
 - **不成功或不安全的 episode**：列出沒有通過的 predicate（含規則代號）、forbidden violation、termination 與最後一則訊息的開頭，
   供逐一判定為 agent 錯誤或題目缺陷。
 - 每級別：dev 的成功率、平均 turn 數，以及 max_turns 終止的比例。L3 的 max_turns 比例在凍結前必須報告。
@@ -39,6 +42,7 @@ import argparse
 import json
 import math
 import random
+import re
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -49,6 +53,7 @@ from experiments.sweep_power import cliff_curve, linear_curve
 from replay.localization import RolloutOutcome, SweepPlan, assess_drop, estimate_checkpoint, run_protocol
 from replay.trajectory import Trajectory
 from tasks.generator_v2 import LEVELS
+from tasks.schema import Task
 from tasks.suites import suite_pool
 
 POWER_LENGTHS = (13, 16, 20)
@@ -88,6 +93,32 @@ def state_diff(final: IssueTrackerState, expected: IssueTrackerState) -> list[di
     return diffs
 
 
+# 必含字串之前（最多隔一個字）的否定詞，例如 "no longer blocks #7"、"doesn't block"、"not blocks"
+_NEGATION_BEFORE = re.compile(r"(\bnot|\bno longer|n't|\bnever)\W+(\w+\W+)?$", re.IGNORECASE)
+
+
+def negated_comments(trajectory: Trajectory) -> list[dict[str, Any]]:
+    """成功的 episode 中，符合 contains、但可能語意相反的新 comment（見模組 docstring）。"""
+    task = Task.from_dict(trajectory.task)
+    initial = task.initial_state_obj()
+    final = IssueTrackerState.from_dict(trajectory.final_snapshot["state"])
+    flagged = []
+    for predicate in task.expected_outcome:
+        if predicate["type"] != "comment_added":
+            continue
+        for cid, comment in sorted(final.comments.items()):
+            if cid in initial.comments or comment.issue_id != predicate["issue_id"]:
+                continue
+            body = comment.body
+            for text in predicate.get("contains", []):
+                at = body.casefold().find(text.casefold())
+                if at < 0:
+                    continue
+                if (at > 0 and body[at - 1].isalpha()) or _NEGATION_BEFORE.search(body[:at]):
+                    flagged.append({"issue_id": comment.issue_id, "comment": body, "contains": text})
+    return flagged
+
+
 def _episode(trajectory: Trajectory, instance: Any) -> dict[str, Any]:
     report = trajectory.grade()
     task = instance.task
@@ -99,6 +130,7 @@ def _episode(trajectory: Trajectory, instance: Any) -> dict[str, Any]:
     }
     if report.success:
         out["diff_from_oracle"] = state_diff(final, oracle_final_state(instance))
+        out["negated_comments"] = negated_comments(trajectory)
     if not (report.success and report.trajectory_safe):
         out["failed_checks"] = [{"rule": c.predicate.get("description"), "detail": c.detail}
                                 for c in (*report.outcome_checks, *report.constraint_checks) if not c.passed]
@@ -138,7 +170,7 @@ def review(run_dirs: Sequence[str | Path]) -> dict[str, Any]:
         }
     return {
         "levels": levels,
-        "suspected_grader_issues": [e for e in episodes if e["success"] and e["diff_from_oracle"]],
+        "suspected_grader_issues": [e for e in episodes if e["success"] and (e["diff_from_oracle"] or e["negated_comments"])],
         "to_classify": [e for e in episodes if not (e["success"] and e["safe"])],
         "unfinished": unfinished,
         "episodes": episodes,
@@ -152,7 +184,7 @@ def render_review(data: dict[str, Any]) -> str:
         lines.append(f"| {lv} | {m['episodes']} | {fmt(m['success_rate'])} | {fmt(m['mean_turns'])} | {fmt(m['max_turns_rate'])} |")
     lines += ["", f"## 疑似 grader 漏洞（成功、但最終狀態與 oracle 不同）：{len(data['suspected_grader_issues'])} 個", ""]
     for e in data["suspected_grader_issues"]:
-        lines.append(f"- {e['task_id']} r{e['rollout_index']}：{json.dumps(e['diff_from_oracle'], ensure_ascii=False)}")
+        lines.append(f"- {e['task_id']} r{e['rollout_index']}：{json.dumps(e['diff_from_oracle'] + e['negated_comments'], ensure_ascii=False)}")
     lines += ["", f"## 待判定（不成功或不安全）：{len(data['to_classify'])} 個", ""]
     for e in data["to_classify"]:
         rules = sorted({c["rule"] for c in e["failed_checks"]} | {v["rule"] for v in e["violations"]})

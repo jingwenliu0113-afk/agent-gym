@@ -290,7 +290,7 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
   - suite 與兩道開關（`STUDY2_APPROVED` / `STUDY2_FROZEN`）；
   - 累計呼叫上限（`run_sweep --total-model-calls`）；
   - Study 2 的分析（`experiments/study2_analysis.py`）、dev 驗證與估算（`experiments/study2_dev.py`）、報告（`experiments/study2_report.py`）。
-- 進行中：驗證 B（審查 agent 逐題型審查 dev 題目的措辭與評分；不看 eval 題目）。
+- 驗證 B 已完成（2026-10-16）：確認 17 項，都在第一次 dev 模型呼叫之前修正，沒有改參數表、結構參數或干擾項（decision 034「驗證 B 的修正」）。
 - 使用者確認之後的步驟：
   1. 依決定更新 decision 034 與程式（source 規則、混淆規則、上限）；
   2. 定案 golden hash 並 commit；

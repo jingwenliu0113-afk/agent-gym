@@ -99,3 +99,18 @@ def test_max_turns_power_reports_detection_and_false_flags() -> None:
     summary = dev.summarize_power(rows)
     assert len(summary) == len(dev.POWER_LENGTHS) * len(dev.POWER_TURN_OUT)
     assert all(0 <= s["mean_detect"] <= 1 and 0 <= s["max_false_flag"] <= 1 for s in summary)
+
+
+def test_negated_comments_are_flagged_for_review(tmp_path: Path) -> None:
+    """已知限制：必含字串是子字串比對，"no longer blocks #E" 也會通過；dev 審查會把它列為疑似 grader 漏洞（decision 034 驗證 B）。"""
+    by_id = {i.task.task_id: i for i in DEV}
+    instance = by_id["gen2-epic-closeout-L2-s1"]  # 奇數 seed：有阻擋的分支
+    epic = instance.task.params["epic"]
+    calls = tuple((name, {**args, "body": f"This no longer blocks #{epic}."}) if name == "add_comment" else (name, args)
+                  for name, args in instance.oracle_calls)
+    run_split("dev", OllamaOracleFakeClient(_pool_with({instance.task.task_id: calls})), run_dir=tmp_path / "d", clock=ZERO,
+              agent_config=local_agent_config(), dry_run=True, suite="study2")
+    data = dev.review([tmp_path / "d"])
+    flagged = [e for e in data["suspected_grader_issues"] if e["task_id"] == instance.task.task_id]
+    assert flagged and flagged[0]["success"] and flagged[0]["negated_comments"]
+    assert all(not e["negated_comments"] for e in data["episodes"] if e["task_id"] != instance.task.task_id and e["success"])

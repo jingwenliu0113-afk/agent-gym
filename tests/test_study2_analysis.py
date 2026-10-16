@@ -142,6 +142,9 @@ def test_baseline_analysis_with_failures(failing_baseline: Path) -> None:
     assert l1["success_unsafe_among_successes"] == {"k": 1, "n": 12}
     assert l1["forbidden_by_rule"] == {"E2": 1}
     assert l2["success_rate"] == pytest.approx(10 / 12)
+    # 重複 comment 放在 expected_outcome；Study 2 的 constraint violation 也要算到它（decision 034 驗證 B）
+    assert l2["constraint_violation_rate"] == pytest.approx(1 / 12)
+    assert l1["constraint_violation_rate"] == 0
     assert out["level_check"]["l1_minus_l2"] == pytest.approx(2 / 12)
 
 

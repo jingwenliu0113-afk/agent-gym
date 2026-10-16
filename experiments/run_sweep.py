@@ -48,6 +48,7 @@ from experiments.run_baseline import (
     budget_reached,
     check_budget_args,
     CostMeter,
+    is_oracle_fake,
     Ledger,
     make_policy,
     OllamaOracleFakeClient,
@@ -384,6 +385,8 @@ def run_sweeps(
     else:
         config = copy.deepcopy(agent_config)
     check_budget_args(max_cost_usd, config, max_model_calls)
+    if not is_oracle_fake(client):  # 真正的模型推論：Study 2 的開關（decision 034）
+        check_model_run(suite, "eval")
     for task_id, source in sources.items():
         if source is None:
             continue

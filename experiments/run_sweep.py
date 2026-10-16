@@ -61,7 +61,7 @@ from replay.localization import CLIFF_CRITERIA, RolloutOutcome, SweepPlan, Sweep
 from replay.runner import Clock
 from replay.stats import BootstrapResult, stratified_task_bootstrap
 from replay.trajectory import Trajectory
-from tasks.suites import check_model_run, suite_for_task_ids, suite_pool
+from tasks.suites import check_model_run, check_study2_limits, suite_for_task_ids, suite_pool
 
 COMPLETED_OUTCOMES = ("success", "failure", "refusal")
 
@@ -183,6 +183,15 @@ def read_lineage(directory: Path) -> tuple[str, tuple[str, ...], bool] | None:
     if not isinstance(dry_run, bool):
         return None
     return run_id, tuple(parents), dry_run
+
+
+def _sweep_sources(directory: Path) -> dict[str, Any] | None:
+    """寬鬆讀取 sweep 目錄 run.json 的 sources（task_id → source 的 trajectory_id 或 None）；讀不到 → None。"""
+    try:
+        data = load_strict_json((directory / RUN_FILE).read_bytes())
+    except (OSError, ValueError):
+        return None
+    return data.get("sources") if isinstance(data, dict) else None
 
 
 def _sibling_sweeps(directories: Sequence[Path]) -> list[tuple[Path, tuple[str, tuple[str, ...], bool]]]:
@@ -387,6 +396,8 @@ def run_sweeps(
     check_budget_args(max_cost_usd, config, max_model_calls)
     if not is_oracle_fake(client):  # 真正的模型推論：Study 2 的開關（decision 034）
         check_model_run(suite, "eval")
+        if suite == "study2":
+            check_study2_limits(split="eval", call_log=call_log, max_model_calls=max_model_calls, sweep=True)
     for task_id, source in sources.items():
         if source is None:
             continue
@@ -419,7 +430,8 @@ def run_sweeps(
     ledger = Ledger()
 
     def policy_factory(k: int, rollout_index: int, attempt: int) -> CostMeter:
-        if budget_reached(ledger, max_cost_usd, max_model_calls):
+        logged = calls is not None and max_model_calls is not None and calls.count >= max_model_calls  # 含失敗的呼叫（decision 034 §8）
+        if budget_reached(ledger, max_cost_usd, max_model_calls) or logged:
             raise BudgetExceeded(
                 f"spent ${ledger.cost_usd:.4f} over {ledger.calls} calls (cost cap {max_cost_usd}, call cap {max_model_calls}, "
                 f"unknown-cost calls {ledger.unknown_cost_calls})"
@@ -607,6 +619,13 @@ def main(argv: list[str] | None = None) -> int:
             parser.error("--total-model-calls is only for local runs (--confirm-local-run)")
         if args.max_model_calls is None:
             parser.error("--total-model-calls needs --max-model-calls (the cap of this segment)")
+        given = {_identity(Path(d)) for d in args.resume_from or []}
+        same_sources = {task_id: None if source is None else source.trajectory_id for task_id, source in sources.items()}
+        uncounted = [child for child, lineage in _sibling_sweeps([run_dir]) if not lineage[2] and _identity(child) not in given
+                     and _sweep_sources(child) == same_sources and (child / CALL_LOG).exists() and (child / CALL_LOG).stat().st_size > 0]
+        if uncounted:  # 累計數必須包含同一組 source 的每一段（含沒有 manifest 列的中斷段；decision 034 §8）
+            parser.error(f"{', '.join(str(d) for d in uncounted)} already made model calls for these sources; pass every earlier "
+                         "segment to --resume-from so that the cumulative cap counts them")
         try:
             previous_calls = count_calls(args.resume_from or [])
         except ValueError as exc:
@@ -629,6 +648,8 @@ def main(argv: list[str] | None = None) -> int:
 
             if suites.STUDY2_SWEEP_CAP is None or args.total_model_calls != suites.STUDY2_SWEEP_CAP:
                 parser.error(f"a formal Study 2 sweep must use --total-model-calls {suites.STUDY2_SWEEP_CAP} (decision 034 §8)")
+            if args.max_model_calls > suites.STUDY2_SEGMENT_CAP:
+                parser.error(f"a Study 2 sweep segment may use at most {suites.STUDY2_SEGMENT_CAP} model calls (decision 034 §8)")
         client = start_local_run(parser, config, url=args.ollama_url, formal=True, max_model_calls=max_model_calls)
         interrupt_on_termination()  # 中斷時正在進行的呼叫也記進 calls.jsonl（decision 032）
     else:

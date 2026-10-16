@@ -91,3 +91,24 @@ def test_total_cap_argument_checks(extra: list[str], baseline: Path, tmp_path: P
     with pytest.raises(SystemExit):
         run_sweep.main(["--baseline-run", str(baseline), "--run-name", "x", *REGISTERED, *extra])
     assert made == []
+
+
+def test_every_earlier_segment_must_be_counted(baseline: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, made: list[str],
+                                               capsys: pytest.CaptureFixture[str]) -> None:
+    """累計數不能靠漏列目錄繞過：不帶 --resume-from 的新一段，或沒有 manifest 列、但已有呼叫紀錄的中斷段（驗證 B 第二輪）。"""
+    monkeypatch.chdir(tmp_path)
+    inside_wrapper(monkeypatch)
+    common = ["--baseline-run", str(baseline), *REGISTERED, "--confirm-local-run", "--max-model-calls", "20", "--total-model-calls", "35"]
+    assert run_sweep.main([*common, "--run-name", "s1"]) == 0
+    with pytest.raises(SystemExit):
+        run_sweep.main([*common, "--run-name", "s2"])
+    assert "pass every earlier segment" in capsys.readouterr().err and not (tmp_path / "runs" / "s2").exists()
+    # 中斷段：run.json 與 calls.jsonl 都在，manifest 還沒有任何列
+    interrupted = tmp_path / "runs" / "s1b"
+    interrupted.mkdir()
+    (interrupted / "run.json").write_bytes((tmp_path / "runs" / "s1" / "run.json").read_bytes())  # 同一組 source
+    (interrupted / "manifest.jsonl").write_bytes(b"")
+    (interrupted / CALL_LOG).write_text(json.dumps({"format": "agent-gym/call/v1", "call": 1, "ok": True}) + "\n", encoding="utf-8")
+    with pytest.raises(SystemExit):
+        run_sweep.main([*common, "--run-name", "s3", "--resume-from", str(tmp_path / "runs" / "s1")])
+    assert "s1b" in capsys.readouterr().err

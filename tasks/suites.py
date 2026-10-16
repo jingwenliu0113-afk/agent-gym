@@ -23,6 +23,20 @@ _GENERATORS = {WEEK1_GENERATOR: "week1", STUDY2_GENERATOR: "study2"}
 STUDY2_APPROVED = False
 STUDY2_FROZEN = False
 STUDY2_SWEEP_CAP: int | None = None  # 正式 sweep 的累計呼叫上限（decision 034 §8；使用者選擇 source 規則後、凍結時填入）
+STUDY2_SEGMENT_CAP = 3000  # 正式 sweep 每段的呼叫上限；段與段之間釋放 GPU lock（decision 034 §8）
+STUDY2_BASELINE_CAPS = {"dev": 2880, "eval": 4320}  # 每輪 dev / eval baseline 的呼叫上限（24 或 36 題 × R 3 × max_turns 20 × 2 次嘗試）
+
+
+def check_study2_limits(*, split: str, call_log: bool, max_model_calls: int | None, sweep: bool) -> None:
+    """Study 2 的真正推論：必須記錄每次呼叫（calls.jsonl），呼叫上限必須是登記的值（baseline）或不超過每段上限（sweep）。
+    違反 → ValueError。run_split / run_sweeps 在 client 不是 oracle 假 client 時呼叫（不只在 CLI；decision 034 驗證 B 第二輪）。"""
+    if not call_log:
+        raise ValueError("Study 2 model runs must log every call (calls.jsonl; decision 032)")
+    if sweep:
+        if max_model_calls is None or max_model_calls > STUDY2_SEGMENT_CAP:
+            raise ValueError(f"a Study 2 sweep segment may use at most {STUDY2_SEGMENT_CAP} model calls (decision 034 §8)")
+    elif max_model_calls != STUDY2_BASELINE_CAPS[split]:
+        raise ValueError(f"a Study 2 {split} baseline must use --max-model-calls {STUDY2_BASELINE_CAPS[split]} (decision 034 §8)")
 
 
 @functools.lru_cache(maxsize=None)

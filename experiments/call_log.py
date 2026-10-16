@@ -47,6 +47,11 @@ class CallLog:
     def client(self) -> Any:
         return self._client
 
+    @property
+    def count(self) -> int:
+        """目前已記錄的呼叫數（含失敗的呼叫）；每段的上限與累計上限都用這個計數（decision 034 §8）。"""
+        return self._count
+
     def bind(self, *, task_id: str, rollout_index: int, attempt: int, k: int | None) -> "BoundClient":
         return BoundClient(self, {"task_id": task_id, "rollout_index": rollout_index, "attempt": attempt, "k": k})
 

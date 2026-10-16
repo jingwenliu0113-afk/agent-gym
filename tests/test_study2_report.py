@@ -25,10 +25,18 @@ def ZERO() -> float:  # noqa: N802
 @pytest.fixture(scope="module")
 def runs(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Path]:
     root = tmp_path_factory.mktemp("rep")
-    run_split("eval", OllamaOracleFakeClient(EVAL), run_dir=root / "b", clock=ZERO, agent_config=local_agent_config(), dry_run=True,
-              suite="study2")
+    run_split("eval", OllamaOracleFakeClient(EVAL), run_dir=root / "b", clock=ZERO, agent_config=local_agent_config(), dry_run=True, suite="study2")
     run_sweeps(select_sources(root / "b"), OllamaOracleFakeClient(EVAL), plan=PLAN, criterion="bonferroni95", run_dir=root / "s",
                clock=ZERO, agent_config=local_agent_config(), dry_run=True)
+    return root / "b", root / "s"
+
+
+@pytest.fixture(scope="module")
+def formal_baseline_dry_sweep(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Path]:
+    root = tmp_path_factory.mktemp("mixed")
+    run_split("eval", OllamaOracleFakeClient(EVAL), run_dir=root / "b", clock=ZERO, agent_config=local_agent_config(), suite="study2")
+    run_sweeps(select_sources(root / "b"), OllamaOracleFakeClient(EVAL), plan=PLAN, criterion="bonferroni95", run_dir=root / "s",
+               clock=ZERO, agent_config=local_agent_config(), dry_run=True, max_model_calls=40)
     return root / "b", root / "s"
 
 
@@ -39,30 +47,61 @@ def test_report_files_and_labels(runs: tuple[Path, Path], tmp_path: Path) -> Non
     assert files == ["README.md", "recoverability.svg", "summary.json"]
     page = (tmp_path / "study2" / "README.md").read_text(encoding="utf-8")
     svg = (tmp_path / "study2" / "recoverability.svg").read_text(encoding="utf-8")
-    assert page.startswith("> **dry-run")
-    assert "[dry-run]" in svg and svg.count('class="dot"') > 36
+    assert "> **dry-run" in page and "[dry-run]" in svg and svg.count('class="dot"') > 36
     for text in (page, svg, json.dumps(summary, ensure_ascii=False)):
         assert "Advanced" not in text and "advanced" not in text
     again = rep.build([baseline], [sweep], replicates=200)
     assert again == json.loads((tmp_path / "study2" / "summary.json").read_text(encoding="utf-8"))  # 決定性
 
 
-def test_dry_run_never_goes_into_the_readme(runs: tuple[Path, Path], tmp_path: Path) -> None:
-    baseline, sweep = runs
+def test_a_dry_run_sweep_marks_the_whole_report(formal_baseline_dry_sweep: tuple[Path, Path], tmp_path: Path) -> None:
+    """正式 baseline + dry-run sweep：整份報告都是 dry-run，不能寫進 README（驗證 B 第二輪）。"""
+    baseline, sweep = formal_baseline_dry_sweep
     readme = tmp_path / "README.md"
     readme.write_text("# x\n", encoding="utf-8")
     with pytest.raises(ValueError, match="dry-run"):
         rep.write_report([baseline], [sweep], tmp_path / "out", readme=readme, replicates=200)
     assert readme.read_text(encoding="utf-8") == "# x\n" and not (tmp_path / "out").exists()
+    summary = rep.write_report([baseline], [sweep], tmp_path / "out", replicates=200)
+    assert summary["provenance"]["dry_run"] is True and summary["provenance"]["data_complete"] is False
+    svg = (tmp_path / "out" / "recoverability.svg").read_text(encoding="utf-8")
+    assert "[dry-run]" in svg and "沒有曲線" in svg and "s4" in svg  # 未完成的 seed 區塊照實畫出
 
 
-def test_round1_results_directory_is_refused(runs: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_round1_results_are_refused_case_insensitively_and_from_any_cwd(runs: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch,
+                                                                         tmp_path: Path) -> None:
     baseline, sweep = runs
+    sealed = rep.ROUND1_RESULTS
+    before = {p.name: p.read_bytes() for p in sealed.iterdir() if p.is_file()}
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "docs" / "results").mkdir(parents=True)
-    with pytest.raises(ValueError, match="round-1"):
-        rep.write_report([baseline.resolve()], [sweep.resolve()], "docs/results", replicates=200)
-    assert list((tmp_path / "docs" / "results").iterdir()) == []
+    for out in (sealed, Path(str(sealed).replace("results", "Results")), sealed / "." ):
+        with pytest.raises(ValueError, match="round-1"):
+            rep.write_report([baseline.resolve()], [sweep.resolve()], out, replicates=200)
+    with pytest.raises(ValueError, match="never modified"):
+        rep.write_report([baseline.resolve()], [sweep.resolve()], tmp_path / "o", readme=sealed / "README.md", replicates=200)
+    assert {p.name: p.read_bytes() for p in sealed.iterdir() if p.is_file()} == before
+
+
+def test_readme_problems_are_found_before_writing(formal_baseline_dry_sweep: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch,
+                                                  tmp_path: Path) -> None:
+    baseline, _ = formal_baseline_dry_sweep
+    readme = tmp_path / "README.md"
+    block = f"{rep.README_START}\nx\n{rep.README_END}"
+    readme.write_text(block + "\n" + block + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="exactly one"):
+        rep.write_report([baseline], [], tmp_path / "out", readme=readme)
+    assert not (tmp_path / "out").exists()
+    with pytest.raises(ValueError, match="does not exist"):
+        rep.write_report([baseline], [], tmp_path / "out", readme=tmp_path / "missing.md")
+    assert not (tmp_path / "out").exists()
+
+
+def test_formal_reports_use_the_registered_replicates(formal_baseline_dry_sweep: tuple[Path, Path], tmp_path: Path) -> None:
+    baseline, _ = formal_baseline_dry_sweep
+    with pytest.raises(ValueError, match="B = 10000"):
+        rep.write_report([baseline], [], tmp_path / "out", replicates=200)
+    summary = rep.write_report([baseline], [], tmp_path / "out")
+    assert summary["provenance"]["dry_run"] is False and summary["analysis"]["sweep_skipped"] == "ceiling"
 
 
 def test_embed_replaces_only_the_study2_block() -> None:
@@ -76,10 +115,9 @@ def test_embed_replaces_only_the_study2_block() -> None:
         rep.embed(once + block, block)
 
 
-def test_readme_block_for_a_formal_result(runs: tuple[Path, Path]) -> None:
-    baseline, sweep = runs
-    summary = rep.build([baseline], [sweep], replicates=200)
-    summary["provenance"]["dry_run"] = False  # 模擬正式結果，只測段落格式
+def test_readme_block_for_a_formal_result(formal_baseline_dry_sweep: tuple[Path, Path]) -> None:
+    baseline, _ = formal_baseline_dry_sweep
+    summary = rep.build([baseline], [])
     block = rep.render_readme_block(summary)
     assert block.startswith(rep.README_START) and block.endswith(rep.README_END)
-    assert "不做 Core Gate 的判定" in block and "Advanced" not in block
+    assert "不做 Core Gate 的判定" in block and "完全天花板" in block and "Advanced" not in block

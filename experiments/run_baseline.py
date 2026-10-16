@@ -57,7 +57,7 @@ from replay.localization import classify_rollout
 from replay.runner import Clock, run_episode
 from replay.trajectory import load_strict_json
 from tasks.generator import GeneratedInstance
-from tasks.suites import SUITES, check_model_run, suite_pool
+from tasks.suites import SUITES, check_model_run, check_study2_limits, suite_pool
 
 SUMMARY_FORMAT = "agent-gym/baseline-run/v2"  # v2：run.json（decision 021 §1）；run.json 與 summary.json 共用
 RUN_FILE = "run.json"
@@ -234,6 +234,8 @@ def run_split(
     make_policy(client, config)  # 設定與 client 的檢查在任何呼叫之前完成
     if not is_oracle_fake(client):  # 真正的模型推論：Study 2 的開關（decision 034；以 client 型別判定，不看 dry_run 標籤）
         check_model_run(suite, split)
+        if suite == "study2":
+            check_study2_limits(split=split, call_log=call_log, max_model_calls=max_model_calls, sweep=False)
 
     instances = suite_pool(suite, split)
     trajectories_dir = run_dir / "trajectories"
@@ -247,7 +249,9 @@ def run_split(
     stopped = False
     for rollout_index in range(rollouts):
         for instance in instances:
-            if budget_reached(ledger, max_cost_usd, max_model_calls):
+            if budget_reached(ledger, max_cost_usd, max_model_calls) or (
+                calls is not None and max_model_calls is not None and calls.count >= max_model_calls
+            ):  # 計費的呼叫數，或 calls.jsonl 記錄的呼叫數（含失敗的呼叫；decision 034 §8）
                 stopped = True
                 break
             results.append(_run_one(instance, rollout_index, client, config, ledger, trajectories_dir, log_path, clock, calls))
@@ -596,6 +600,8 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - CLI
             parser.error(f"a formal eval baseline must use --rollouts {REGISTERED_EVAL_ROLLOUTS} (decision 025 §2)")
         try:
             check_model_run(args.suite, args.split)  # Study 2：使用者確認、凍結之前不推論（decision 034）
+            if args.suite == "study2":
+                check_study2_limits(split=args.split, call_log=True, max_model_calls=args.max_model_calls, sweep=False)
         except ValueError as exc:
             parser.error(str(exc))
         client = start_local_run(parser, config, url=args.ollama_url, formal=args.split == "eval",

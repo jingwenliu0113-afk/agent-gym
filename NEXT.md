@@ -281,7 +281,7 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
      - 第一輪的 max_turns 混淆規則：只要 5% 的失敗 rerun 用完 turn，cliff 的偵測率就從約 0.92 降到約 0.24。
        建議 Study 2 的主要判定改為「原始下降合格，而且排除 max_turns rerun 之後仍合格」（偵測率 0.88–0.94、誤判 ≤ 0.005）；
        第一輪的規則改列為次要結果。
-     - sweep 的呼叫數估計偏高（P90：A 約 29,000–54,000，B 約 37,000–60,000，依 trajectory 長度而定）。
+     - sweep 的呼叫數估計偏高（登記的方法下 P90：A 29,760–47,480，B 37,078–57,956，依 trajectory 長度而定）。
        建議上限：A 60,000、B 70,000。
 - 確認前已完成的工程（不需要模型，全部有測試）：
   - 第一輪封存；
@@ -291,6 +291,9 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
   - 累計呼叫上限（`run_sweep --total-model-calls`）；
   - Study 2 的分析（`experiments/study2_analysis.py`）、dev 驗證與估算（`experiments/study2_dev.py`）、報告（`experiments/study2_report.py`）。
 - 驗證 B 已完成（2026-10-16）：確認 17 項，都在第一次 dev 模型呼叫之前修正，沒有改參數表、結構參數或干擾項（decision 034「驗證 B 的修正」）。
+- 分析程式的審查已完成（2026-10-17）：分析、dev 審查、估算、報告與累計上限的程式，確認 31 項（1 項 blocker、11 項 major），
+  都已修正並加上測試（decision 034「分析程式審查的修正」）。凍結前模擬的數字改由已 commit 的程式重現
+  （`study2_dev power --reps 200`、`study2_dev assumed --reps 300`）。
 - 使用者確認之後的步驟：
   1. 依決定更新 decision 034 與程式（source 規則、混淆規則、上限）；
   2. 定案 golden hash 並 commit；

@@ -109,11 +109,14 @@ def test_study2_dev_runs_are_allowed_after_approval_but_eval_needs_the_freeze(tm
     monkeypatch.chdir(tmp_path)
     inside_wrapper(monkeypatch)
     monkeypatch.setattr(suites, "STUDY2_APPROVED", True)
-    assert run_baseline.main(["--split", "dev", "--suite", "study2", "--confirm-local-run", "--max-model-calls", "40",
+    with pytest.raises(SystemExit):  # dev baseline 的上限固定為 2,880（decision 034 §8）
+        run_baseline.main(["--split", "dev", "--suite", "study2", "--confirm-local-run", "--max-model-calls", "40", "--run-name", "d0"])
+    assert "--max-model-calls 2880" in capsys.readouterr().err and made == []
+    assert run_baseline.main(["--split", "dev", "--suite", "study2", "--confirm-local-run", "--max-model-calls", "2880",
                               "--run-name", "d"]) == 0
     assert made == [WRAPPER_URL]
     with pytest.raises(SystemExit):
-        run_baseline.main(["--split", "eval", "--suite", "study2", "--rollouts", "3", "--confirm-local-run", "--max-model-calls", "40",
+        run_baseline.main(["--split", "eval", "--suite", "study2", "--rollouts", "3", "--confirm-local-run", "--max-model-calls", "4320",
                            "--run-name", "e"])
     assert "frozen record of decision 034" in capsys.readouterr().err
     assert made == [WRAPPER_URL] and not (tmp_path / "runs" / "e").exists()
@@ -168,6 +171,9 @@ def test_a_study2_formal_sweep_must_use_the_registered_total_cap(tmp_path: Path,
             run_sweep.main([*common, "--run-name", "w", *wrong])
         assert "must use --total-model-calls 60000" in capsys.readouterr().err
     assert made == [] and not (tmp_path / "runs" / "w").exists()
+    with pytest.raises(SystemExit):  # 每段最多 3,000 次
+        run_sweep.main([*common[:-1], "5000", "--run-name", "big", "--total-model-calls", "60000"])
+    assert "at most 3000" in capsys.readouterr().err
     assert run_sweep.main([*common, "--run-name", "ok", "--total-model-calls", "60000"]) == 0
     assert made == [WRAPPER_URL]
 
@@ -194,3 +200,24 @@ def test_run_split_and_run_sweeps_check_the_locks_themselves(study2_baseline: Pa
         run_sweeps(select_sources(study2_baseline), _RealLooking(), plan=SMALL_PLAN, criterion="bonferroni95", run_dir=tmp_path / "s",
                    agent_config=local_agent_config())
     assert not (tmp_path / "s").exists()
+
+
+def test_function_level_limits_for_study2(study2_baseline: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """開關打開之後，直接以 Python 呼叫也必須記錄每次呼叫、使用登記的上限（驗證 B 第二輪）。"""
+    import experiments.run_baseline as rb
+    import experiments.run_sweep as rs
+    from tasks import suites
+
+    monkeypatch.setattr(suites, "STUDY2_APPROVED", True)
+    monkeypatch.setattr(suites, "STUDY2_FROZEN", True)
+    monkeypatch.setattr(rb, "make_policy", lambda client, config: None)
+    monkeypatch.setattr(rs, "make_policy", lambda client, config: None)
+    with pytest.raises(ValueError, match="log every call"):
+        run_split("dev", _RealLooking(), run_dir=tmp_path / "a", agent_config=local_agent_config(), suite="study2", max_model_calls=2880)
+    with pytest.raises(ValueError, match="2880"):
+        run_split("dev", _RealLooking(), run_dir=tmp_path / "b", agent_config=local_agent_config(), suite="study2", call_log=True,
+                  max_model_calls=100)
+    with pytest.raises(ValueError, match="at most 3000"):
+        run_sweeps(select_sources(study2_baseline), _RealLooking(), plan=SMALL_PLAN, criterion="bonferroni95", run_dir=tmp_path / "s",
+                   agent_config=local_agent_config(), call_log=True, max_model_calls=None)
+    assert not any((tmp_path / d).exists() for d in ("a", "b", "s"))

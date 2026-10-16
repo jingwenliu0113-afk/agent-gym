@@ -6,8 +6,10 @@
 - 分析一律呼叫 ``experiments.study2_analysis.analyze``（事先登記的估計量與結論規則）；這裡不另外計算任何判定。
 - 輸出：``summary.json``（分析結果與溯源）、``README.md``（結果頁）、``recoverability.svg``（每個 source 一格，依級別分段）。
 - **不做 Core Gate 的判定**，輸出中也不會出現「Advanced」（有測試）。
-- 第一輪封存：拒絕寫入 ``docs/results/`` 本身（第一輪的五個檔案在那裡）；README 只改 study2 的段落。
-- dry-run 的輸出可以產生報告（標示「不是研究結果」），但不能寫進 README。資料不完整時照常寫入，並標示「資料不完整」。
+- 第一輪封存：拒絕寫入 repo 的 ``docs/results/`` 本身（第一輪的五個檔案在那裡），也拒絕把 ``--readme`` 指到 ``docs/results/`` 之下；
+  比較時不分大小寫（macOS 的檔案系統不分大小寫），也不依賴目前的工作目錄。README 只改 study2 的段落。
+- baseline 或 sweep 任一是 dry-run，報告就標示「不是研究結果」，而且不能寫進 README。資料不完整時照常寫入，並標示「資料不完整」。
+- 所有檢查（含 README 的標記）都在寫任何檔案之前完成；正式結果必須使用 B = 10,000。
 """
 
 from __future__ import annotations
@@ -15,17 +17,18 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import os
 from pathlib import Path
 from typing import Any, Sequence
 
 from experiments.call_log import reconcile
-from experiments.study2_analysis import CLASS_TEXT, RQ1_TEXT, Study2Analysis, analyze, render_markdown
+from experiments.study2_analysis import BOOTSTRAP_REPLICATES, CLASS_TEXT, RQ1_TEXT, SKIP_TEXT, Study2Analysis, analyze, render_markdown
 from replay.trajectory import Trajectory
-from tasks.generator_v2 import FAMILIES, LEVELS
+from tasks.generator_v2 import EVAL_SEEDS, FAMILIES, LEVELS
 
 README_START = "<!-- study2:start -->"
 README_END = "<!-- study2:end -->"
-ROUND1_RESULTS = Path("docs/results")
+ROUND1_RESULTS = Path(__file__).resolve().parents[1] / "docs" / "results"
 
 
 def _provenance(baseline_dirs: Sequence[Path], sweep_dirs: Sequence[Path], analysis: Study2Analysis) -> dict[str, Any]:
@@ -35,7 +38,10 @@ def _provenance(baseline_dirs: Sequence[Path], sweep_dirs: Sequence[Path], analy
     return {
         "baseline_runs": [d.name for d in baseline_dirs],
         "sweep_runs": [d.name for d in sweep_dirs],
-        "dry_run": analysis.baseline["dry_run"],
+        "dry_run": analysis.dry_run,  # baseline 或 sweep 任一是 dry-run
+        "data_complete": analysis.data_complete,
+        "replicates": None if analysis.baseline["level_check"]["l1_minus_l3"] is None
+        else analysis.baseline["level_check"]["l1_minus_l3"]["replicates"],
         "config_id": None if agent is None else agent.config_id,
         "model": mc.get("model"),
         "model_digest": mc.get("model_digest"),
@@ -45,7 +51,7 @@ def _provenance(baseline_dirs: Sequence[Path], sweep_dirs: Sequence[Path], analy
     }
 
 
-def build(baseline_runs: Sequence[str | Path], sweep_runs: Sequence[str | Path] = (), *, replicates: int = 10_000) -> dict[str, Any]:
+def build(baseline_runs: Sequence[str | Path], sweep_runs: Sequence[str | Path] = (), *, replicates: int = BOOTSTRAP_REPLICATES) -> dict[str, Any]:
     baseline_dirs, sweep_dirs = [Path(p) for p in baseline_runs], [Path(p) for p in sweep_runs]
     analysis = analyze(baseline_dirs, sweep_dirs, replicates=replicates)
     return {"format": "agent-gym/study2-report/v1", "provenance": _provenance(baseline_dirs, sweep_dirs, analysis),
@@ -53,16 +59,12 @@ def build(baseline_runs: Sequence[str | Path], sweep_runs: Sequence[str | Path] 
 
 
 def _data_complete(summary: dict[str, Any]) -> bool:
-    sweep = summary["analysis"]["sweep"]
-    return sweep is None or sweep["data_complete"]
+    return bool(summary["provenance"]["data_complete"])
 
 
 def render_page(summary: dict[str, Any]) -> str:
     prov = summary["provenance"]
-    lines = []
-    if prov["dry_run"]:
-        lines += ["> **dry-run 的輸出：不是研究結果。**", ""]
-    lines.append(summary["markdown"].rstrip("\n"))
+    lines = [summary["markdown"].rstrip("\n")]  # dry-run 與資料不完整的標示在分析的 markdown 中
     lines += ["", "## 設定與紀錄", "",
               f"- 模型：`{prov['model']}`，digest `{prov['model_digest']}`，Ollama {prov['ollama_version']}",
               f"- config_id：`{prov['config_id']}`",
@@ -80,7 +82,7 @@ def recoverability_svg(summary: dict[str, Any]) -> str:
     """每個 source 一格：依級別分段，段內每列一個題型、每欄一個 seed。單一序列：點 = P(success | k)，空心點 = P(success ∧ safe | k)。"""
     sweep = summary["analysis"]["sweep"]
     curves = [] if sweep is None else sweep["curves"]
-    seeds = sorted({c["seed"] for c in curves}) or [2, 3, 4]
+    seeds = list(EVAL_SEEDS)  # 固定的欄位：未完成的 seed 區塊也照實畫出（格子標示「沒有曲線」）
     panel_w, panel_h, gap = 220, 104, 14
     left, top = 16, 76
     width = max(left * 2 + len(seeds) * (panel_w + gap), 720)
@@ -127,7 +129,7 @@ def recoverability_svg(summary: dict[str, Any]) -> str:
                     out.append(f'<line class="grid" x1="{px0}" y1="{yy:.1f}" x2="{px1}" y2="{yy:.1f}"/>')
                     out.append(f'<text class="t3" x="{px0 - 4}" y="{yy + 3:.1f}" text-anchor="end">{level:g}</text>')
                 if c is None:
-                    out.append(f'<text class="t3" x="{px0}" y="{(py0 + py1) / 2:.1f}">沒有曲線</text>')
+                    out.append(f'<text class="t3" x="{px0}" y="{(py0 + py1) / 2:.1f}">沒有曲線（未完成或沒有 source）</text>')
                     continue
                 span = max(c["n_turns"] - 1, 1)
                 sx = lambda k, px0=px0, px1=px1, span=span: px0 + (px1 - px0) * k / span  # noqa: E731
@@ -165,9 +167,10 @@ def render_readme_block(summary: dict[str, Any]) -> str:
     fmt = lambda v: "—" if v is None else f"{v:.3f}"  # noqa: E731
     for lv in LEVELS:
         lines.append(f"| {lv} | {fmt(levels[lv]['success_rate'])} | {fmt(levels[lv]['success_unsafe_rate'])} |")
-    lines += ["", f"- 分級：{'有效' if check['valid'] else '無效'}（L1 − L3 的 95% CI 下限 "
+    valid_text = "無法計算" if check["valid"] is None else ("有效" if check["valid"] else "無效")
+    lines += ["", f"- 分級：{valid_text}（L1 − L3 的 95% CI 下限 "
                   f"{fmt(None if check['l1_minus_l3'] is None else check['l1_minus_l3']['low'])}）",
-              "- RQ1：" + ("沒有 sweep（" + a["sweep_skipped"] + "）" if sweep is None else RQ1_TEXT[sweep["rq1"]["outcome"]]),
+              "- RQ1：" + ("沒有 sweep（" + SKIP_TEXT[a["sweep_skipped"]] + "）" if sweep is None else RQ1_TEXT[sweep["rq1"]["outcome"]]),
               "", "完整結果：[docs/results/study2/README.md](docs/results/study2/README.md)。", "", README_END]
     return "\n".join(lines)
 
@@ -184,20 +187,43 @@ def embed(readme: str, block: str) -> str:
     return before + block + after
 
 
+def _is_round1_path(path: Path) -> bool:
+    """path 是（或位在）封存的 docs/results 本身：不分大小寫，也不依賴工作目錄。docs/results/study2 不算。"""
+    target = os.path.normcase(str(ROUND1_RESULTS)).casefold()
+    resolved = Path(path).resolve()
+    if resolved.exists() and ROUND1_RESULTS.exists() and os.path.samefile(resolved, ROUND1_RESULTS):
+        return True
+    return os.path.normcase(str(resolved)).casefold() == target
+
+
+def _under_round1(path: Path) -> bool:
+    resolved = Path(path).resolve()
+    return any(_is_round1_path(parent) for parent in (resolved, *resolved.parents))
+
+
 def write_report(baseline_runs: Sequence[str | Path], sweep_runs: Sequence[str | Path], out: str | Path, *,
-                 readme: str | Path | None = None, replicates: int = 10_000) -> dict[str, Any]:
+                 readme: str | Path | None = None, replicates: int = BOOTSTRAP_REPLICATES) -> dict[str, Any]:
     out = Path(out)
-    if out.resolve() == ROUND1_RESULTS.resolve():
+    if _is_round1_path(out):
         raise ValueError("docs/results holds the sealed round-1 results; write Study 2 to docs/results/study2 (decision 034 §1)")
+    if readme is not None and _under_round1(Path(readme).parent):
+        raise ValueError("the README of the sealed round-1 results is never modified (decision 034 §1)")
     summary = build(baseline_runs, sweep_runs, replicates=replicates)
-    block = render_readme_block(summary) if readme is not None else None  # 在寫任何檔案之前檢查
+    if not summary["provenance"]["dry_run"] and replicates != BOOTSTRAP_REPLICATES:
+        raise ValueError(f"a formal Study 2 report uses B = {BOOTSTRAP_REPLICATES} (decision 034 §7)")
+    new_readme = None
+    if readme is not None:  # 在寫任何檔案之前完成所有檢查
+        block = render_readme_block(summary)
+        path = Path(readme)
+        if not path.is_file():
+            raise ValueError(f"{path} does not exist")
+        new_readme = embed(path.read_text(encoding="utf-8"), block)
     out.mkdir(parents=True, exist_ok=True)
     (out / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     (out / "README.md").write_text(render_page(summary), encoding="utf-8")
     (out / "recoverability.svg").write_text(recoverability_svg(summary), encoding="utf-8")
-    if readme is not None and block is not None:
-        path = Path(readme)
-        path.write_text(embed(path.read_text(encoding="utf-8"), block), encoding="utf-8")
+    if new_readme is not None:
+        Path(readme).write_text(new_readme, encoding="utf-8")
     return summary
 
 
@@ -207,7 +233,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - CLI
     parser.add_argument("--sweep-run", action="append", default=[])
     parser.add_argument("--out", required=True)
     parser.add_argument("--readme", default=None)
-    parser.add_argument("--replicates", type=int, default=10_000)
+    parser.add_argument("--replicates", type=int, default=BOOTSTRAP_REPLICATES)
     args = parser.parse_args(argv)
     try:
         write_report(args.baseline_run, args.sweep_run, args.out, readme=args.readme, replicates=args.replicates)

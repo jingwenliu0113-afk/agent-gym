@@ -577,17 +577,22 @@ def test_verify_server_checks_frozen_values() -> None:
         verify_server(_ServerFake(digest="sha256:" + "cd" * 32), frozen)
 
 
+FROZEN_HEX = FROZEN_MODEL_DIGEST.removeprefix("sha256:")
+
+
 @pytest.mark.parametrize(
-    "server_fake",
+    ("server_fake", "reason"),
     [
-        lambda: _ServerFake(models=[]),
-        lambda: _ServerFake(capabilities=("completion",)),
-        lambda: _ServerFake(models=[{"name": MODEL, "model": MODEL, "digest": "ab" * 32, "remote_host": "https://ollama.com"}]),
+        (lambda: _ServerFake(models=[], version=FROZEN_OLLAMA_VERSION), "exactly one model"),
+        (lambda: _ServerFake(capabilities=("completion",), digest=FROZEN_MODEL_DIGEST, version=FROZEN_OLLAMA_VERSION), "tools"),
+        (lambda: _ServerFake(models=[{"name": MODEL, "model": MODEL, "digest": FROZEN_HEX, "remote_host": "https://ollama.com"}],
+                             version=FROZEN_OLLAMA_VERSION), "remote"),
     ],
     ids=["model-missing", "no-tools", "remote"],
 )
-def test_verify_server_refuses(server_fake: Callable[[], _ServerFake]) -> None:
-    with pytest.raises(ValueError):
+def test_verify_server_refuses(server_fake: Callable[[], _ServerFake], reason: str) -> None:
+    """其他條件都等於凍結值（decision 030）：只有被測的那一項會拒絕。"""
+    with pytest.raises(ValueError, match=reason):
         verify_server(server_fake(), local_agent_config())
 
 

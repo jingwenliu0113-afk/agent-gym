@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import datetime as _dt
 import hashlib
+import json
 import os
+import signal
 import threading
 import time
 from pathlib import Path
@@ -50,12 +52,16 @@ class CallLog:
 
     def _write(self, record: dict[str, Any]) -> None:
         with self._lock:
-            self._count += 1
-            line = (canonical_json({"format": CALL_LOG_FORMAT, "call": self._count, **record}) + "\n").encode("utf-8")
+            entry = {"format": CALL_LOG_FORMAT, "call": self._count + 1, **record}
+            try:
+                line = (canonical_json(entry) + "\n").encode("utf-8")
+            except (TypeError, ValueError, UnicodeEncodeError):  # 例如單獨的 surrogate：以 ASCII 跳脫寫入，seed 照樣留下
+                line = (json.dumps(entry, ensure_ascii=True, sort_keys=True, separators=(",", ":"), default=repr) + "\n").encode()
             with open(self._path, "ab") as handle:
                 handle.write(line)
                 handle.flush()
                 os.fsync(handle.fileno())
+            self._count += 1
 
 
 class BoundClient:
@@ -96,6 +102,17 @@ class BoundClient:
         return getattr(self._log.client, name)
 
 
+def _interrupt(signum: int, frame: object) -> None:
+    raise KeyboardInterrupt(signal.Signals(signum).name)
+
+
+def interrupt_on_termination() -> None:
+    """本機模型的正式 run：SIGTERM / SIGHUP 改為 KeyboardInterrupt（與 Ctrl-C 相同），正在進行的呼叫因此照樣記進紀錄。
+    tools/with-gpu-lock 以 SIGTERM 結束指令（指令在自己的 process group，收不到終端機的 Ctrl-C；decision 032 第二輪）。"""
+    for signum in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(signum, _interrupt)
+
+
 def read_call_log(path: Path) -> list[dict[str, Any]]:
     """讀取 calls.jsonl（strict JSON）；每一行必須是 CALL_LOG_FORMAT 的物件，否則 ValueError（訊息含路徑與行號）。"""
     records = []
@@ -108,3 +125,38 @@ def read_call_log(path: Path) -> list[dict[str, Any]]:
             raise ValueError(f"{path}:{number}: not a {CALL_LOG_FORMAT} record")
         records.append(record)
     return records
+
+
+def reconcile(run_dirs: "list[Path] | tuple[Path, ...]") -> dict[str, Any] | None:
+    """calls.jsonl 與 manifest **逐次嘗試**核對（decision 032 第二輪）。任一目錄沒有紀錄 → None。
+
+    每次嘗試以 (目錄, task_id, k, rollout_index, attempt) 識別（manifest 的 checkpoint_turn 就是 k）：
+    - matched：紀錄中成功的呼叫數等於 manifest 該列的 billed_calls；
+    - interrupted：紀錄中有、manifest 沒有那一列（嘗試被中斷，manifest 只記結束的嘗試）；
+    - mismatched：兩邊都有但數目不同，或 manifest 有計費的呼叫、紀錄中卻沒有（例如 server 回覆後被 adapter 以 harness 例外拒絕）。
+    complete ⇔ 每次呼叫都有 seed，而且每一列 manifest 都 matched。"""
+    totals = {"calls": 0, "failed": 0, "seeds": 0, "attempts": 0, "matched_attempts": 0, "interrupted_attempts": 0,
+              "mismatched_attempts": 0}
+    from replay.aborts import read_manifest
+
+    for index, run_dir in enumerate(run_dirs):
+        path = Path(run_dir) / CALL_LOG
+        if not path.exists():
+            return None
+        records = read_call_log(path)
+        totals["calls"] += len(records)
+        totals["failed"] += sum(1 for record in records if not record["ok"])
+        totals["seeds"] += sum(1 for record in records if isinstance(record.get("seed"), int))
+        ok: dict[tuple[Any, ...], int] = {}
+        for record in records:
+            key = (index, record.get("task_id"), record.get("k"), record.get("rollout_index"), record.get("attempt"))
+            ok[key] = ok.get(key, 0) + (1 if record["ok"] else 0)
+        rows = {(index, row.task_id, row.checkpoint_turn, row.rollout_index, row.attempt): row.billed_calls
+                for row in read_manifest(Path(run_dir) / "manifest.jsonl")}
+        totals["attempts"] += len(rows)
+        totals["matched_attempts"] += sum(1 for key, billed in rows.items() if ok.get(key, 0) == billed)
+        totals["mismatched_attempts"] += sum(1 for key, billed in rows.items() if ok.get(key, 0) != billed)
+        totals["interrupted_attempts"] += sum(1 for key in ok if key not in rows)
+    totals["complete"] = totals["seeds"] == totals["calls"] and totals["matched_attempts"] == totals["attempts"]
+    return totals
+

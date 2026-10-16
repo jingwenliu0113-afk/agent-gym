@@ -43,7 +43,7 @@ from env.hashing import canonical_json
 from experiments.analyze_baseline import RolloutRecord, load_runs
 from replay.trajectory import load_strict_json
 from replay.aborts import utc_instant
-from experiments.call_log import CALL_LOG, CallLog
+from experiments.call_log import CALL_LOG, CallLog, interrupt_on_termination
 from experiments.run_baseline import (
     budget_reached,
     check_budget_args,
@@ -596,6 +596,7 @@ def main(argv: list[str] | None = None) -> int:
         client: Any = (OllamaOracleFakeClient if config.policy == OLLAMA_POLICY else OracleFakeClient)(week1_pool("eval"))
     elif args.confirm_local_run:
         client = start_local_run(parser, config, url=args.ollama_url, formal=True, max_model_calls=args.max_model_calls)
+        interrupt_on_termination()  # 中斷時正在進行的呼叫也記進 calls.jsonl（decision 032）
     else:
         if args.max_cost_usd is None:
             parser.error("--confirm-paid-run requires --max-cost-usd")

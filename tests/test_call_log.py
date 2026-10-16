@@ -159,12 +159,14 @@ def test_the_smoke_summary_reports_the_call_log(tmp_path: Path, monkeypatch: pyt
     run_split("dev", OllamaOracleFakeClient(DEV), run_dir=tmp_path / "r", clock=ZERO, agent_config=local_agent_config(),
               call_log=True)
     report = summarize_smoke(tmp_path / "r")
+    episodes = report["episodes"]
     assert report["call_log"] == {"calls": report["billed_calls"], "failed": 0, "seeds": report["billed_calls"],
-                                  "matches_manifest": True}
+                                  "attempts": episodes, "matched_attempts": episodes, "interrupted_attempts": 0,
+                                  "mismatched_attempts": 0, "complete": True}
     run_split("dev", OllamaOracleFakeClient(DEV), run_dir=tmp_path / "plain", clock=ZERO, agent_config=local_agent_config())
     assert summarize_smoke(tmp_path / "plain")["call_log"] is None
     assert local_probe.main(["--summarize", str(tmp_path / "r")]) == 0
-    assert json.loads(capsys.readouterr().out)["call_log"]["matches_manifest"] is True
+    assert json.loads(capsys.readouterr().out)["call_log"]["complete"] is True
 
 
 @pytest.mark.parametrize("line", [b"{not json}\n", b'{"format": "other"}\n', b"[]\n"], ids=["bad-json", "format", "not-object"])
@@ -172,3 +174,86 @@ def test_a_corrupt_call_log_is_an_error(line: bytes, tmp_path: Path) -> None:
     (tmp_path / CALL_LOG).write_bytes(line)
     with pytest.raises(ValueError):
         read_call_log(tmp_path / CALL_LOG)
+
+
+def test_a_reply_with_an_unencodable_string_is_still_logged(tmp_path: Path) -> None:
+    odd = {**RESPONSE, "message": {"role": "assistant", "content": "bad \ud800 text"}}  # 單獨的 surrogate（strict JSON 讀得出來）
+    log = CallLog(_Fake(odd), tmp_path / CALL_LOG)
+    assert log.bind(task_id="t", rollout_index=0, attempt=1, k=None).chat(REQUEST) == odd  # adapter 照常處理它
+    [record] = read_call_log(tmp_path / CALL_LOG)
+    assert record["seed"] == 1234 and record["call"] == 1 and record["ok"] is True
+
+
+SLOW_CALL = """
+import sys, time
+sys.path.insert(0, {root!r})
+from pathlib import Path
+from experiments.call_log import CALL_LOG, CallLog, interrupt_on_termination
+
+class Slow:
+    def chat(self, request):
+        time.sleep(60)
+
+interrupt_on_termination()
+log = CallLog(Slow(), Path({out!r}) / CALL_LOG)
+print("ready", flush=True)
+log.bind(task_id="t", rollout_index=0, attempt=1, k=None).chat({{"options": {{"seed": 777}}, "messages": []}})
+"""
+
+
+@pytest.mark.parametrize("signum", ["SIGTERM", "SIGHUP"])
+def test_a_call_in_flight_when_the_wrapper_ends_the_run_is_logged(signum: str, tmp_path: Path) -> None:
+    """tools/with-gpu-lock 以 SIGTERM 結束指令：正在進行的呼叫（與它的 seed）照樣記下。"""
+    import signal
+    import subprocess
+    import sys
+
+    root = str(Path(__file__).resolve().parents[1])
+    proc = subprocess.Popen([sys.executable, "-c", SLOW_CALL.format(root=root, out=str(tmp_path))], stdout=subprocess.PIPE, text=True)
+    assert proc.stdout is not None and proc.stdout.readline().strip() == "ready"
+    import time
+
+    time.sleep(0.5)
+    proc.send_signal(getattr(signal, signum))
+    proc.wait(timeout=30)
+    [record] = read_call_log(tmp_path / CALL_LOG)
+    assert record["ok"] is False and record["error_type"] == "KeyboardInterrupt" and record["seed"] == 777
+
+
+def test_reconciliation_finds_a_missing_or_seedless_record(tmp_path: Path) -> None:
+    from experiments.call_log import reconcile
+
+    run_split("dev", OllamaOracleFakeClient(DEV), run_dir=tmp_path / "r", clock=ZERO, agent_config=local_agent_config(),
+              call_log=True)
+    path = tmp_path / "r" / CALL_LOG
+    assert reconcile([tmp_path / "r"])["complete"] is True
+    lines = path.read_bytes().splitlines(keepends=True)
+    path.write_bytes(b"".join(lines[1:]))  # 少了一筆
+    result = reconcile([tmp_path / "r"])
+    assert result["complete"] is False and result["mismatched_attempts"] == 1
+    record = json.loads(lines[0])
+    record["seed"] = None
+    path.write_bytes(canonical_json(record).encode() + b"\n" + b"".join(lines[1:]))  # 有紀錄但沒有 seed
+    result = reconcile([tmp_path / "r"])
+    assert result["complete"] is False and result["seeds"] == result["calls"] - 1
+
+
+def test_an_interrupted_attempt_is_counted_as_interrupted(tmp_path: Path) -> None:
+    from experiments.call_log import reconcile
+
+    class Stops(OllamaOracleFakeClient):
+        def __init__(self) -> None:
+            super().__init__(DEV)
+            self.n = 0
+
+        def chat(self, request: dict[str, Any]) -> dict[str, Any]:
+            self.n += 1
+            if self.n == 5:
+                raise KeyboardInterrupt
+            return super().chat(request)
+
+    with pytest.raises(KeyboardInterrupt):
+        run_split("dev", Stops(), run_dir=tmp_path / "r", clock=ZERO, agent_config=local_agent_config(), call_log=True)
+    result = reconcile([tmp_path / "r"])
+    assert result["interrupted_attempts"] == 1 and result["mismatched_attempts"] == 0 and result["complete"] is True
+

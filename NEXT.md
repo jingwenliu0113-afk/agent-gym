@@ -7,10 +7,16 @@ Core：Day 1 完成；Week 1 除「#5 baseline 真正跑完整 task」以外都�
 **2026-10-15**：本 Project 在 GPU lock 內啟動自己的 Ollama server（與 incident-investigator 共用模型檔案、共用目錄只讀；decision 029），
 已在 gpu-server 實測：server 檢查、截斷自我測試、開發題測試（15 / 15 成功）全部通過，每次結束都確認 server 已停止、共用目錄沒有改變、
 lock 已釋放。**2026-10-16 使用者確認凍結**（decision 030 採用；config_id `sha256:9feb8eb7…a87`），並要求每次呼叫的 seed
-都完整記錄（decision 032：`calls.jsonl`）。正式 run 進行中（見下方 A）。
+都完整記錄（decision 032：`calls.jsonl`）。**正式實驗已完成（2026-10-16）**：
+- eval baseline 45 / 45 成功、全部安全；
+- sweep 480 次 rerun 全部成功，15 個 source 都沒有 cliff；
+- Gate 的機械化判定是 `gradual`，**不進 Advanced**。
+
+這是天花板效應：這組題目對凍結的模型太容易，沒有可以定位的失敗。照實呈現，不調整題目、參數或 Gate（見 `docs/results/README.md`）。
+**Core 依 SPEC 的收尾完成；之後的方向需要使用者決定**（見「Blocked / 需要使用者」A）。
 keyless Core infrastructure（含分析工具、驟降判定選項、README 示範）已完成；第七輪對抗式審查找出的 keyless 缺口
 （已登記但漏實作的規則、只信任 summary 的分析）已依 decision 017 補齊；第八～十二輪審查與付費流程模擬找出的缺口已依 decision 018 – 024 補齊。
-尚未進 Advanced（Gate 未滿足：還沒有任何真實的 failure localization 結果）。
+不進 Advanced：正式的 Gate 判定是 `gradual`（2026-10-16，decision 025 §4 的機械化規則）。
 
 Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/jingwenliu0113-afk/agent-gym），main 追蹤 origin/main；
 測試通過的 commit 一律 push（不 force push、不改寫 history）。
@@ -218,7 +224,13 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
        - SIGPIPE / QUIT / TSTP / stdin 已關閉的處理。
      - CLI：格式錯誤的 model 清單是 CLI 錯誤。
 
-測試：`uv run pytest` → 9044 passed、1 skipped（Linux 專用的 PDEATHSIG 測試）、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 8 分鐘；`ruff check` 通過。
+21. **正式實驗與結果**（2026-10-16；decision 030 採用、032、033）：
+   - 凍結設定；每次呼叫的 seed 記在 `calls.jsonl`，並與 manifest 逐次嘗試核對；
+   - 依序完成正式 eval baseline 與 sweep，結果見上方「目前位置」與 A；
+   - 結果報告：`experiments/results_report.py` 產生 `docs/results/` 與 README 的結果段落，附上預先登記分析工具的完整報告；
+   - 第三輪對抗式審查（25 個 agent，確認 22 項）都已修正，並以正式資料重新產生結果。
+
+測試：`uv run pytest` → 9066 passed、1 skipped（Linux 專用的 PDEATHSIG 測試）、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 8 分鐘；`ruff check` 通過。
 
 ## 使用者決策（2026-10-08 / 10-09 / 10-11）
 
@@ -256,29 +268,31 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 
 ## Blocked / 需要使用者
 
-### A. 正式實驗（2026-10-16 使用者確認凍結後開始；不需要使用者，進度如下）
+### A. 正式實驗：已完成（2026-10-16）；**之後的方向需要使用者決定**
 
-凍結值（decision 030）：`qwen3.5:9b-q4_K_M`、digest `sha256:6488c96f…3ea7`、Q4_K_M、Ollama 0.35.0、server 環境（029 §2）、
-prompt `baseline/v1`、tool schema `issue_tracker/v1`、max_turns 20、think 關、num_ctx 32,768、num_predict 4,096、
-temperature 0.7、top_p 0.8、top_k 20、min_p 0、presence_penalty 1.5、每次呼叫隨機 seed（記在 trajectory 與 `calls.jsonl`）。
+凍結值（decision 030）：`qwen3.5:9b-q4_K_M`、digest `sha256:6488c96f…3ea7`、Ollama 0.35.0、prompt `baseline/v1`、
+tool schema `issue_tracker/v1`、think 關、num_ctx 32,768、temperature 0.7、top_p 0.8、top_k 20、每次呼叫隨機 seed。
 config_id `sha256:9feb8eb7bb109ccc0308baba1150417f9cfd8b896d3b134f75beb735fa251a87`。
 
-使用者的要求（2026-10-16）：
-- GPU 工作全程遵守共用 lock、分段執行並釋放資源；
-- 保留所有成功、失敗與中斷紀錄；
-- 不得因結果不理想而修改題目、參數或 Gate；
-- 沒有重複的 cliff 也如實呈現，不強行進 Advanced；
-- 完成後完善 Demo、圖表、失敗案例與 README。
+| 步驟 | run 目錄（`runs/`，gitignored） | 結果 |
+|---|---|---|
+| eval baseline（R = 3） | `local-eval-20261016` | 45 / 45 成功、全部安全；217 次呼叫、0 次中止；tool 錯誤 16 次（都由模型自行修正） |
+| sweep（選項 A，一段，上限 3000） | `local-sweep-20261016-1` | 15 個 source 全部完成；480 次 rerun 全部成功；1,522 次呼叫、0 次中止；cliff 0 / 15 |
+| 分析 | `analysis-eval-20261016`、`analysis-sweep-20261016` | Gate：`gradual` → 不進 Advanced |
 
-另外：Mac 上有其他工作不使用 lock，每段開始前要檢查 Mac 的 CPU、GPU 與 RAM 負載。
+- 每次呼叫的 seed：baseline 217 / 217、sweep 1,522 / 1,522 都記在 `calls.jsonl`（decision 032），成功的呼叫數都等於 manifest 的計費數。
+- 每段開始前的 Mac 負載：CPU load 約 3–5（12 核）、記憶體 79–80% 空閒；Mac GPU 被 Mac 上另一個 Ollama 使用，我們的推論在 gpu-server，
+  不受影響。紀錄在 `runs/live/mac-load-*.txt`。
+- 結果頁：`docs/results/README.md`（由 `experiments/results_report.py` 決定性產生；decision 033）；README 的結果段落同步。
 
-步驟（全部在 `tools/with-gpu-lock` 內；lock 被占用 → 稍後再試）：
-1. 正式 eval baseline（R = 3）：`tools/with-gpu-lock -- uv run python -m experiments.run_baseline --split eval --rollouts 3
-   --confirm-local-run --max-model-calls 1800 --run-name local-eval-20261016`。
-2. 正式 sweep（選項 A），每段 `--max-model-calls 3000`。第二段起以 `--resume-from` 列出所有先前的 sweep 目錄：
-   `tools/with-gpu-lock -- uv run python -m experiments.run_sweep --baseline-run runs/local-eval-20261016 --plan 2,10,48,0.3
-   --criterion bonferroni95 --confirm-local-run --max-model-calls 3000 --run-name local-sweep-20261016-<n>`。
-3. `analyze_baseline` / `analyze_sweep`；結果寫進 README（圖表、失敗案例）；Gate 依 decision 025 §4 機械化判定。
+**這個結果的意思（照實）**：這組題目對這個模型太容易（天花板效應），所以沒有可以定位的失敗。這不是 replay 方法的結論，也不是「失敗是逐步累積」的證據。
+依使用者的規則，不因結果調整題目、參數或 Gate。
+
+需要使用者決定的方向（都會改變研究設計，必須另立 decision）：
+1. **到此為止**：依 SPEC「收尾」，以這個結果與 infrastructure 完成 Core（README 已照實呈現）。
+2. **更難的題目或更弱的設定，重新登記後再跑一輪**：例如更長的 multi-step 題型、更多干擾，或更小的模型。要先登記新的題目或設定與分析，
+   不能沿用這次的結果去挑題。
+3. 其他方向。
 
 ### B. 研究設計（已確認，沿用）
 

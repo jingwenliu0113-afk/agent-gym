@@ -310,11 +310,16 @@ def test_a_formal_local_sweep_needs_the_frozen_config(local_baseline: Path, tmp_
 
 def test_a_formal_local_sweep_runs_with_the_frozen_config(frozen_local_baseline: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
                                                           made: list[str], frozen: None) -> None:
+    from experiments.call_log import CALL_LOG, read_call_log, reconcile
+
     monkeypatch.chdir(tmp_path)
     inside_wrapper(monkeypatch)
     assert _sweep(frozen_local_baseline, "--confirm-local-run", "--max-model-calls", "30", *REGISTERED) == 0
     summary = _summary(tmp_path / "runs" / "s")
     assert summary["stopped_by_budget"] is True and made == [WRAPPER_URL]
+    records = read_call_log(tmp_path / "runs" / "s" / CALL_LOG)  # 正式 sweep 的每個 seed（decision 032）
+    assert records and all(isinstance(r["seed"], int) and isinstance(r["k"], int) for r in records)
+    assert reconcile([tmp_path / "runs" / "s"])["complete"] is True
     run_json = json.loads((tmp_path / "runs" / "s" / "run.json").read_text(encoding="utf-8"))
     assert run_json["dry_run"] is False and run_json["criterion"] == "bonferroni95"
     assert ANTHROPIC_POLICY != OLLAMA_POLICY
@@ -336,3 +341,22 @@ def test_an_unreachable_server_is_a_clean_refusal(error: str, tmp_path: Path, mo
     with pytest.raises(SystemExit):
         run_baseline.main(["--split", "dev", "--confirm-local-run", "--max-model-calls", "50", "--run-name", "x"])
     assert "not usable" in capsys.readouterr().err and not (tmp_path / "runs" / "x").exists()
+
+
+def test_a_formal_sweep_refuses_a_non_dry_run_baseline_made_with_the_draft_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                                                                   made: list[str],
+                                                                                   capsys: pytest.CaptureFixture[str]) -> None:
+    """草案設定（未凍結）跑出的、非 dry-run 的 eval baseline 不能當正式 sweep 的 source（不是因為 dry-run 而被拒絕）。"""
+    config = local_agent_config()
+    draft = type(config)(config.policy, config.prompt_version, config.system_prompt, config.developer_prompt,
+                         dict(config.model_config, model_digest=None, ollama_version=None))
+    baseline = tmp_path / "draft-eval"
+    run_split("eval", OllamaOracleFakeClient(POOL), run_dir=baseline, clock=ZERO, agent_config=draft)
+    assert json.loads((baseline / "run.json").read_text(encoding="utf-8"))["dry_run"] is False
+    monkeypatch.chdir(tmp_path)
+    inside_wrapper(monkeypatch)
+    with pytest.raises(SystemExit):
+        _sweep(baseline, "--confirm-local-run", "--max-model-calls", "30", *REGISTERED)
+    assert made == [] and not (tmp_path / "runs" / "s").exists()
+    assert "frozen model config" in capsys.readouterr().err  # 被拒絕的原因是設定未凍結
+

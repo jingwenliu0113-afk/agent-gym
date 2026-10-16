@@ -24,8 +24,22 @@
 - 寫入方式：每行寫入後 flush + fsync，中斷時已發生的呼叫不會遺失。檔案在 run 開始時建立（空的），不覆寫既有檔案。
 - 實作：`experiments/call_log.py` 的 `CallLog` 包住 client，每次嘗試以 task、rollout、attempt、k 綁定。
   其他屬性（version / tags / show、decision 028 的連續失敗計數）直接取自原本的 client，adapter 的行為不變。
-- `local_probe --summarize` 回報紀錄的呼叫數、失敗數、有 seed 的呼叫數，以及「成功的呼叫數是否等於計費的呼叫數」。
+- `local_probe --summarize` 回報紀錄的呼叫數、失敗數、有 seed 的呼叫數，以及與 manifest 逐次嘗試核對的結果（`reconcile`，見下方）。
 - dry-run 不寫這個紀錄（不是正式結果）。
+
+### 審查後的修正（2026-10-16，對 030 / 032 / 033 的對抗式審查：25 個 agent，確認 22 項）
+
+- **中斷時正在進行的呼叫**：wrapper 以 SIGTERM 結束指令（指令在自己的 process group，收不到終端機的 Ctrl-C），Python 預設直接結束，
+  那次呼叫不會留下紀錄。本機正式 run 的 CLI 現在把 SIGTERM / SIGHUP 改為 KeyboardInterrupt（`interrupt_on_termination`），
+  與 Ctrl-C 相同，正在進行的呼叫照樣記下（error_type `KeyboardInterrupt`、含 seed）。30 秒後的 SIGKILL 仍無法攔截。
+- **無法編碼的回覆**（例如單獨的 surrogate）：改以 ASCII 跳脫寫入，seed 照樣留下，adapter 的行為不變。
+- **核對方式**：原本只比較「成功的呼叫總數 = manifest 計費總數」。這在中斷或回覆後被拒絕時會誤判，也找不出缺漏。現在改為
+  `reconcile`，**逐次嘗試**核對 (目錄, task, k, rollout, attempt)，分別回報：
+  - 相符的嘗試；
+  - 不符的嘗試；
+  - 被中斷的嘗試：紀錄中有，manifest 沒有它的列。
+
+  每次呼叫都有 seed、而且 manifest 的每一列都相符，才算「完整」。
 
 ## 為什麼
 

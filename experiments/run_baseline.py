@@ -48,7 +48,7 @@ from agents.ollama import (
     verify_server,
 )
 from agents.policy import AgentConfig, PolicyStep
-from experiments.call_log import CALL_LOG, CallLog
+from experiments.call_log import CALL_LOG, CallLog, interrupt_on_termination
 from env.environment import IssueTrackerEnv
 from env.hashing import canonical_json
 from replay.aborts import RolloutKey, billed_cost, run_with_retries
@@ -582,6 +582,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - CLI
             parser.error(f"a formal eval baseline must use --rollouts {REGISTERED_EVAL_ROLLOUTS} (decision 025 §2)")
         client = start_local_run(parser, config, url=args.ollama_url, formal=args.split == "eval",
                                  max_model_calls=args.max_model_calls)
+        interrupt_on_termination()  # 中斷時正在進行的呼叫也記進 calls.jsonl（decision 032）
         name = args.run_name or f"local-{args.split}"
     else:
         if args.provider != "anthropic":

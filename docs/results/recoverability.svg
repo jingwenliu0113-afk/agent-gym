@@ -1,0 +1,350 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 844" width="720" height="844" role="img" aria-labelledby="t d" font-family="-apple-system, BlinkMacSystemFont, 'Noto Sans TC', 'Segoe UI', sans-serif">
+<title id="t">Recoverability：從 checkpoint k 重新執行的成功比例 P(success | k)</title>
+<desc id="d">15 個 source 的 small multiples；每格的點是 P(success | k)，線段是逐點 95% Wilson CI。Gate：gradual。數值見 docs/results/README.md 的表格。</desc>
+<style>
+:root{--surface:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--muted:#8a8984;--grid:#e4e3df;--series:#2a78d6;--band:#9ec5f4;}
+@media (prefers-color-scheme: dark){:root{--surface:#1a1a19;--ink:#ffffff;--ink2:#c3c2b7;--muted:#8f8e88;--grid:#383835;--series:#3987e5;--band:#1c5cab;}}
+.bg{fill:var(--surface)}.t1{fill:var(--ink);font-size:15px;font-weight:600}.t2{fill:var(--ink2);font-size:11px}.t3{fill:var(--muted);font-size:10px}.grid{stroke:var(--grid);stroke-width:1}.axis{stroke:var(--muted);stroke-width:1}.line{fill:none;stroke:var(--series);stroke-width:2;stroke-linejoin:round}.ci{stroke:var(--band);stroke-width:4;stroke-linecap:round}.dot{fill:var(--series);stroke:var(--surface);stroke-width:2}.cliff{stroke:var(--ink2);stroke-width:1.5;stroke-dasharray:4 3}
+</style>
+<rect class="bg" x="0" y="0" width="720" height="844" rx="8"/>
+<text class="t1" x="16" y="26">Recoverability：從 checkpoint k 重新執行的成功比例 P(success | k)</text>
+<text class="t2" x="16" y="44">每格一個 source（eval baseline 的 rollout 0）。x：checkpoint k（source 已完成的 turn 數）；y：P(success | k)，0–1。</text>
+<text class="t2" x="16" y="60">點：成功比例；線段：逐點 95% Wilson CI（cliff 判定用 bonferroni95）；虛線：cliff；Gate：gradual。</text>
+<g class="panel" aria-label="gen-assign-and-start-s1">
+<text class="t2" x="50" y="92">assign-and-start-s1</text>
+<line class="grid" x1="50.0" y1="172.0" x2="216.0" y2="172.0"/>
+<text class="t3" x="44.0" y="175.0" text-anchor="end">0</text>
+<line class="grid" x1="50.0" y1="137.0" x2="216.0" y2="137.0"/>
+<text class="t3" x="44.0" y="140.0" text-anchor="end">0.5</text>
+<line class="grid" x1="50.0" y1="102.0" x2="216.0" y2="102.0"/>
+<text class="t3" x="44.0" y="105.0" text-anchor="end">1</text>
+<text class="t3" x="50.0" y="186.0" text-anchor="middle">0</text>
+<text class="t3" x="86.9" y="186.0" text-anchor="middle">2</text>
+<text class="t3" x="123.8" y="186.0" text-anchor="middle">4</text>
+<text class="t3" x="160.7" y="186.0" text-anchor="middle">6</text>
+<text class="t3" x="197.6" y="186.0" text-anchor="middle">8</text>
+<line class="axis" x1="86.9" y1="172.0" x2="86.9" y2="176.0"/>
+<line class="ci" x1="50.0" y1="121.4" x2="50.0" y2="102.0"/>
+<line class="ci" x1="86.9" y1="121.4" x2="86.9" y2="102.0"/>
+<path class="line" d="M50.0,102.0 L86.9,102.0"/>
+<circle class="dot" cx="50.0" cy="102.0" r="4"><title>k = 0：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="86.9" cy="102.0" r="4"><title>k = 2：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+</g>
+<g class="panel" aria-label="gen-assign-and-start-s2">
+<text class="t2" x="278" y="92">assign-and-start-s2</text>
+<line class="grid" x1="278.0" y1="172.0" x2="444.0" y2="172.0"/>
+<text class="t3" x="272.0" y="175.0" text-anchor="end">0</text>
+<line class="grid" x1="278.0" y1="137.0" x2="444.0" y2="137.0"/>
+<text class="t3" x="272.0" y="140.0" text-anchor="end">0.5</text>
+<line class="grid" x1="278.0" y1="102.0" x2="444.0" y2="102.0"/>
+<text class="t3" x="272.0" y="105.0" text-anchor="end">1</text>
+<text class="t3" x="278.0" y="186.0" text-anchor="middle">0</text>
+<text class="t3" x="314.9" y="186.0" text-anchor="middle">2</text>
+<text class="t3" x="351.8" y="186.0" text-anchor="middle">4</text>
+<text class="t3" x="388.7" y="186.0" text-anchor="middle">6</text>
+<text class="t3" x="425.6" y="186.0" text-anchor="middle">8</text>
+<line class="axis" x1="314.9" y1="172.0" x2="314.9" y2="176.0"/>
+<line class="ci" x1="278.0" y1="121.4" x2="278.0" y2="102.0"/>
+<line class="ci" x1="314.9" y1="121.4" x2="314.9" y2="102.0"/>
+<path class="line" d="M278.0,102.0 L314.9,102.0"/>
+<circle class="dot" cx="278.0" cy="102.0" r="4"><title>k = 0：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="314.9" cy="102.0" r="4"><title>k = 2：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+</g>
+<g class="panel" aria-label="gen-assign-and-start-s3">
+<text class="t2" x="506" y="92">assign-and-start-s3</text>
+<line class="grid" x1="506.0" y1="172.0" x2="672.0" y2="172.0"/>
+<text class="t3" x="500.0" y="175.0" text-anchor="end">0</text>
+<line class="grid" x1="506.0" y1="137.0" x2="672.0" y2="137.0"/>
+<text class="t3" x="500.0" y="140.0" text-anchor="end">0.5</text>
+<line class="grid" x1="506.0" y1="102.0" x2="672.0" y2="102.0"/>
+<text class="t3" x="500.0" y="105.0" text-anchor="end">1</text>
+<text class="t3" x="506.0" y="186.0" text-anchor="middle">0</text>
+<text class="t3" x="542.9" y="186.0" text-anchor="middle">2</text>
+<text class="t3" x="579.8" y="186.0" text-anchor="middle">4</text>
+<text class="t3" x="616.7" y="186.0" text-anchor="middle">6</text>
+<text class="t3" x="653.6" y="186.0" text-anchor="middle">8</text>
+<line class="axis" x1="542.9" y1="172.0" x2="542.9" y2="176.0"/>
+<line class="ci" x1="506.0" y1="121.4" x2="506.0" y2="102.0"/>
+<line class="ci" x1="542.9" y1="121.4" x2="542.9" y2="102.0"/>
+<path class="line" d="M506.0,102.0 L542.9,102.0"/>
+<circle class="dot" cx="506.0" cy="102.0" r="4"><title>k = 0：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="542.9" cy="102.0" r="4"><title>k = 2：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+</g>
+<g class="panel" aria-label="gen-close-duplicate-s1">
+<text class="t2" x="50" y="240">close-duplicate-s1</text>
+<line class="grid" x1="50.0" y1="320.0" x2="216.0" y2="320.0"/>
+<text class="t3" x="44.0" y="323.0" text-anchor="end">0</text>
+<line class="grid" x1="50.0" y1="285.0" x2="216.0" y2="285.0"/>
+<text class="t3" x="44.0" y="288.0" text-anchor="end">0.5</text>
+<line class="grid" x1="50.0" y1="250.0" x2="216.0" y2="250.0"/>
+<text class="t3" x="44.0" y="253.0" text-anchor="end">1</text>
+<text class="t3" x="50.0" y="334.0" text-anchor="middle">0</text>
+<text class="t3" x="86.9" y="334.0" text-anchor="middle">2</text>
+<text class="t3" x="123.8" y="334.0" text-anchor="middle">4</text>
+<text class="t3" x="160.7" y="334.0" text-anchor="middle">6</text>
+<text class="t3" x="197.6" y="334.0" text-anchor="middle">8</text>
+<line class="axis" x1="105.3" y1="320.0" x2="105.3" y2="324.0"/>
+<line class="ci" x1="50.0" y1="269.4" x2="50.0" y2="250.0"/>
+<line class="ci" x1="86.9" y1="269.4" x2="86.9" y2="250.0"/>
+<line class="ci" x1="105.3" y1="269.4" x2="105.3" y2="250.0"/>
+<path class="line" d="M50.0,250.0 L86.9,250.0 L105.3,250.0"/>
+<circle class="dot" cx="50.0" cy="250.0" r="4"><title>k = 0：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="86.9" cy="250.0" r="4"><title>k = 2：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="105.3" cy="250.0" r="4"><title>k = 3：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+</g>
+<g class="panel" aria-label="gen-close-duplicate-s2">
+<text class="t2" x="278" y="240">close-duplicate-s2</text>
+<line class="grid" x1="278.0" y1="320.0" x2="444.0" y2="320.0"/>
+<text class="t3" x="272.0" y="323.0" text-anchor="end">0</text>
+<line class="grid" x1="278.0" y1="285.0" x2="444.0" y2="285.0"/>
+<text class="t3" x="272.0" y="288.0" text-anchor="end">0.5</text>
+<line class="grid" x1="278.0" y1="250.0" x2="444.0" y2="250.0"/>
+<text class="t3" x="272.0" y="253.0" text-anchor="end">1</text>
+<text class="t3" x="278.0" y="334.0" text-anchor="middle">0</text>
+<text class="t3" x="314.9" y="334.0" text-anchor="middle">2</text>
+<text class="t3" x="351.8" y="334.0" text-anchor="middle">4</text>
+<text class="t3" x="388.7" y="334.0" text-anchor="middle">6</text>
+<text class="t3" x="425.6" y="334.0" text-anchor="middle">8</text>
+<line class="axis" x1="333.3" y1="320.0" x2="333.3" y2="324.0"/>
+<line class="ci" x1="278.0" y1="269.4" x2="278.0" y2="250.0"/>
+<line class="ci" x1="314.9" y1="269.4" x2="314.9" y2="250.0"/>
+<line class="ci" x1="333.3" y1="269.4" x2="333.3" y2="250.0"/>
+<path class="line" d="M278.0,250.0 L314.9,250.0 L333.3,250.0"/>
+<circle class="dot" cx="278.0" cy="250.0" r="4"><title>k = 0：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="314.9" cy="250.0" r="4"><title>k = 2：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="333.3" cy="250.0" r="4"><title>k = 3：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+</g>
+<g class="panel" aria-label="gen-close-duplicate-s3">
+<text class="t2" x="506" y="240">close-duplicate-s3</text>
+<line class="grid" x1="506.0" y1="320.0" x2="672.0" y2="320.0"/>
+<text class="t3" x="500.0" y="323.0" text-anchor="end">0</text>
+<line class="grid" x1="506.0" y1="285.0" x2="672.0" y2="285.0"/>
+<text class="t3" x="500.0" y="288.0" text-anchor="end">0.5</text>
+<line class="grid" x1="506.0" y1="250.0" x2="672.0" y2="250.0"/>
+<text class="t3" x="500.0" y="253.0" text-anchor="end">1</text>
+<text class="t3" x="506.0" y="334.0" text-anchor="middle">0</text>
+<text class="t3" x="542.9" y="334.0" text-anchor="middle">2</text>
+<text class="t3" x="579.8" y="334.0" text-anchor="middle">4</text>
+<text class="t3" x="616.7" y="334.0" text-anchor="middle">6</text>
+<text class="t3" x="653.6" y="334.0" text-anchor="middle">8</text>
+<line class="axis" x1="561.3" y1="320.0" x2="561.3" y2="324.0"/>
+<line class="ci" x1="506.0" y1="269.4" x2="506.0" y2="250.0"/>
+<line class="ci" x1="542.9" y1="269.4" x2="542.9" y2="250.0"/>
+<line class="ci" x1="561.3" y1="269.4" x2="561.3" y2="250.0"/>
+<path class="line" d="M506.0,250.0 L542.9,250.0 L561.3,250.0"/>
+<circle class="dot" cx="506.0" cy="250.0" r="4"><title>k = 0：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="542.9" cy="250.0" r="4"><title>k = 2：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="561.3" cy="250.0" r="4"><title>k = 3：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+</g>
+<g class="panel" aria-label="gen-conditional-assign-s1">
+<text class="t2" x="50" y="388">conditional-assign-s1</text>
+<line class="grid" x1="50.0" y1="468.0" x2="216.0" y2="468.0"/>
+<text class="t3" x="44.0" y="471.0" text-anchor="end">0</text>
+<line class="grid" x1="50.0" y1="433.0" x2="216.0" y2="433.0"/>
+<text class="t3" x="44.0" y="436.0" text-anchor="end">0.5</text>
+<line class="grid" x1="50.0" y1="398.0" x2="216.0" y2="398.0"/>
+<text class="t3" x="44.0" y="401.0" text-anchor="end">1</text>
+<text class="t3" x="50.0" y="482.0" text-anchor="middle">0</text>
+<text class="t3" x="86.9" y="482.0" text-anchor="middle">2</text>
+<text class="t3" x="123.8" y="482.0" text-anchor="middle">4</text>
+<text class="t3" x="160.7" y="482.0" text-anchor="middle">6</text>
+<text class="t3" x="197.6" y="482.0" text-anchor="middle">8</text>
+<line class="axis" x1="86.9" y1="468.0" x2="86.9" y2="472.0"/>
+<line class="ci" x1="50.0" y1="417.4" x2="50.0" y2="398.0"/>
+<line class="ci" x1="86.9" y1="417.4" x2="86.9" y2="398.0"/>
+<path class="line" d="M50.0,398.0 L86.9,398.0"/>
+<circle class="dot" cx="50.0" cy="398.0" r="4"><title>k = 0：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="86.9" cy="398.0" r="4"><title>k = 2：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+</g>
+<g class="panel" aria-label="gen-conditional-assign-s2">
+<text class="t2" x="278" y="388">conditional-assign-s2</text>
+<line class="grid" x1="278.0" y1="468.0" x2="444.0" y2="468.0"/>
+<text class="t3" x="272.0" y="471.0" text-anchor="end">0</text>
+<line class="grid" x1="278.0" y1="433.0" x2="444.0" y2="433.0"/>
+<text class="t3" x="272.0" y="436.0" text-anchor="end">0.5</text>
+<line class="grid" x1="278.0" y1="398.0" x2="444.0" y2="398.0"/>
+<text class="t3" x="272.0" y="401.0" text-anchor="end">1</text>
+<text class="t3" x="278.0" y="482.0" text-anchor="middle">0</text>
+<text class="t3" x="314.9" y="482.0" text-anchor="middle">2</text>
+<text class="t3" x="351.8" y="482.0" text-anchor="middle">4</text>
+<text class="t3" x="388.7" y="482.0" text-anchor="middle">6</text>
+<text class="t3" x="425.6" y="482.0" text-anchor="middle">8</text>
+<line class="axis" x1="296.4" y1="468.0" x2="296.4" y2="472.0"/>
+<line class="ci" x1="278.0" y1="417.4" x2="278.0" y2="398.0"/>
+<line class="ci" x1="296.4" y1="417.4" x2="296.4" y2="398.0"/>
+<path class="line" d="M278.0,398.0 L296.4,398.0"/>
+<circle class="dot" cx="278.0" cy="398.0" r="4"><title>k = 0：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="296.4" cy="398.0" r="4"><title>k = 1：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+</g>
+<g class="panel" aria-label="gen-conditional-assign-s3">
+<text class="t2" x="506" y="388">conditional-assign-s3</text>
+<line class="grid" x1="506.0" y1="468.0" x2="672.0" y2="468.0"/>
+<text class="t3" x="500.0" y="471.0" text-anchor="end">0</text>
+<line class="grid" x1="506.0" y1="433.0" x2="672.0" y2="433.0"/>
+<text class="t3" x="500.0" y="436.0" text-anchor="end">0.5</text>
+<line class="grid" x1="506.0" y1="398.0" x2="672.0" y2="398.0"/>
+<text class="t3" x="500.0" y="401.0" text-anchor="end">1</text>
+<text class="t3" x="506.0" y="482.0" text-anchor="middle">0</text>
+<text class="t3" x="542.9" y="482.0" text-anchor="middle">2</text>
+<text class="t3" x="579.8" y="482.0" text-anchor="middle">4</text>
+<text class="t3" x="616.7" y="482.0" text-anchor="middle">6</text>
+<text class="t3" x="653.6" y="482.0" text-anchor="middle">8</text>
+<line class="axis" x1="542.9" y1="468.0" x2="542.9" y2="472.0"/>
+<line class="ci" x1="506.0" y1="417.4" x2="506.0" y2="398.0"/>
+<line class="ci" x1="542.9" y1="417.4" x2="542.9" y2="398.0"/>
+<path class="line" d="M506.0,398.0 L542.9,398.0"/>
+<circle class="dot" cx="506.0" cy="398.0" r="4"><title>k = 0：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="542.9" cy="398.0" r="4"><title>k = 2：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+</g>
+<g class="panel" aria-label="gen-escalate-label-s1">
+<text class="t2" x="50" y="536">escalate-label-s1</text>
+<line class="grid" x1="50.0" y1="616.0" x2="216.0" y2="616.0"/>
+<text class="t3" x="44.0" y="619.0" text-anchor="end">0</text>
+<line class="grid" x1="50.0" y1="581.0" x2="216.0" y2="581.0"/>
+<text class="t3" x="44.0" y="584.0" text-anchor="end">0.5</text>
+<line class="grid" x1="50.0" y1="546.0" x2="216.0" y2="546.0"/>
+<text class="t3" x="44.0" y="549.0" text-anchor="end">1</text>
+<text class="t3" x="50.0" y="630.0" text-anchor="middle">0</text>
+<text class="t3" x="86.9" y="630.0" text-anchor="middle">2</text>
+<text class="t3" x="123.8" y="630.0" text-anchor="middle">4</text>
+<text class="t3" x="160.7" y="630.0" text-anchor="middle">6</text>
+<text class="t3" x="197.6" y="630.0" text-anchor="middle">8</text>
+<line class="axis" x1="123.8" y1="616.0" x2="123.8" y2="620.0"/>
+<line class="ci" x1="50.0" y1="565.4" x2="50.0" y2="546.0"/>
+<line class="ci" x1="86.9" y1="565.4" x2="86.9" y2="546.0"/>
+<line class="ci" x1="123.8" y1="565.4" x2="123.8" y2="546.0"/>
+<path class="line" d="M50.0,546.0 L86.9,546.0 L123.8,546.0"/>
+<circle class="dot" cx="50.0" cy="546.0" r="4"><title>k = 0：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="86.9" cy="546.0" r="4"><title>k = 2：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="123.8" cy="546.0" r="4"><title>k = 4：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+</g>
+<g class="panel" aria-label="gen-escalate-label-s2">
+<text class="t2" x="278" y="536">escalate-label-s2</text>
+<line class="grid" x1="278.0" y1="616.0" x2="444.0" y2="616.0"/>
+<text class="t3" x="272.0" y="619.0" text-anchor="end">0</text>
+<line class="grid" x1="278.0" y1="581.0" x2="444.0" y2="581.0"/>
+<text class="t3" x="272.0" y="584.0" text-anchor="end">0.5</text>
+<line class="grid" x1="278.0" y1="546.0" x2="444.0" y2="546.0"/>
+<text class="t3" x="272.0" y="549.0" text-anchor="end">1</text>
+<text class="t3" x="278.0" y="630.0" text-anchor="middle">0</text>
+<text class="t3" x="314.9" y="630.0" text-anchor="middle">2</text>
+<text class="t3" x="351.8" y="630.0" text-anchor="middle">4</text>
+<text class="t3" x="388.7" y="630.0" text-anchor="middle">6</text>
+<text class="t3" x="425.6" y="630.0" text-anchor="middle">8</text>
+<line class="axis" x1="370.2" y1="616.0" x2="370.2" y2="620.0"/>
+<line class="ci" x1="278.0" y1="565.4" x2="278.0" y2="546.0"/>
+<line class="ci" x1="314.9" y1="565.4" x2="314.9" y2="546.0"/>
+<line class="ci" x1="351.8" y1="565.4" x2="351.8" y2="546.0"/>
+<line class="ci" x1="370.2" y1="565.4" x2="370.2" y2="546.0"/>
+<path class="line" d="M278.0,546.0 L314.9,546.0 L351.8,546.0 L370.2,546.0"/>
+<circle class="dot" cx="278.0" cy="546.0" r="4"><title>k = 0：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="314.9" cy="546.0" r="4"><title>k = 2：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="351.8" cy="546.0" r="4"><title>k = 4：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="370.2" cy="546.0" r="4"><title>k = 5：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+</g>
+<g class="panel" aria-label="gen-escalate-label-s3">
+<text class="t2" x="506" y="536">escalate-label-s3</text>
+<line class="grid" x1="506.0" y1="616.0" x2="672.0" y2="616.0"/>
+<text class="t3" x="500.0" y="619.0" text-anchor="end">0</text>
+<line class="grid" x1="506.0" y1="581.0" x2="672.0" y2="581.0"/>
+<text class="t3" x="500.0" y="584.0" text-anchor="end">0.5</text>
+<line class="grid" x1="506.0" y1="546.0" x2="672.0" y2="546.0"/>
+<text class="t3" x="500.0" y="549.0" text-anchor="end">1</text>
+<text class="t3" x="506.0" y="630.0" text-anchor="middle">0</text>
+<text class="t3" x="542.9" y="630.0" text-anchor="middle">2</text>
+<text class="t3" x="579.8" y="630.0" text-anchor="middle">4</text>
+<text class="t3" x="616.7" y="630.0" text-anchor="middle">6</text>
+<text class="t3" x="653.6" y="630.0" text-anchor="middle">8</text>
+<line class="axis" x1="598.2" y1="616.0" x2="598.2" y2="620.0"/>
+<line class="ci" x1="506.0" y1="565.4" x2="506.0" y2="546.0"/>
+<line class="ci" x1="542.9" y1="565.4" x2="542.9" y2="546.0"/>
+<line class="ci" x1="579.8" y1="565.4" x2="579.8" y2="546.0"/>
+<line class="ci" x1="598.2" y1="565.4" x2="598.2" y2="546.0"/>
+<path class="line" d="M506.0,546.0 L542.9,546.0 L579.8,546.0 L598.2,546.0"/>
+<circle class="dot" cx="506.0" cy="546.0" r="4"><title>k = 0：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="542.9" cy="546.0" r="4"><title>k = 2：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="579.8" cy="546.0" r="4"><title>k = 4：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="598.2" cy="546.0" r="4"><title>k = 5：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+</g>
+<g class="panel" aria-label="gen-reassign-departed-s1">
+<text class="t2" x="50" y="684">reassign-departed-s1</text>
+<line class="grid" x1="50.0" y1="764.0" x2="216.0" y2="764.0"/>
+<text class="t3" x="44.0" y="767.0" text-anchor="end">0</text>
+<line class="grid" x1="50.0" y1="729.0" x2="216.0" y2="729.0"/>
+<text class="t3" x="44.0" y="732.0" text-anchor="end">0.5</text>
+<line class="grid" x1="50.0" y1="694.0" x2="216.0" y2="694.0"/>
+<text class="t3" x="44.0" y="697.0" text-anchor="end">1</text>
+<text class="t3" x="50.0" y="778.0" text-anchor="middle">0</text>
+<text class="t3" x="86.9" y="778.0" text-anchor="middle">2</text>
+<text class="t3" x="123.8" y="778.0" text-anchor="middle">4</text>
+<text class="t3" x="160.7" y="778.0" text-anchor="middle">6</text>
+<text class="t3" x="197.6" y="778.0" text-anchor="middle">8</text>
+<line class="axis" x1="179.1" y1="764.0" x2="179.1" y2="768.0"/>
+<line class="ci" x1="50.0" y1="713.4" x2="50.0" y2="694.0"/>
+<line class="ci" x1="86.9" y1="713.4" x2="86.9" y2="694.0"/>
+<line class="ci" x1="123.8" y1="713.4" x2="123.8" y2="694.0"/>
+<line class="ci" x1="160.7" y1="713.4" x2="160.7" y2="694.0"/>
+<line class="ci" x1="179.1" y1="713.4" x2="179.1" y2="694.0"/>
+<path class="line" d="M50.0,694.0 L86.9,694.0 L123.8,694.0 L160.7,694.0 L179.1,694.0"/>
+<circle class="dot" cx="50.0" cy="694.0" r="4"><title>k = 0：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="86.9" cy="694.0" r="4"><title>k = 2：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="123.8" cy="694.0" r="4"><title>k = 4：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="160.7" cy="694.0" r="4"><title>k = 6：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="179.1" cy="694.0" r="4"><title>k = 7：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+</g>
+<g class="panel" aria-label="gen-reassign-departed-s2">
+<text class="t2" x="278" y="684">reassign-departed-s2</text>
+<line class="grid" x1="278.0" y1="764.0" x2="444.0" y2="764.0"/>
+<text class="t3" x="272.0" y="767.0" text-anchor="end">0</text>
+<line class="grid" x1="278.0" y1="729.0" x2="444.0" y2="729.0"/>
+<text class="t3" x="272.0" y="732.0" text-anchor="end">0.5</text>
+<line class="grid" x1="278.0" y1="694.0" x2="444.0" y2="694.0"/>
+<text class="t3" x="272.0" y="697.0" text-anchor="end">1</text>
+<text class="t3" x="278.0" y="778.0" text-anchor="middle">0</text>
+<text class="t3" x="314.9" y="778.0" text-anchor="middle">2</text>
+<text class="t3" x="351.8" y="778.0" text-anchor="middle">4</text>
+<text class="t3" x="388.7" y="778.0" text-anchor="middle">6</text>
+<text class="t3" x="425.6" y="778.0" text-anchor="middle">8</text>
+<line class="axis" x1="444.0" y1="764.0" x2="444.0" y2="768.0"/>
+<line class="ci" x1="278.0" y1="713.4" x2="278.0" y2="694.0"/>
+<line class="ci" x1="314.9" y1="713.4" x2="314.9" y2="694.0"/>
+<line class="ci" x1="351.8" y1="713.4" x2="351.8" y2="694.0"/>
+<line class="ci" x1="388.7" y1="713.4" x2="388.7" y2="694.0"/>
+<line class="ci" x1="425.6" y1="713.4" x2="425.6" y2="694.0"/>
+<line class="ci" x1="444.0" y1="713.4" x2="444.0" y2="694.0"/>
+<path class="line" d="M278.0,694.0 L314.9,694.0 L351.8,694.0 L388.7,694.0 L425.6,694.0 L444.0,694.0"/>
+<circle class="dot" cx="278.0" cy="694.0" r="4"><title>k = 0：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="314.9" cy="694.0" r="4"><title>k = 2：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="351.8" cy="694.0" r="4"><title>k = 4：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="388.7" cy="694.0" r="4"><title>k = 6：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="425.6" cy="694.0" r="4"><title>k = 8：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="444.0" cy="694.0" r="4"><title>k = 9：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+</g>
+<g class="panel" aria-label="gen-reassign-departed-s3">
+<text class="t2" x="506" y="684">reassign-departed-s3</text>
+<line class="grid" x1="506.0" y1="764.0" x2="672.0" y2="764.0"/>
+<text class="t3" x="500.0" y="767.0" text-anchor="end">0</text>
+<line class="grid" x1="506.0" y1="729.0" x2="672.0" y2="729.0"/>
+<text class="t3" x="500.0" y="732.0" text-anchor="end">0.5</text>
+<line class="grid" x1="506.0" y1="694.0" x2="672.0" y2="694.0"/>
+<text class="t3" x="500.0" y="697.0" text-anchor="end">1</text>
+<text class="t3" x="506.0" y="778.0" text-anchor="middle">0</text>
+<text class="t3" x="542.9" y="778.0" text-anchor="middle">2</text>
+<text class="t3" x="579.8" y="778.0" text-anchor="middle">4</text>
+<text class="t3" x="616.7" y="778.0" text-anchor="middle">6</text>
+<text class="t3" x="653.6" y="778.0" text-anchor="middle">8</text>
+<line class="axis" x1="635.1" y1="764.0" x2="635.1" y2="768.0"/>
+<line class="ci" x1="506.0" y1="713.4" x2="506.0" y2="694.0"/>
+<line class="ci" x1="542.9" y1="713.4" x2="542.9" y2="694.0"/>
+<line class="ci" x1="579.8" y1="713.4" x2="579.8" y2="694.0"/>
+<line class="ci" x1="616.7" y1="713.4" x2="616.7" y2="694.0"/>
+<line class="ci" x1="635.1" y1="713.4" x2="635.1" y2="694.0"/>
+<path class="line" d="M506.0,694.0 L542.9,694.0 L579.8,694.0 L616.7,694.0 L635.1,694.0"/>
+<circle class="dot" cx="506.0" cy="694.0" r="4"><title>k = 0：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="542.9" cy="694.0" r="4"><title>k = 2：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="579.8" cy="694.0" r="4"><title>k = 4：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="616.7" cy="694.0" r="4"><title>k = 6：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+<circle class="dot" cx="635.1" cy="694.0" r="4"><title>k = 7：10/10 成功，P = 1.00，逐點 95% Wilson CI [0.72, 1.00]</title></circle>
+</g>
+<text class="t3" x="16" y="834">source 的最後一個 checkpoint 以 x 軸上的短刻度標示；資料：docs/results/summary.json</text>
+</svg>

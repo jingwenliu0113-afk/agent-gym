@@ -308,6 +308,9 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
   - 下一步：第 7 步 eval baseline
     （`tools/with-gpu-lock -- uv run python -m experiments.run_baseline --split eval --suite study2 --rollouts 3 --confirm-local-run --max-model-calls 4320`）；
     108 個 episode 全部成功就不跑 sweep（天花板）。GPU lock 被其他工作占用時不搶占，等待後重試。
+  - **Blocked（2026-10-17 01:20Z）：GPU lock 一直被其他工作占用**。2026-10-16 19:23Z 起每 5 分鐘試一次，72 次都是 exit 75；
+    唯讀檢查：gpu-server 的 GPU 使用率 100%、顯存約 15.7 / 16.3 GB，持有者不是 Ollama，也不是本 Project 的 server。
+    不搶占、不刪除 lock；改為每 10 分鐘重試（最多 72 次，約 12 小時）。eval seed 尚未有任何推論。
 
 ### A0. 第一輪正式實驗：已完成並封存（2026-10-16）
 

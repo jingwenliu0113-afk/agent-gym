@@ -170,9 +170,17 @@ def render_readme_block(summary: dict[str, Any]) -> str:
     valid_text = "無法計算" if check["valid"] is None else ("有效" if check["valid"] else "無效")
     lines += ["", f"- 分級：{valid_text}（L1 − L3 的 95% CI 下限 "
                   f"{fmt(None if check['l1_minus_l3'] is None else check['l1_minus_l3']['low'])}）",
-              "- RQ1：" + ("沒有 sweep（" + SKIP_TEXT[a["sweep_skipped"]] + "）" if sweep is None else RQ1_TEXT[sweep["rq1"]["outcome"]]),
+              "- RQ1：" + ("沒有 sweep（" + SKIP_TEXT[a["sweep_skipped"]] + "）" if sweep is None else _rq1_line(sweep["rq1"])),
               "", "完整結果：[docs/results/study2/README.md](docs/results/study2/README.md)。", "", README_END]
     return "\n".join(lines)
+
+
+def _rq1_line(rq1: dict[str, Any]) -> str:
+    """RQ1 的結論附上分母、CI 與失敗 source 的組成（可判定的曲線很少時，讀者要看得到樣本數）。"""
+    ci = f"，95% CI [{rq1['low']:.3f}, {rq1['high']:.3f}]" if rq1["n"] else ""
+    return (f"{RQ1_TEXT[rq1['outcome']]}：可判定的失敗曲線中 cliff {rq1['k']} / {rq1['n']}{ci}"
+            f"（失敗的 source {rq1['n_failed_sources']} 條，無法判定 {rq1['n_undecidable']} 條、max_turns 混淆 "
+            f"{rq1['n_max_turns_confounded']} 條）")
 
 
 def embed(readme: str, block: str) -> str:

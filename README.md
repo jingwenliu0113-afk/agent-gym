@@ -121,6 +121,25 @@ uv run python -m experiments.run_baseline --split dev --dry-run  # 不連網：�
 完整的數字、每個 checkpoint 的表格、一個正式 trajectory 的完整步驟與失敗案例：[docs/results/README.md](docs/results/README.md)。
 <!-- results:end -->
 
+<!-- study2:start -->
+
+### Study 2：分級的多步驟任務（decision 034）
+
+獨立的後續研究；第一輪的結果與判定不變，本段也不做 Core Gate 的判定。
+
+| 級別 | success | 成功但不安全 |
+|---|---|---|
+| L1 | 0.972 | 0.000 |
+| L2 | 0.917 | 0.000 |
+| L3 | 0.917 | 0.000 |
+
+- 分級：無效（L1 − L3 的 95% CI 下限 -0.028）
+- RQ1：以驟降為主（cliff 比例的 95% CI 下限 > 0.5）：可判定的失敗曲線中 cliff 4 / 4，95% CI [0.510, 1.000]（失敗的 source 5 條，無法判定 1 條、max_turns 混淆 0 條）
+
+完整結果：[docs/results/study2/README.md](docs/results/study2/README.md)。
+
+<!-- study2:end -->
+
 ## 限制
 
 - eval 只有 15 題：結果只能當 infrastructure validation 與初步觀察，不宣稱統計上的泛化（decision 005 / 013）。

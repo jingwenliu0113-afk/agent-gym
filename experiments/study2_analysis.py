@@ -752,12 +752,18 @@ def render_markdown(analysis: Study2Analysis) -> str:
         other = [rule for rule in RULES if rule != sweep["primary_rule"]][0]
         o = sweep["by_rule"][other]["rq1"]
         lines += [f"次要規則（{RULE_TEXT[other]}）：{RQ1_TEXT[o['outcome']]}，cliff {_kn(o)}。", ""]
-        lines += ["| 級別 | source | 失敗：" + " / ".join(CLASS_TEXT[c] for c in CURVE_CLASSES) + " | 成功：" + " / ".join(CLASS_TEXT[c] for c in CURVE_CLASSES) + " |",
-                  "|---|---|---|---|"]
+        lines += ["**RQ2**（各級別；失敗的 source 為 k/n，n = 該級別有曲線的失敗 source 數；成功的 source 為條數）：", "",
+                  "| 級別 | source | " + " | ".join(CLASS_TEXT[c] for c in CURVE_CLASSES) + " | 失敗中 cliff 的比例（95% CI） |",
+                  "|---|---|" + "---|" * len(CURVE_CLASSES) + "---|"]
         for lv in LEVELS:
             r2 = sweep["rq2"][lv]
-            lines.append(f"| {lv} | {r2['n_sources']} | " + " / ".join(_kn(r2["failed"][c]) for c in CURVE_CLASSES)
-                         + " | " + " / ".join(str(r2["successful"][c]) for c in CURVE_CLASSES) + " |")
+            n_failed = r2["failed"][CURVE_CLASSES[0]]["n"]
+            share = r2["cliff_share"]
+            share_text = f"{share['k']}/{share['n']} [{_fmt(share['low'])}, {_fmt(share['high'])}]" if share["n"] else "—"
+            lines.append(f"| {lv} | 失敗（{n_failed} 條） | " + " | ".join(f"{r2['failed'][c]['k']}/{r2['failed'][c]['n']}" for c in CURVE_CLASSES)
+                         + f" | {share_text} |")
+            lines.append(f"| {lv} | 成功（{sum(r2['successful'].values())} 條） | "
+                         + " | ".join(str(r2["successful"][c]) for c in CURVE_CLASSES) + " | — |")
         s = sweep["sensitivity"]
         lines += ["", f"敏感度分析（以 max_turns 結束的 rerun 視為缺漏，在 RQ1 的母體上重新判定）：cliff {_kn(s)}"
                   + (f"，95% CI [{_fmt(s['low'])}, {_fmt(s['high'])}]" if s["n"] else "") + "。只報告，不改變判定。",

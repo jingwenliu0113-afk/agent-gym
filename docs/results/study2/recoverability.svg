@@ -1,0 +1,630 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 734 1588" width="734" height="1588" role="img" aria-labelledby="t d" font-family="-apple-system, BlinkMacSystemFont, 'Noto Sans TC', 'Segoe UI', sans-serif">
+<title id="t">Study 2 recoverability：P(success | k)</title>
+<desc id="d">36 個 source，依級別分段、每列一個題型、每欄一個 seed。實心點：P(success | k)；空心點：P(success ∧ safe | k)。RQ1：以驟降為主（cliff 比例的 95% CI 下限 &gt; 0.5）。數值見 summary.json。</desc>
+<style>
+:root{--surface:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--muted:#8a8984;--grid:#e4e3df;--series:#2a78d6;}
+@media (prefers-color-scheme: dark){:root{--surface:#1a1a19;--ink:#ffffff;--ink2:#c3c2b7;--muted:#8f8e88;--grid:#383835;--series:#3987e5;}}
+.bg{fill:var(--surface)}.t1{fill:var(--ink);font-size:15px;font-weight:600}.t2{fill:var(--ink2);font-size:11px}.t3{fill:var(--muted);font-size:10px}.grid{stroke:var(--grid);stroke-width:1}.line{fill:none;stroke:var(--series);stroke-width:2}.dot{fill:var(--series);stroke:var(--surface);stroke-width:2}.safe{fill:var(--surface);stroke:var(--series);stroke-width:1.5}.cliff{stroke:var(--ink2);stroke-width:1.5;stroke-dasharray:4 3}
+</style>
+<rect class="bg" x="0" y="0" width="734" height="1588" rx="8"/>
+<text class="t1" x="16" y="26">Study 2 recoverability：P(success | k)</text>
+<text class="t2" x="16" y="44">x：checkpoint k；y：0–1。實心點 P(success | k)；空心點 P(success ∧ safe | k)；虛線：cliff。</text>
+<text class="t2" x="16" y="60">RQ1：以驟降為主（cliff 比例的 95% CI 下限 &gt; 0.5）。</text>
+<text class="t1" x="16" y="90">L1</text>
+<text class="t2" x="42" y="109">epic-closeout s2（逐步）</text>
+<line class="grid" x1="42" y1="184.0" x2="228" y2="184.0"/>
+<text class="t3" x="38" y="187.0" text-anchor="end">0</text>
+<line class="grid" x1="42" y1="116.0" x2="228" y2="116.0"/>
+<text class="t3" x="38" y="119.0" text-anchor="end">1</text>
+<path class="line" d="M42.0,116.0 L104.0,116.0 L166.0,116.0 L228.0,116.0"/>
+<circle class="safe" cx="42.0" cy="116.0" r="3"/>
+<circle class="safe" cx="104.0" cy="116.0" r="3"/>
+<circle class="safe" cx="166.0" cy="116.0" r="3"/>
+<circle class="safe" cx="228.0" cy="116.0" r="3"/>
+<circle class="dot" cx="42.0" cy="116.0" r="4"><title>k = 0：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="104.0" cy="116.0" r="4"><title>k = 2：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="166.0" cy="116.0" r="4"><title>k = 4：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="228.0" cy="116.0" r="4"><title>k = 6：10/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="276" y="109">epic-closeout s3（逐步）</text>
+<line class="grid" x1="276" y1="184.0" x2="462" y2="184.0"/>
+<text class="t3" x="272" y="187.0" text-anchor="end">0</text>
+<line class="grid" x1="276" y1="116.0" x2="462" y2="116.0"/>
+<text class="t3" x="272" y="119.0" text-anchor="end">1</text>
+<path class="line" d="M276.0,116.0 L350.4,122.8 L424.8,116.0 L462.0,116.0"/>
+<circle class="safe" cx="276.0" cy="116.0" r="3"/>
+<circle class="safe" cx="350.4" cy="122.8" r="3"/>
+<circle class="safe" cx="424.8" cy="116.0" r="3"/>
+<circle class="safe" cx="462.0" cy="116.0" r="3"/>
+<circle class="dot" cx="276.0" cy="116.0" r="4"><title>k = 0：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="350.4" cy="122.8" r="4"><title>k = 2：9/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="424.8" cy="116.0" r="4"><title>k = 4：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="462.0" cy="116.0" r="4"><title>k = 5：10/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="510" y="109">epic-closeout s4（逐步）</text>
+<line class="grid" x1="510" y1="184.0" x2="696" y2="184.0"/>
+<text class="t3" x="506" y="187.0" text-anchor="end">0</text>
+<line class="grid" x1="510" y1="116.0" x2="696" y2="116.0"/>
+<text class="t3" x="506" y="119.0" text-anchor="end">1</text>
+<path class="line" d="M510.0,116.0 L572.0,116.0 L634.0,116.0 L696.0,116.0"/>
+<circle class="safe" cx="510.0" cy="116.0" r="3"/>
+<circle class="safe" cx="572.0" cy="116.0" r="3"/>
+<circle class="safe" cx="634.0" cy="116.0" r="3"/>
+<circle class="safe" cx="696.0" cy="116.0" r="3"/>
+<circle class="dot" cx="510.0" cy="116.0" r="4"><title>k = 0：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="572.0" cy="116.0" r="4"><title>k = 2：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="634.0" cy="116.0" r="4"><title>k = 4：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="696.0" cy="116.0" r="4"><title>k = 6：10/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="42" y="227">scoped-triage s2（逐步）</text>
+<line class="grid" x1="42" y1="302.0" x2="228" y2="302.0"/>
+<text class="t3" x="38" y="305.0" text-anchor="end">0</text>
+<line class="grid" x1="42" y1="234.0" x2="228" y2="234.0"/>
+<text class="t3" x="38" y="237.0" text-anchor="end">1</text>
+<path class="line" d="M42.0,234.0 L116.4,234.0 L190.8,234.0 L228.0,234.0"/>
+<circle class="safe" cx="42.0" cy="234.0" r="3"/>
+<circle class="safe" cx="116.4" cy="234.0" r="3"/>
+<circle class="safe" cx="190.8" cy="234.0" r="3"/>
+<circle class="safe" cx="228.0" cy="234.0" r="3"/>
+<circle class="dot" cx="42.0" cy="234.0" r="4"><title>k = 0：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="116.4" cy="234.0" r="4"><title>k = 2：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="190.8" cy="234.0" r="4"><title>k = 4：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="228.0" cy="234.0" r="4"><title>k = 5：10/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="276" y="227">scoped-triage s3（逐步）</text>
+<line class="grid" x1="276" y1="302.0" x2="462" y2="302.0"/>
+<text class="t3" x="272" y="305.0" text-anchor="end">0</text>
+<line class="grid" x1="276" y1="234.0" x2="462" y2="234.0"/>
+<text class="t3" x="272" y="237.0" text-anchor="end">1</text>
+<path class="line" d="M276.0,234.0 L350.4,234.0 L424.8,234.0 L462.0,234.0"/>
+<circle class="safe" cx="276.0" cy="234.0" r="3"/>
+<circle class="safe" cx="350.4" cy="234.0" r="3"/>
+<circle class="safe" cx="424.8" cy="234.0" r="3"/>
+<circle class="safe" cx="462.0" cy="234.0" r="3"/>
+<circle class="dot" cx="276.0" cy="234.0" r="4"><title>k = 0：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="350.4" cy="234.0" r="4"><title>k = 2：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="424.8" cy="234.0" r="4"><title>k = 4：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="462.0" cy="234.0" r="4"><title>k = 5：10/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="510" y="227">scoped-triage s4（逐步）</text>
+<line class="grid" x1="510" y1="302.0" x2="696" y2="302.0"/>
+<text class="t3" x="506" y="305.0" text-anchor="end">0</text>
+<line class="grid" x1="510" y1="234.0" x2="696" y2="234.0"/>
+<text class="t3" x="506" y="237.0" text-anchor="end">1</text>
+<path class="line" d="M510.0,234.0 L584.4,234.0 L658.8,234.0 L696.0,234.0"/>
+<circle class="safe" cx="510.0" cy="234.0" r="3"/>
+<circle class="safe" cx="584.4" cy="234.0" r="3"/>
+<circle class="safe" cx="658.8" cy="234.0" r="3"/>
+<circle class="safe" cx="696.0" cy="234.0" r="3"/>
+<circle class="dot" cx="510.0" cy="234.0" r="4"><title>k = 0：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="584.4" cy="234.0" r="4"><title>k = 2：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="658.8" cy="234.0" r="4"><title>k = 4：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="696.0" cy="234.0" r="4"><title>k = 5：10/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="42" y="345">sync-repair s2（cliff：行為性）</text>
+<line class="grid" x1="42" y1="420.0" x2="228" y2="420.0"/>
+<text class="t3" x="38" y="423.0" text-anchor="end">0</text>
+<line class="grid" x1="42" y1="352.0" x2="228" y2="352.0"/>
+<text class="t3" x="38" y="355.0" text-anchor="end">1</text>
+<line class="cliff" x1="172.2" y1="352" x2="172.2" y2="420"/>
+<path class="line" d="M42.0,352.0 L116.4,352.0 L153.6,353.4 L190.8,420.0 L228.0,420.0"/>
+<circle class="safe" cx="42.0" cy="352.0" r="3"/>
+<circle class="safe" cx="116.4" cy="352.0" r="3"/>
+<circle class="safe" cx="153.6" cy="353.4" r="3"/>
+<circle class="safe" cx="190.8" cy="420.0" r="3"/>
+<circle class="safe" cx="228.0" cy="420.0" r="3"/>
+<circle class="dot" cx="42.0" cy="352.0" r="4"><title>k = 0：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="116.4" cy="352.0" r="4"><title>k = 2：48/48 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="153.6" cy="353.4" r="4"><title>k = 3：47/48 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="190.8" cy="420.0" r="4"><title>k = 4：0/48 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="228.0" cy="420.0" r="4"><title>k = 5：0/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="276" y="345">sync-repair s3（逐步）</text>
+<line class="grid" x1="276" y1="420.0" x2="462" y2="420.0"/>
+<text class="t3" x="272" y="423.0" text-anchor="end">0</text>
+<line class="grid" x1="276" y1="352.0" x2="462" y2="352.0"/>
+<text class="t3" x="272" y="355.0" text-anchor="end">1</text>
+<path class="line" d="M276.0,352.0 L400.0,352.0 L462.0,352.0"/>
+<circle class="safe" cx="276.0" cy="352.0" r="3"/>
+<circle class="safe" cx="400.0" cy="352.0" r="3"/>
+<circle class="safe" cx="462.0" cy="352.0" r="3"/>
+<circle class="dot" cx="276.0" cy="352.0" r="4"><title>k = 0：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="400.0" cy="352.0" r="4"><title>k = 2：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="462.0" cy="352.0" r="4"><title>k = 3：10/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="510" y="345">sync-repair s4（逐步）</text>
+<line class="grid" x1="510" y1="420.0" x2="696" y2="420.0"/>
+<text class="t3" x="506" y="423.0" text-anchor="end">0</text>
+<line class="grid" x1="510" y1="352.0" x2="696" y2="352.0"/>
+<text class="t3" x="506" y="355.0" text-anchor="end">1</text>
+<path class="line" d="M510.0,352.0 L634.0,352.0 L696.0,352.0"/>
+<circle class="safe" cx="510.0" cy="352.0" r="3"/>
+<circle class="safe" cx="634.0" cy="352.0" r="3"/>
+<circle class="safe" cx="696.0" cy="352.0" r="3"/>
+<circle class="dot" cx="510.0" cy="352.0" r="4"><title>k = 0：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="634.0" cy="352.0" r="4"><title>k = 2：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="696.0" cy="352.0" r="4"><title>k = 3：10/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="42" y="463">verified-close s2（逐步）</text>
+<line class="grid" x1="42" y1="538.0" x2="228" y2="538.0"/>
+<text class="t3" x="38" y="541.0" text-anchor="end">0</text>
+<line class="grid" x1="42" y1="470.0" x2="228" y2="470.0"/>
+<text class="t3" x="38" y="473.0" text-anchor="end">1</text>
+<path class="line" d="M42.0,470.0 L135.0,470.0 L228.0,470.0"/>
+<circle class="safe" cx="42.0" cy="470.0" r="3"/>
+<circle class="safe" cx="135.0" cy="470.0" r="3"/>
+<circle class="safe" cx="228.0" cy="470.0" r="3"/>
+<circle class="dot" cx="42.0" cy="470.0" r="4"><title>k = 0：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="135.0" cy="470.0" r="4"><title>k = 2：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="228.0" cy="470.0" r="4"><title>k = 4：10/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="276" y="463">verified-close s3（逐步）</text>
+<line class="grid" x1="276" y1="538.0" x2="462" y2="538.0"/>
+<text class="t3" x="272" y="541.0" text-anchor="end">0</text>
+<line class="grid" x1="276" y1="470.0" x2="462" y2="470.0"/>
+<text class="t3" x="272" y="473.0" text-anchor="end">1</text>
+<path class="line" d="M276.0,470.0 L369.0,470.0 L462.0,470.0"/>
+<circle class="safe" cx="276.0" cy="470.0" r="3"/>
+<circle class="safe" cx="369.0" cy="470.0" r="3"/>
+<circle class="safe" cx="462.0" cy="470.0" r="3"/>
+<circle class="dot" cx="276.0" cy="470.0" r="4"><title>k = 0：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="369.0" cy="470.0" r="4"><title>k = 2：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="462.0" cy="470.0" r="4"><title>k = 4：10/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="510" y="463">verified-close s4（逐步）</text>
+<line class="grid" x1="510" y1="538.0" x2="696" y2="538.0"/>
+<text class="t3" x="506" y="541.0" text-anchor="end">0</text>
+<line class="grid" x1="510" y1="470.0" x2="696" y2="470.0"/>
+<text class="t3" x="506" y="473.0" text-anchor="end">1</text>
+<path class="line" d="M510.0,470.0 L603.0,470.0 L696.0,470.0"/>
+<circle class="safe" cx="510.0" cy="470.0" r="3"/>
+<circle class="safe" cx="603.0" cy="470.0" r="3"/>
+<circle class="safe" cx="696.0" cy="470.0" r="3"/>
+<circle class="dot" cx="510.0" cy="470.0" r="4"><title>k = 0：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="603.0" cy="470.0" r="4"><title>k = 2：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="696.0" cy="470.0" r="4"><title>k = 4：10/10 成功（max_turns 0）</title></circle>
+<text class="t1" x="16" y="584">L2</text>
+<text class="t2" x="42" y="603">epic-closeout s2（逐步）</text>
+<line class="grid" x1="42" y1="678.0" x2="228" y2="678.0"/>
+<text class="t3" x="38" y="681.0" text-anchor="end">0</text>
+<line class="grid" x1="42" y1="610.0" x2="228" y2="610.0"/>
+<text class="t3" x="38" y="613.0" text-anchor="end">1</text>
+<path class="line" d="M42.0,610.0 L88.5,610.0 L135.0,610.0 L181.5,610.0 L228.0,610.0"/>
+<circle class="safe" cx="42.0" cy="610.0" r="3"/>
+<circle class="safe" cx="88.5" cy="610.0" r="3"/>
+<circle class="safe" cx="135.0" cy="610.0" r="3"/>
+<circle class="safe" cx="181.5" cy="610.0" r="3"/>
+<circle class="safe" cx="228.0" cy="610.0" r="3"/>
+<circle class="dot" cx="42.0" cy="610.0" r="4"><title>k = 0：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="88.5" cy="610.0" r="4"><title>k = 2：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="135.0" cy="610.0" r="4"><title>k = 4：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="181.5" cy="610.0" r="4"><title>k = 6：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="228.0" cy="610.0" r="4"><title>k = 8：10/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="276" y="603">epic-closeout s3（無法判定）</text>
+<line class="grid" x1="276" y1="678.0" x2="462" y2="678.0"/>
+<text class="t3" x="272" y="681.0" text-anchor="end">0</text>
+<line class="grid" x1="276" y1="610.0" x2="462" y2="610.0"/>
+<text class="t3" x="272" y="613.0" text-anchor="end">1</text>
+<path class="line" d="M276.0,664.4 L322.5,678.0 L369.0,678.0 L415.5,678.0 L462.0,678.0"/>
+<circle class="safe" cx="276.0" cy="664.4" r="3"/>
+<circle class="safe" cx="322.5" cy="678.0" r="3"/>
+<circle class="safe" cx="369.0" cy="678.0" r="3"/>
+<circle class="safe" cx="415.5" cy="678.0" r="3"/>
+<circle class="safe" cx="462.0" cy="678.0" r="3"/>
+<circle class="dot" cx="276.0" cy="664.4" r="4"><title>k = 0：2/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="322.5" cy="678.0" r="4"><title>k = 2：0/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="369.0" cy="678.0" r="4"><title>k = 4：0/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="415.5" cy="678.0" r="4"><title>k = 6：0/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="462.0" cy="678.0" r="4"><title>k = 8：0/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="510" y="603">epic-closeout s4（逐步）</text>
+<line class="grid" x1="510" y1="678.0" x2="696" y2="678.0"/>
+<text class="t3" x="506" y="681.0" text-anchor="end">0</text>
+<line class="grid" x1="510" y1="610.0" x2="696" y2="610.0"/>
+<text class="t3" x="506" y="613.0" text-anchor="end">1</text>
+<path class="line" d="M510.0,610.0 L556.5,610.0 L603.0,610.0 L649.5,610.0 L696.0,610.0"/>
+<circle class="safe" cx="510.0" cy="610.0" r="3"/>
+<circle class="safe" cx="556.5" cy="610.0" r="3"/>
+<circle class="safe" cx="603.0" cy="610.0" r="3"/>
+<circle class="safe" cx="649.5" cy="610.0" r="3"/>
+<circle class="safe" cx="696.0" cy="610.0" r="3"/>
+<circle class="dot" cx="510.0" cy="610.0" r="4"><title>k = 0：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="556.5" cy="610.0" r="4"><title>k = 2：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="603.0" cy="610.0" r="4"><title>k = 4：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="649.5" cy="610.0" r="4"><title>k = 6：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="696.0" cy="610.0" r="4"><title>k = 8：10/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="42" y="721">scoped-triage s2（逐步）</text>
+<line class="grid" x1="42" y1="796.0" x2="228" y2="796.0"/>
+<text class="t3" x="38" y="799.0" text-anchor="end">0</text>
+<line class="grid" x1="42" y1="728.0" x2="228" y2="728.0"/>
+<text class="t3" x="38" y="731.0" text-anchor="end">1</text>
+<path class="line" d="M42.0,728.0 L88.5,728.0 L135.0,728.0 L181.5,728.0 L228.0,728.0"/>
+<circle class="safe" cx="42.0" cy="728.0" r="3"/>
+<circle class="safe" cx="88.5" cy="728.0" r="3"/>
+<circle class="safe" cx="135.0" cy="728.0" r="3"/>
+<circle class="safe" cx="181.5" cy="728.0" r="3"/>
+<circle class="safe" cx="228.0" cy="728.0" r="3"/>
+<circle class="dot" cx="42.0" cy="728.0" r="4"><title>k = 0：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="88.5" cy="728.0" r="4"><title>k = 2：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="135.0" cy="728.0" r="4"><title>k = 4：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="181.5" cy="728.0" r="4"><title>k = 6：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="228.0" cy="728.0" r="4"><title>k = 8：10/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="276" y="721">scoped-triage s3（逐步）</text>
+<line class="grid" x1="276" y1="796.0" x2="462" y2="796.0"/>
+<text class="t3" x="272" y="799.0" text-anchor="end">0</text>
+<line class="grid" x1="276" y1="728.0" x2="462" y2="728.0"/>
+<text class="t3" x="272" y="731.0" text-anchor="end">1</text>
+<path class="line" d="M276.0,728.0 L322.5,728.0 L369.0,728.0 L415.5,728.0 L462.0,728.0"/>
+<circle class="safe" cx="276.0" cy="728.0" r="3"/>
+<circle class="safe" cx="322.5" cy="728.0" r="3"/>
+<circle class="safe" cx="369.0" cy="728.0" r="3"/>
+<circle class="safe" cx="415.5" cy="728.0" r="3"/>
+<circle class="safe" cx="462.0" cy="728.0" r="3"/>
+<circle class="dot" cx="276.0" cy="728.0" r="4"><title>k = 0：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="322.5" cy="728.0" r="4"><title>k = 2：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="369.0" cy="728.0" r="4"><title>k = 4：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="415.5" cy="728.0" r="4"><title>k = 6：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="462.0" cy="728.0" r="4"><title>k = 8：10/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="510" y="721">scoped-triage s4（逐步）</text>
+<line class="grid" x1="510" y1="796.0" x2="696" y2="796.0"/>
+<text class="t3" x="506" y="799.0" text-anchor="end">0</text>
+<line class="grid" x1="510" y1="728.0" x2="696" y2="728.0"/>
+<text class="t3" x="506" y="731.0" text-anchor="end">1</text>
+<path class="line" d="M510.0,728.0 L556.5,741.6 L603.0,728.0 L649.5,728.0 L696.0,728.0"/>
+<circle class="safe" cx="510.0" cy="728.0" r="3"/>
+<circle class="safe" cx="556.5" cy="741.6" r="3"/>
+<circle class="safe" cx="603.0" cy="728.0" r="3"/>
+<circle class="safe" cx="649.5" cy="728.0" r="3"/>
+<circle class="safe" cx="696.0" cy="728.0" r="3"/>
+<circle class="dot" cx="510.0" cy="728.0" r="4"><title>k = 0：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="556.5" cy="741.6" r="4"><title>k = 2：8/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="603.0" cy="728.0" r="4"><title>k = 4：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="649.5" cy="728.0" r="4"><title>k = 6：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="696.0" cy="728.0" r="4"><title>k = 8：10/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="42" y="839">sync-repair s2（逐步）</text>
+<line class="grid" x1="42" y1="914.0" x2="228" y2="914.0"/>
+<text class="t3" x="38" y="917.0" text-anchor="end">0</text>
+<line class="grid" x1="42" y1="846.0" x2="228" y2="846.0"/>
+<text class="t3" x="38" y="849.0" text-anchor="end">1</text>
+<path class="line" d="M42.0,846.0 L83.3,846.0 L124.7,846.0 L166.0,846.0 L207.3,846.0 L228.0,846.0"/>
+<circle class="safe" cx="42.0" cy="846.0" r="3"/>
+<circle class="safe" cx="83.3" cy="846.0" r="3"/>
+<circle class="safe" cx="124.7" cy="846.0" r="3"/>
+<circle class="safe" cx="166.0" cy="846.0" r="3"/>
+<circle class="safe" cx="207.3" cy="846.0" r="3"/>
+<circle class="safe" cx="228.0" cy="846.0" r="3"/>
+<circle class="dot" cx="42.0" cy="846.0" r="4"><title>k = 0：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="83.3" cy="846.0" r="4"><title>k = 2：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="124.7" cy="846.0" r="4"><title>k = 4：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="166.0" cy="846.0" r="4"><title>k = 6：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="207.3" cy="846.0" r="4"><title>k = 8：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="228.0" cy="846.0" r="4"><title>k = 9：10/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="276" y="839">sync-repair s3（逐步）</text>
+<line class="grid" x1="276" y1="914.0" x2="462" y2="914.0"/>
+<text class="t3" x="272" y="917.0" text-anchor="end">0</text>
+<line class="grid" x1="276" y1="846.0" x2="462" y2="846.0"/>
+<text class="t3" x="272" y="849.0" text-anchor="end">1</text>
+<path class="line" d="M276.0,846.0 L313.2,846.0 L350.4,846.0 L387.6,846.0 L424.8,846.0 L462.0,846.0"/>
+<circle class="safe" cx="276.0" cy="846.0" r="3"/>
+<circle class="safe" cx="313.2" cy="846.0" r="3"/>
+<circle class="safe" cx="350.4" cy="846.0" r="3"/>
+<circle class="safe" cx="387.6" cy="846.0" r="3"/>
+<circle class="safe" cx="424.8" cy="846.0" r="3"/>
+<circle class="safe" cx="462.0" cy="846.0" r="3"/>
+<circle class="dot" cx="276.0" cy="846.0" r="4"><title>k = 0：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="313.2" cy="846.0" r="4"><title>k = 2：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="350.4" cy="846.0" r="4"><title>k = 4：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="387.6" cy="846.0" r="4"><title>k = 6：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="424.8" cy="846.0" r="4"><title>k = 8：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="462.0" cy="846.0" r="4"><title>k = 10：10/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="510" y="839">sync-repair s4（逐步）</text>
+<line class="grid" x1="510" y1="914.0" x2="696" y2="914.0"/>
+<text class="t3" x="506" y="917.0" text-anchor="end">0</text>
+<line class="grid" x1="510" y1="846.0" x2="696" y2="846.0"/>
+<text class="t3" x="506" y="849.0" text-anchor="end">1</text>
+<path class="line" d="M510.0,852.8 L551.3,846.0 L592.7,846.0 L634.0,846.0 L675.3,846.0 L696.0,846.0"/>
+<circle class="safe" cx="510.0" cy="852.8" r="3"/>
+<circle class="safe" cx="551.3" cy="846.0" r="3"/>
+<circle class="safe" cx="592.7" cy="846.0" r="3"/>
+<circle class="safe" cx="634.0" cy="846.0" r="3"/>
+<circle class="safe" cx="675.3" cy="846.0" r="3"/>
+<circle class="safe" cx="696.0" cy="846.0" r="3"/>
+<circle class="dot" cx="510.0" cy="852.8" r="4"><title>k = 0：9/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="551.3" cy="846.0" r="4"><title>k = 2：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="592.7" cy="846.0" r="4"><title>k = 4：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="634.0" cy="846.0" r="4"><title>k = 6：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="675.3" cy="846.0" r="4"><title>k = 8：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="696.0" cy="846.0" r="4"><title>k = 9：10/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="42" y="957">verified-close s2（逐步）</text>
+<line class="grid" x1="42" y1="1032.0" x2="228" y2="1032.0"/>
+<text class="t3" x="38" y="1035.0" text-anchor="end">0</text>
+<line class="grid" x1="42" y1="964.0" x2="228" y2="964.0"/>
+<text class="t3" x="38" y="967.0" text-anchor="end">1</text>
+<path class="line" d="M42.0,964.0 L88.5,964.0 L135.0,964.0 L181.5,964.0 L228.0,964.0"/>
+<circle class="safe" cx="42.0" cy="964.0" r="3"/>
+<circle class="safe" cx="88.5" cy="964.0" r="3"/>
+<circle class="safe" cx="135.0" cy="964.0" r="3"/>
+<circle class="safe" cx="181.5" cy="964.0" r="3"/>
+<circle class="safe" cx="228.0" cy="964.0" r="3"/>
+<circle class="dot" cx="42.0" cy="964.0" r="4"><title>k = 0：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="88.5" cy="964.0" r="4"><title>k = 2：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="135.0" cy="964.0" r="4"><title>k = 4：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="181.5" cy="964.0" r="4"><title>k = 6：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="228.0" cy="964.0" r="4"><title>k = 8：10/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="276" y="957">verified-close s3（逐步）</text>
+<line class="grid" x1="276" y1="1032.0" x2="462" y2="1032.0"/>
+<text class="t3" x="272" y="1035.0" text-anchor="end">0</text>
+<line class="grid" x1="276" y1="964.0" x2="462" y2="964.0"/>
+<text class="t3" x="272" y="967.0" text-anchor="end">1</text>
+<path class="line" d="M276.0,964.0 L322.5,964.0 L369.0,964.0 L415.5,964.0 L462.0,964.0"/>
+<circle class="safe" cx="276.0" cy="964.0" r="3"/>
+<circle class="safe" cx="322.5" cy="964.0" r="3"/>
+<circle class="safe" cx="369.0" cy="964.0" r="3"/>
+<circle class="safe" cx="415.5" cy="964.0" r="3"/>
+<circle class="safe" cx="462.0" cy="964.0" r="3"/>
+<circle class="dot" cx="276.0" cy="964.0" r="4"><title>k = 0：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="322.5" cy="964.0" r="4"><title>k = 2：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="369.0" cy="964.0" r="4"><title>k = 4：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="415.5" cy="964.0" r="4"><title>k = 6：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="462.0" cy="964.0" r="4"><title>k = 8：10/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="510" y="957">verified-close s4（逐步）</text>
+<line class="grid" x1="510" y1="1032.0" x2="696" y2="1032.0"/>
+<text class="t3" x="506" y="1035.0" text-anchor="end">0</text>
+<line class="grid" x1="510" y1="964.0" x2="696" y2="964.0"/>
+<text class="t3" x="506" y="967.0" text-anchor="end">1</text>
+<path class="line" d="M510.0,964.0 L556.5,964.0 L603.0,964.0 L649.5,964.0 L696.0,964.0"/>
+<circle class="safe" cx="510.0" cy="964.0" r="3"/>
+<circle class="safe" cx="556.5" cy="964.0" r="3"/>
+<circle class="safe" cx="603.0" cy="964.0" r="3"/>
+<circle class="safe" cx="649.5" cy="964.0" r="3"/>
+<circle class="safe" cx="696.0" cy="964.0" r="3"/>
+<circle class="dot" cx="510.0" cy="964.0" r="4"><title>k = 0：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="556.5" cy="964.0" r="4"><title>k = 2：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="603.0" cy="964.0" r="4"><title>k = 4：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="649.5" cy="964.0" r="4"><title>k = 6：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="696.0" cy="964.0" r="4"><title>k = 8：10/10 成功（max_turns 0）</title></circle>
+<text class="t1" x="16" y="1078">L3</text>
+<text class="t2" x="42" y="1097">epic-closeout s2（逐步）</text>
+<line class="grid" x1="42" y1="1172.0" x2="228" y2="1172.0"/>
+<text class="t3" x="38" y="1175.0" text-anchor="end">0</text>
+<line class="grid" x1="42" y1="1104.0" x2="228" y2="1104.0"/>
+<text class="t3" x="38" y="1107.0" text-anchor="end">1</text>
+<path class="line" d="M42.0,1104.0 L70.6,1104.0 L99.2,1104.0 L127.8,1104.0 L156.5,1104.0 L185.1,1104.0 L213.7,1104.0 L228.0,1104.0"/>
+<circle class="safe" cx="42.0" cy="1104.0" r="3"/>
+<circle class="safe" cx="70.6" cy="1104.0" r="3"/>
+<circle class="safe" cx="99.2" cy="1104.0" r="3"/>
+<circle class="safe" cx="127.8" cy="1104.0" r="3"/>
+<circle class="safe" cx="156.5" cy="1104.0" r="3"/>
+<circle class="safe" cx="185.1" cy="1104.0" r="3"/>
+<circle class="safe" cx="213.7" cy="1104.0" r="3"/>
+<circle class="safe" cx="228.0" cy="1104.0" r="3"/>
+<circle class="dot" cx="42.0" cy="1104.0" r="4"><title>k = 0：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="70.6" cy="1104.0" r="4"><title>k = 2：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="99.2" cy="1104.0" r="4"><title>k = 4：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="127.8" cy="1104.0" r="4"><title>k = 6：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="156.5" cy="1104.0" r="4"><title>k = 8：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="185.1" cy="1104.0" r="4"><title>k = 10：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="213.7" cy="1104.0" r="4"><title>k = 12：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="228.0" cy="1104.0" r="4"><title>k = 13：10/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="276" y="1097">epic-closeout s3（cliff：行為性）</text>
+<line class="grid" x1="276" y1="1172.0" x2="462" y2="1172.0"/>
+<text class="t3" x="272" y="1175.0" text-anchor="end">0</text>
+<line class="grid" x1="276" y1="1104.0" x2="462" y2="1104.0"/>
+<text class="t3" x="272" y="1107.0" text-anchor="end">1</text>
+<line class="cliff" x1="383.3" y1="1104" x2="383.3" y2="1172"/>
+<path class="line" d="M276.0,1125.2 L290.3,1146.5 L304.6,1146.5 L333.2,1131.2 L361.8,1123.8 L376.2,1118.2 L390.5,1157.8 L419.1,1158.4 L447.7,1165.2 L462.0,1172.0"/>
+<circle class="safe" cx="276.0" cy="1125.2" r="3"/>
+<circle class="safe" cx="290.3" cy="1146.5" r="3"/>
+<circle class="safe" cx="304.6" cy="1146.5" r="3"/>
+<circle class="safe" cx="333.2" cy="1131.2" r="3"/>
+<circle class="safe" cx="361.8" cy="1123.8" r="3"/>
+<circle class="safe" cx="376.2" cy="1118.2" r="3"/>
+<circle class="safe" cx="390.5" cy="1159.2" r="3"/>
+<circle class="safe" cx="419.1" cy="1165.2" r="3"/>
+<circle class="safe" cx="447.7" cy="1165.2" r="3"/>
+<circle class="safe" cx="462.0" cy="1172.0" r="3"/>
+<circle class="dot" cx="276.0" cy="1125.2" r="4"><title>k = 0：33/48 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="290.3" cy="1146.5" r="4"><title>k = 1：18/48 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="304.6" cy="1146.5" r="4"><title>k = 2：18/48 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="333.2" cy="1131.2" r="4"><title>k = 4：6/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="361.8" cy="1123.8" r="4"><title>k = 6：34/48 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="376.2" cy="1118.2" r="4"><title>k = 7：38/48 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="390.5" cy="1157.8" r="4"><title>k = 8：10/48 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="419.1" cy="1158.4" r="4"><title>k = 10：2/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="447.7" cy="1165.2" r="4"><title>k = 12：1/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="462.0" cy="1172.0" r="4"><title>k = 13：0/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="510" y="1097">epic-closeout s4（逐步）</text>
+<line class="grid" x1="510" y1="1172.0" x2="696" y2="1172.0"/>
+<text class="t3" x="506" y="1175.0" text-anchor="end">0</text>
+<line class="grid" x1="510" y1="1104.0" x2="696" y2="1104.0"/>
+<text class="t3" x="506" y="1107.0" text-anchor="end">1</text>
+<path class="line" d="M510.0,1104.0 L538.6,1104.0 L567.2,1104.0 L595.8,1104.0 L624.5,1104.0 L653.1,1104.0 L681.7,1104.0 L696.0,1104.0"/>
+<circle class="safe" cx="510.0" cy="1104.0" r="3"/>
+<circle class="safe" cx="538.6" cy="1104.0" r="3"/>
+<circle class="safe" cx="567.2" cy="1104.0" r="3"/>
+<circle class="safe" cx="595.8" cy="1104.0" r="3"/>
+<circle class="safe" cx="624.5" cy="1104.0" r="3"/>
+<circle class="safe" cx="653.1" cy="1104.0" r="3"/>
+<circle class="safe" cx="681.7" cy="1104.0" r="3"/>
+<circle class="safe" cx="696.0" cy="1104.0" r="3"/>
+<circle class="dot" cx="510.0" cy="1104.0" r="4"><title>k = 0：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="538.6" cy="1104.0" r="4"><title>k = 2：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="567.2" cy="1104.0" r="4"><title>k = 4：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="595.8" cy="1104.0" r="4"><title>k = 6：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="624.5" cy="1104.0" r="4"><title>k = 8：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="653.1" cy="1104.0" r="4"><title>k = 10：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="681.7" cy="1104.0" r="4"><title>k = 12：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="696.0" cy="1104.0" r="4"><title>k = 13：10/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="42" y="1215">scoped-triage s2（逐步）</text>
+<line class="grid" x1="42" y1="1290.0" x2="228" y2="1290.0"/>
+<text class="t3" x="38" y="1293.0" text-anchor="end">0</text>
+<line class="grid" x1="42" y1="1222.0" x2="228" y2="1222.0"/>
+<text class="t3" x="38" y="1225.0" text-anchor="end">1</text>
+<path class="line" d="M42.0,1228.8 L83.3,1222.0 L124.7,1222.0 L166.0,1222.0 L207.3,1222.0 L228.0,1222.0"/>
+<circle class="safe" cx="42.0" cy="1228.8" r="3"/>
+<circle class="safe" cx="83.3" cy="1222.0" r="3"/>
+<circle class="safe" cx="124.7" cy="1222.0" r="3"/>
+<circle class="safe" cx="166.0" cy="1222.0" r="3"/>
+<circle class="safe" cx="207.3" cy="1222.0" r="3"/>
+<circle class="safe" cx="228.0" cy="1222.0" r="3"/>
+<circle class="dot" cx="42.0" cy="1228.8" r="4"><title>k = 0：9/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="83.3" cy="1222.0" r="4"><title>k = 2：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="124.7" cy="1222.0" r="4"><title>k = 4：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="166.0" cy="1222.0" r="4"><title>k = 6：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="207.3" cy="1222.0" r="4"><title>k = 8：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="228.0" cy="1222.0" r="4"><title>k = 9：10/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="276" y="1215">scoped-triage s3（cliff：行為性）</text>
+<line class="grid" x1="276" y1="1290.0" x2="462" y2="1290.0"/>
+<text class="t3" x="272" y="1293.0" text-anchor="end">0</text>
+<line class="grid" x1="276" y1="1222.0" x2="462" y2="1222.0"/>
+<text class="t3" x="272" y="1225.0" text-anchor="end">1</text>
+<line class="cliff" x1="322.5" y1="1222" x2="322.5" y2="1290"/>
+<path class="line" d="M276.0,1228.8 L313.2,1224.8 L331.8,1288.6 L350.4,1290.0 L387.6,1290.0 L424.8,1290.0 L462.0,1290.0"/>
+<circle class="safe" cx="276.0" cy="1228.8" r="3"/>
+<circle class="safe" cx="313.2" cy="1224.8" r="3"/>
+<circle class="safe" cx="331.8" cy="1290.0" r="3"/>
+<circle class="safe" cx="350.4" cy="1290.0" r="3"/>
+<circle class="safe" cx="387.6" cy="1290.0" r="3"/>
+<circle class="safe" cx="424.8" cy="1290.0" r="3"/>
+<circle class="safe" cx="462.0" cy="1290.0" r="3"/>
+<circle class="dot" cx="276.0" cy="1228.8" r="4"><title>k = 0：9/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="313.2" cy="1224.8" r="4"><title>k = 2：46/48 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="331.8" cy="1288.6" r="4"><title>k = 3：1/48 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="350.4" cy="1290.0" r="4"><title>k = 4：0/48 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="387.6" cy="1290.0" r="4"><title>k = 6：0/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="424.8" cy="1290.0" r="4"><title>k = 8：0/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="462.0" cy="1290.0" r="4"><title>k = 10：0/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="510" y="1215">scoped-triage s4（逐步）</text>
+<line class="grid" x1="510" y1="1290.0" x2="696" y2="1290.0"/>
+<text class="t3" x="506" y="1293.0" text-anchor="end">0</text>
+<line class="grid" x1="510" y1="1222.0" x2="696" y2="1222.0"/>
+<text class="t3" x="506" y="1225.0" text-anchor="end">1</text>
+<path class="line" d="M510.0,1235.6 L551.3,1222.0 L592.7,1222.0 L634.0,1222.0 L675.3,1222.0 L696.0,1222.0"/>
+<circle class="safe" cx="510.0" cy="1235.6" r="3"/>
+<circle class="safe" cx="551.3" cy="1222.0" r="3"/>
+<circle class="safe" cx="592.7" cy="1222.0" r="3"/>
+<circle class="safe" cx="634.0" cy="1222.0" r="3"/>
+<circle class="safe" cx="675.3" cy="1222.0" r="3"/>
+<circle class="safe" cx="696.0" cy="1222.0" r="3"/>
+<circle class="dot" cx="510.0" cy="1235.6" r="4"><title>k = 0：8/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="551.3" cy="1222.0" r="4"><title>k = 2：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="592.7" cy="1222.0" r="4"><title>k = 4：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="634.0" cy="1222.0" r="4"><title>k = 6：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="675.3" cy="1222.0" r="4"><title>k = 8：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="696.0" cy="1222.0" r="4"><title>k = 9：10/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="42" y="1333">sync-repair s2（cliff：行為性）</text>
+<line class="grid" x1="42" y1="1408.0" x2="228" y2="1408.0"/>
+<text class="t3" x="38" y="1411.0" text-anchor="end">0</text>
+<line class="grid" x1="42" y1="1340.0" x2="228" y2="1340.0"/>
+<text class="t3" x="38" y="1343.0" text-anchor="end">1</text>
+<line class="cliff" x1="71.1" y1="1340" x2="71.1" y2="1408"/>
+<path class="line" d="M42.0,1374.0 L65.2,1368.3 L76.9,1408.0 L88.5,1408.0 L111.8,1408.0 L135.0,1408.0 L158.2,1408.0 L181.5,1408.0 L204.8,1408.0 L228.0,1408.0"/>
+<circle class="safe" cx="42.0" cy="1374.0" r="3"/>
+<circle class="safe" cx="65.2" cy="1368.3" r="3"/>
+<circle class="safe" cx="76.9" cy="1408.0" r="3"/>
+<circle class="safe" cx="88.5" cy="1408.0" r="3"/>
+<circle class="safe" cx="111.8" cy="1408.0" r="3"/>
+<circle class="safe" cx="135.0" cy="1408.0" r="3"/>
+<circle class="safe" cx="158.2" cy="1408.0" r="3"/>
+<circle class="safe" cx="181.5" cy="1408.0" r="3"/>
+<circle class="safe" cx="204.8" cy="1408.0" r="3"/>
+<circle class="safe" cx="228.0" cy="1408.0" r="3"/>
+<circle class="dot" cx="42.0" cy="1374.0" r="4"><title>k = 0：5/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="65.2" cy="1368.3" r="4"><title>k = 2：28/48 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="76.9" cy="1408.0" r="4"><title>k = 3：0/48 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="88.5" cy="1408.0" r="4"><title>k = 4：0/48 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="111.8" cy="1408.0" r="4"><title>k = 6：0/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="135.0" cy="1408.0" r="4"><title>k = 8：0/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="158.2" cy="1408.0" r="4"><title>k = 10：0/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="181.5" cy="1408.0" r="4"><title>k = 12：0/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="204.8" cy="1408.0" r="4"><title>k = 14：0/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="228.0" cy="1408.0" r="4"><title>k = 16：0/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="276" y="1333">sync-repair s3（逐步）</text>
+<line class="grid" x1="276" y1="1408.0" x2="462" y2="1408.0"/>
+<text class="t3" x="272" y="1411.0" text-anchor="end">0</text>
+<line class="grid" x1="276" y1="1340.0" x2="462" y2="1340.0"/>
+<text class="t3" x="272" y="1343.0" text-anchor="end">1</text>
+<path class="line" d="M276.0,1346.8 L302.6,1357.0 L315.9,1348.5 L329.1,1355.6 L355.7,1340.0 L382.3,1340.0 L408.9,1340.0 L435.4,1340.0 L462.0,1340.0"/>
+<circle class="safe" cx="276.0" cy="1346.8" r="3"/>
+<circle class="safe" cx="302.6" cy="1357.0" r="3"/>
+<circle class="safe" cx="315.9" cy="1348.5" r="3"/>
+<circle class="safe" cx="329.1" cy="1355.6" r="3"/>
+<circle class="safe" cx="355.7" cy="1340.0" r="3"/>
+<circle class="safe" cx="382.3" cy="1340.0" r="3"/>
+<circle class="safe" cx="408.9" cy="1340.0" r="3"/>
+<circle class="safe" cx="435.4" cy="1340.0" r="3"/>
+<circle class="safe" cx="462.0" cy="1340.0" r="3"/>
+<circle class="dot" cx="276.0" cy="1346.8" r="4"><title>k = 0：9/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="302.6" cy="1357.0" r="4"><title>k = 2：36/48 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="315.9" cy="1348.5" r="4"><title>k = 3：42/48 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="329.1" cy="1355.6" r="4"><title>k = 4：37/48 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="355.7" cy="1340.0" r="4"><title>k = 6：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="382.3" cy="1340.0" r="4"><title>k = 8：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="408.9" cy="1340.0" r="4"><title>k = 10：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="435.4" cy="1340.0" r="4"><title>k = 12：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="462.0" cy="1340.0" r="4"><title>k = 14：10/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="510" y="1333">sync-repair s4（逐步）</text>
+<line class="grid" x1="510" y1="1408.0" x2="696" y2="1408.0"/>
+<text class="t3" x="506" y="1411.0" text-anchor="end">0</text>
+<line class="grid" x1="510" y1="1340.0" x2="696" y2="1340.0"/>
+<text class="t3" x="506" y="1343.0" text-anchor="end">1</text>
+<path class="line" d="M510.0,1353.6 L536.6,1367.2 L563.1,1353.6 L589.7,1346.8 L616.3,1346.8 L642.9,1340.0 L669.4,1340.0 L696.0,1340.0"/>
+<circle class="safe" cx="510.0" cy="1353.6" r="3"/>
+<circle class="safe" cx="536.6" cy="1367.2" r="3"/>
+<circle class="safe" cx="563.1" cy="1353.6" r="3"/>
+<circle class="safe" cx="589.7" cy="1346.8" r="3"/>
+<circle class="safe" cx="616.3" cy="1346.8" r="3"/>
+<circle class="safe" cx="642.9" cy="1340.0" r="3"/>
+<circle class="safe" cx="669.4" cy="1340.0" r="3"/>
+<circle class="safe" cx="696.0" cy="1340.0" r="3"/>
+<circle class="dot" cx="510.0" cy="1353.6" r="4"><title>k = 0：8/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="536.6" cy="1367.2" r="4"><title>k = 2：6/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="563.1" cy="1353.6" r="4"><title>k = 4：8/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="589.7" cy="1346.8" r="4"><title>k = 6：9/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="616.3" cy="1346.8" r="4"><title>k = 8：9/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="642.9" cy="1340.0" r="4"><title>k = 10：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="669.4" cy="1340.0" r="4"><title>k = 12：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="696.0" cy="1340.0" r="4"><title>k = 14：10/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="42" y="1451">verified-close s2（逐步）</text>
+<line class="grid" x1="42" y1="1526.0" x2="228" y2="1526.0"/>
+<text class="t3" x="38" y="1529.0" text-anchor="end">0</text>
+<line class="grid" x1="42" y1="1458.0" x2="228" y2="1458.0"/>
+<text class="t3" x="38" y="1461.0" text-anchor="end">1</text>
+<path class="line" d="M42.0,1458.0 L79.2,1458.0 L116.4,1458.0 L153.6,1458.0 L190.8,1458.0 L228.0,1458.0"/>
+<circle class="safe" cx="42.0" cy="1458.0" r="3"/>
+<circle class="safe" cx="79.2" cy="1458.0" r="3"/>
+<circle class="safe" cx="116.4" cy="1458.0" r="3"/>
+<circle class="safe" cx="153.6" cy="1458.0" r="3"/>
+<circle class="safe" cx="190.8" cy="1458.0" r="3"/>
+<circle class="safe" cx="228.0" cy="1458.0" r="3"/>
+<circle class="dot" cx="42.0" cy="1458.0" r="4"><title>k = 0：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="79.2" cy="1458.0" r="4"><title>k = 2：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="116.4" cy="1458.0" r="4"><title>k = 4：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="153.6" cy="1458.0" r="4"><title>k = 6：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="190.8" cy="1458.0" r="4"><title>k = 8：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="228.0" cy="1458.0" r="4"><title>k = 10：10/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="276" y="1451">verified-close s3（逐步）</text>
+<line class="grid" x1="276" y1="1526.0" x2="462" y2="1526.0"/>
+<text class="t3" x="272" y="1529.0" text-anchor="end">0</text>
+<line class="grid" x1="276" y1="1458.0" x2="462" y2="1458.0"/>
+<text class="t3" x="272" y="1461.0" text-anchor="end">1</text>
+<path class="line" d="M276.0,1458.0 L313.2,1471.6 L350.4,1458.0 L387.6,1458.0 L424.8,1458.0 L462.0,1458.0"/>
+<circle class="safe" cx="276.0" cy="1458.0" r="3"/>
+<circle class="safe" cx="313.2" cy="1471.6" r="3"/>
+<circle class="safe" cx="350.4" cy="1458.0" r="3"/>
+<circle class="safe" cx="387.6" cy="1458.0" r="3"/>
+<circle class="safe" cx="424.8" cy="1458.0" r="3"/>
+<circle class="safe" cx="462.0" cy="1458.0" r="3"/>
+<circle class="dot" cx="276.0" cy="1458.0" r="4"><title>k = 0：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="313.2" cy="1471.6" r="4"><title>k = 2：8/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="350.4" cy="1458.0" r="4"><title>k = 4：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="387.6" cy="1458.0" r="4"><title>k = 6：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="424.8" cy="1458.0" r="4"><title>k = 8：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="462.0" cy="1458.0" r="4"><title>k = 10：10/10 成功（max_turns 0）</title></circle>
+<text class="t2" x="510" y="1451">verified-close s4（逐步）</text>
+<line class="grid" x1="510" y1="1526.0" x2="696" y2="1526.0"/>
+<text class="t3" x="506" y="1529.0" text-anchor="end">0</text>
+<line class="grid" x1="510" y1="1458.0" x2="696" y2="1458.0"/>
+<text class="t3" x="506" y="1461.0" text-anchor="end">1</text>
+<path class="line" d="M510.0,1458.0 L547.2,1458.0 L584.4,1458.0 L621.6,1458.0 L658.8,1458.0 L696.0,1458.0"/>
+<circle class="safe" cx="510.0" cy="1458.0" r="3"/>
+<circle class="safe" cx="547.2" cy="1458.0" r="3"/>
+<circle class="safe" cx="584.4" cy="1458.0" r="3"/>
+<circle class="safe" cx="621.6" cy="1458.0" r="3"/>
+<circle class="safe" cx="658.8" cy="1458.0" r="3"/>
+<circle class="safe" cx="696.0" cy="1458.0" r="3"/>
+<circle class="dot" cx="510.0" cy="1458.0" r="4"><title>k = 0：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="547.2" cy="1458.0" r="4"><title>k = 2：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="584.4" cy="1458.0" r="4"><title>k = 4：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="621.6" cy="1458.0" r="4"><title>k = 6：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="658.8" cy="1458.0" r="4"><title>k = 8：10/10 成功（max_turns 0）</title></circle>
+<circle class="dot" cx="696.0" cy="1458.0" r="4"><title>k = 10：10/10 成功（max_turns 0）</title></circle>
+</svg>

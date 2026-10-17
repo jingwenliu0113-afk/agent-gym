@@ -15,7 +15,7 @@ lock 已釋放。**2026-10-16 使用者確認凍結**（decision 030 採用；co
 這是天花板效應：這組題目對凍結的模型太容易，沒有可以定位的失敗。照實呈現，不調整題目、參數或 Gate（見 `docs/results/README.md`）。
 **Core 依 SPEC 的收尾完成。** 2026-10-16 使用者選擇方向 2：以**獨立的第二輪研究（Study 2）**進行分級的多步驟任務。
 Study 2 不重新開啟 Core Gate，也不進 Advanced；第一輪全部封存（`docs/results/round1-seal.json`，`3e12dd6`）。
-研究方案為 decision 034，**使用者已核准（2026-10-17）**。dev 驗證完成：7 個未成功／不安全的 episode 都是 agent 錯誤，沒有缺陷修正；P90 26,632 ≤ 70,000。**已凍結**（`docs/decisions/034-freeze-record.json`、`STUDY2_FROZEN = True`），正在跑正式的 eval baseline，見「Blocked / 需要使用者」A。
+研究方案為 decision 034，**使用者已核准（2026-10-17）**。dev 驗證完成：7 個未成功／不安全的 episode 都是 agent 錯誤，沒有缺陷修正；P90 26,632 ≤ 70,000。**已凍結**（`docs/decisions/034-freeze-record.json`、`STUDY2_FROZEN = True`）。**Study 2 正式研究已完成（2026-10-17）**：分級無效（L1 − L3 95% CI [−0.028, 0.167]）；RQ1 以驟降為主（可判定的失敗曲線 cliff 4 / 4，95% CI [0.510, 1.000]，全部是行為性）。結果在 `docs/results/study2/` 與 README，解讀與限制在 decision 034「正式結果」。依 §9 只有這一輪，不再新增正式研究。
 keyless Core infrastructure（含分析工具、驟降判定選項、README 示範）已完成；第七輪對抗式審查找出的 keyless 缺口
 （已登記但漏實作的規則、只信任 summary 的分析）已依 decision 017 補齊；第八～十二輪審查與付費流程模擬找出的缺口已依 decision 018 – 024 補齊。
 不進 Advanced：正式的 Gate 判定是 `gradual`（2026-10-16，decision 025 §4 的機械化規則）。
@@ -270,7 +270,7 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 
 ## Blocked / 需要使用者
 
-### A. Study 2（decision 034）：**使用者已核准（2026-10-17）**，已凍結，進行正式 run
+### A. Study 2（decision 034）：**已完成（2026-10-17）**
 
 - 使用者的選擇：
   - 核准方案；
@@ -316,8 +316,14 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
       （依 §7：RQ2 只以結構參數描述，不下難度結論）；
     - 不是天花板，所以依協定跑 sweep。source 規則 B：5 條失敗的 source（sync-repair-L1-s2 r1、sync-repair-L3-s2 r1、
       epic-closeout-L2-s3 r0、epic-closeout-L3-s3 r1、scoped-triage-L3-s3 r0），其餘 31 題用 rollout 0。
-  - **sweep 進行中**（2026-10-17 起）：`study2-sweep-20261017-<n>`，每段 ≤ 3,000、累計 ≤ 70,000，每段都 `--resume-from` 所有先前的段，
-    段與段之間釋放 GPU lock。完成後執行 `study2_analysis`（baseline + 所有 sweep 段）與 `study2_report`。
+  - **sweep 完成**：`study2-sweep-20261017-1` … `-6`，17,058 次呼叫（上限 70,000），最後一段沒有因預算停止；每段結束都確認清理。
+  - **分析與報告完成**：`docs/results/study2/`（README.md、summary.json、recoverability.svg）與 README 的 Study 2 段落。
+    - RQ1（主要規則）：失敗的 source 5 條，無法判定 1 條；可判定的 4 條全部是行為性 cliff，4 / 4，95% CI [0.510, 1.000] → 以驟降為主；
+      次要規則與敏感度分析相同。分母只有 4 條，結論強度受樣本數限制。
+    - RQ2：分級無效，不下難度結論。RQ3：成功但不安全 0。
+    - 事後的描述性觀察（不改變判定）：4 條 cliff 都落在模型寫下錯誤計畫或解讀的 turn，其中 3 條那個 turn 的狀態變更是正確的或沒有改變狀態。
+    - 產生正式報告前只修正兩處呈現（RQ2 表格每類一欄；README 的 RQ1 附分母與 CI），不改任何數字或判定。
+  - 剩下的事項：無。依 §9，Study 2 只有這一輪；之後若要再研究，需要使用者另外決定。
 
 ### A0. 第一輪正式實驗：已完成並封存（2026-10-16）
 

@@ -121,3 +121,18 @@ def test_readme_block_for_a_formal_result(formal_baseline_dry_sweep: tuple[Path,
     block = rep.render_readme_block(summary)
     assert block.startswith(rep.README_START) and block.endswith(rep.README_END)
     assert "不做 Core Gate 的判定" in block and "完全天花板" in block and "Advanced" not in block
+
+
+def test_readme_block_states_the_rq1_sample_size(formal_baseline_dry_sweep: tuple[Path, Path]) -> None:
+    """RQ1 的結論必須附上分母與 CI：可判定的失敗曲線很少時，讀者要看得到（不只寫「以驟降為主」）。"""
+    baseline, _ = formal_baseline_dry_sweep
+    summary = json.loads(json.dumps(rep.build([baseline], [])))
+    rq1 = {"outcome": "mostly_cliff", "k": 4, "n": 4, "low": 0.5101, "high": 1.0, "n_failed_sources": 5, "n_failed_curves": 5,
+           "n_undecidable": 1, "n_max_turns_confounded": 0, "mechanical": 0, "behavioral": 4}
+    summary["analysis"]["sweep"] = {"rq1": rq1}
+    summary["analysis"]["sweep_skipped"] = None
+    block = rep.render_readme_block(summary)
+    assert "- RQ1：以驟降為主（cliff 比例的 95% CI 下限 > 0.5）：可判定的失敗曲線中 cliff 4 / 4，95% CI [0.510, 1.000]" in block
+    assert "失敗的 source 5 條，無法判定 1 條、max_turns 混淆 0 條" in block
+    summary["analysis"]["sweep"]["rq1"] = {**rq1, "outcome": "no_decidable", "k": 0, "n": 0}
+    assert "可判定的失敗曲線中 cliff 0 / 0（失敗的 source 5 條" in rep.render_readme_block(summary)  # n = 0 時不附 CI

@@ -300,6 +300,11 @@ def test_a_real_sweep_produces_mechanical_and_behavioral_cliffs(tmp_path: Path) 
     assert sweep["sensitivity"]["n"] == 2 and sweep["data_complete"] and sweep["complete_seed_blocks"] == [2, 3, 4]
     text = s2.render_markdown(analysis)
     assert "Advanced" not in text and "advanced" not in text and "cliff：機械性" in text
+    # RQ2 表格：每個類別一欄（k/n 不與欄位分隔混在一起），失敗與成功的 source 分列
+    assert "| 級別 | source | 無法判定 | cliff：機械性 | cliff：行為性 | max_turns 混淆 | 逐步 | 失敗中 cliff 的比例（95% CI） |" in text
+    assert "| L2 | 失敗（3 條） | 1/3 | 1/3 | 1/3 | 0/3 | 0/3 | 2/2 [" in text  # 另一條失敗 source 無法判定，不進 cliff 比例
+    assert "| L2 | 成功（9 條） | 0 | 0 | 0 | 0 | 9 | — |" in text
+    assert "| L1 | 失敗（0 條） | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | — |" in text
 
 
 def test_an_incomplete_sweep_is_reported_as_incomplete(failing_baseline: Path, tmp_path: Path) -> None:

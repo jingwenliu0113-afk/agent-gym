@@ -308,9 +308,16 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
   - 下一步：第 7 步 eval baseline
     （`tools/with-gpu-lock -- uv run python -m experiments.run_baseline --split eval --suite study2 --rollouts 3 --confirm-local-run --max-model-calls 4320`）；
     108 個 episode 全部成功就不跑 sweep（天花板）。GPU lock 被其他工作占用時不搶占，等待後重試。
-  - **Blocked（2026-10-17 01:20Z）：GPU lock 一直被其他工作占用**。2026-10-16 19:23Z 起每 5 分鐘試一次，72 次都是 exit 75；
-    唯讀檢查：gpu-server 的 GPU 使用率 100%、顯存約 15.7 / 16.3 GB，持有者不是 Ollama，也不是本 Project 的 server。
-    不搶占、不刪除 lock；改為每 10 分鐘重試（最多 72 次，約 12 小時）。eval seed 尚未有任何推論。
+  - GPU lock 曾被其他工作占用約 7 小時（2026-10-16 19:23Z – 10-17 02:16Z，GPU 使用率 100%，持有者不是 Ollama）；不搶占，等待後重試。
+  - **eval baseline 完成**（`study2-eval-20261017`，2026-10-17 02:26–02:53Z）：108 個 episode、987 次呼叫，沒有中斷或因預算停止；
+    結束時確認 server 已停止、共用模型目錄不變、lock 已釋放。
+    - 101 success、6 failure、1 agent_error（epic-closeout-L2-s3 r2：輸出達到 num_predict 而截斷，計為未成功）；
+    - 事先登記的分析：success L1 0.972、L2 0.917、L3 0.917；L1 − L3 = 0.056，95% CI [−0.028, 0.167] → 分級**無效**
+      （依 §7：RQ2 只以結構參數描述，不下難度結論）；
+    - 不是天花板，所以依協定跑 sweep。source 規則 B：5 條失敗的 source（sync-repair-L1-s2 r1、sync-repair-L3-s2 r1、
+      epic-closeout-L2-s3 r0、epic-closeout-L3-s3 r1、scoped-triage-L3-s3 r0），其餘 31 題用 rollout 0。
+  - **sweep 進行中**（2026-10-17 起）：`study2-sweep-20261017-<n>`，每段 ≤ 3,000、累計 ≤ 70,000，每段都 `--resume-from` 所有先前的段，
+    段與段之間釋放 GPU lock。完成後執行 `study2_analysis`（baseline + 所有 sweep 段）與 `study2_report`。
 
 ### A0. 第一輪正式實驗：已完成並封存（2026-10-16）
 

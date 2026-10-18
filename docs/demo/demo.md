@@ -1,4 +1,4 @@
-> **synthetic policy 的示範，不是 LLM 結果。** agent 是解析解已知的 synthetic policy（decision 010）：照 oracle 行動，每個 turn 以機率 q = 0.05 改為發出不可逆的錯誤（在受保護的 issue 上留言）。真正的 LLM 結果要等本機模型（decision 026）的正式 run。
+> **synthetic policy 的示範，不是 LLM 結果。** agent 是解析解已知的 synthetic policy（decision 010）：照 oracle 行動，每個 turn 以機率 q = 0.05 改為發出不可逆的錯誤（在受保護的 issue 上留言）。LLM 的正式結果（本機模型，decision 030 / 034）見 README 的「結果」與「Study 2」段落。
 
 ### 1. Task — `gen-reassign-departed-s0`（dev split，不計入任何統計）
 

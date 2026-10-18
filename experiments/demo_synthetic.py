@@ -1,11 +1,11 @@
 """Keyless 示範（README 首屏用）：Task → Agent actions → state changes → grader → replay from checkpoint → P(success | k)。
 
 **這不是 LLM 結果**：agent 是解析解已知的 synthetic policy（decision 010），用來展示整條流程與 replay 能回答的問題；
-真正的 LLM 結果要等本機模型（gpu-server 的 Ollama，decision 026）的正式 run。
+LLM 的正式結果（本機模型，decision 030 / 034）見 README 的「結果」與「Study 2」段落。
 
 用法::
 
-    uv run python -m experiments.demo_synthetic --out docs/demo
+    uv run python -m experiments.demo_synthetic --out docs/demo --update-readme README.md
 
 輸出：``<out>/demo.md``（README 引用的文字）與 ``<out>/curve.svg``（recoverability curve）。輸出完全決定性（固定 seed、常數 clock）。
 """
@@ -141,7 +141,7 @@ def render_demo(result: DemoResult) -> str:
     ks = [e.k for e in result.sweep.estimates]
     lines = [
         "> **synthetic policy 的示範，不是 LLM 結果。** agent 是解析解已知的 synthetic policy（decision 010）：照 oracle 行動，"
-        f"每個 turn 以機率 q = {DEMO_Q} 改為發出不可逆的錯誤（在受保護的 issue 上留言）。真正的 LLM 結果要等本機模型（decision 026）的正式 run。",
+        f"每個 turn 以機率 q = {DEMO_Q} 改為發出不可逆的錯誤（在受保護的 issue 上留言）。LLM 的正式結果（本機模型，decision 030 / 034）見 README 的「結果」與「Study 2」段落。",
         "",
         f"### 1. Task — `{result.task_id}`（dev split，不計入任何統計）",
         "",

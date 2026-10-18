@@ -1,6 +1,9 @@
 """Study 2 的事先登記分析（decision 034 §2 / §7）。第一輪的分析與 Gate 判定不變，也不在這裡輸出。
 
-    uv run python -m experiments.study2_analysis --baseline-run runs/<eval> [...] [--sweep-run runs/<sweep> ...] --out runs/<name>
+    uv run python -m experiments.study2_analysis --baseline-run runs/<eval> [--baseline-run ...] \\
+        [--sweep-run runs/<sweep-1> --sweep-run runs/<sweep-2> ...] --out runs/<name>
+
+每個旗標只接一個目錄，可重複給。
 
 讀取方式沿用第一輪的完整核對：baseline 用 ``analyze_baseline.load_runs``，sweep 用 ``analyze_sweep.analyze_sweep_runs``。
 兩者都由 manifest 推出 suite，這裡要求 suite 是 study2。

@@ -2,7 +2,7 @@
 
 ## 目前位置
 
-Core：Day 1 完成；Week 1 除「#5 baseline 真正跑完整 task」以外都完成；#5 與 SPEC §6 中**不需要模型推論的部分全部完成**。
+**2026-10-19 暫時結案。** Core：Day 1、Week 1（含 #5：凍結的本機模型已跑完整的正式 eval baseline，2026-10-16）與 SPEC §6 全部完成；Gate `gradual`，不進 Advanced。Study 2 已完成（2026-10-17），使用者 2026-10-19 接受結果；不啟動 Study 3、不新增正式研究。結論的分類（已證實／未通過的 Gate 與檢定／探索性）見 README「結論的分類」。
 **2026-10-11 起 Core 的 LLM 改用自行部署的本機模型**（`qwen3.5:9b-q4_K_M`，台中 gpu-server 的 Ollama；decision 026）；付費 API 改為 Optional。
 **2026-10-15**：本 Project 在 GPU lock 內啟動自己的 Ollama server（與 incident-investigator 共用模型檔案、共用目錄只讀；decision 029），
 已在 gpu-server 實測：server 檢查、截斷自我測試、開發題測試（15 / 15 成功）全部通過，每次結束都確認 server 已停止、共用目錄沒有改變、
@@ -13,7 +13,7 @@ lock 已釋放。**2026-10-16 使用者確認凍結**（decision 030 採用；co
 - Gate 的機械化判定是 `gradual`，**不進 Advanced**。
 
 這是天花板效應：這組題目對凍結的模型太容易，沒有可以定位的失敗。照實呈現，不調整題目、參數或 Gate（見 `docs/results/README.md`）。
-**Core 依 SPEC 的收尾完成。** 2026-10-16 使用者選擇方向 2：以**獨立的第二輪研究（Study 2）**進行分級的多步驟任務。
+**Core 完成：Gate `gradual` → 不進 Advanced、不加第二個 app；因為沒有任何失敗，不寫「失敗是逐步累積」的結論（天花板效應，decision 033 的補充）。** 2026-10-16 使用者選擇方向 2：以**獨立的第二輪研究（Study 2）**進行分級的多步驟任務。
 Study 2 不重新開啟 Core Gate，也不進 Advanced；第一輪全部封存（`docs/results/round1-seal.json`，`3e12dd6`）。
 研究方案為 decision 034，**使用者已核准（2026-10-17）**。dev 驗證完成：7 個未成功／不安全的 episode 都是 agent 錯誤，沒有缺陷修正；P90 26,632 ≤ 70,000。**已凍結**（`docs/decisions/034-freeze-record.json`、`STUDY2_FROZEN = True`）。**Study 2 正式研究已完成（2026-10-17）**：分級無效（L1 − L3 95% CI [−0.028, 0.167]）；RQ1 以驟降為主（可判定的失敗曲線 cliff 4 / 4，95% CI [0.510, 1.000]，全部是行為性）。結果在 `docs/results/study2/` 與 README，解讀與限制在 decision 034「正式結果」。依 §9 只有這一輪，不再新增正式研究。
 keyless Core infrastructure（含分析工具、驟降判定選項、README 示範）已完成；第七輪對抗式審查找出的 keyless 缺口
@@ -232,7 +232,7 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
    - 結果報告：`experiments/results_report.py` 產生 `docs/results/` 與 README 的結果段落，附上預先登記分析工具的完整報告；
    - 第三輪對抗式審查（25 個 agent，確認 22 項）都已修正，並以正式資料重新產生結果。
 
-測試：`uv run pytest` → 9066 passed、1 skipped（Linux 專用的 PDEATHSIG 測試）、1 xfailed（已知限制的特徵測試；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip），約 8 分鐘；`ruff check` 通過。
+測試（2026-10-19 結案時）：`uv run pytest` → 9470 passed、1 skipped（Linux 專用的 PDEATHSIG 測試）、1 xfailed（decision 013 §6 的 strict xfail），約 14–15 分鐘（Mac；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip）；`ruff check`（外部安裝的 ruff，不在 uv 的依賴中）通過。
 
 ## 使用者決策（2026-10-08 / 10-09 / 10-11）
 
@@ -251,12 +251,17 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 - （2026-10-09）研究設計決策「照建議」：見 decision 025（模型不變、預算分段、R = 3、選項 A、Gate 三種結果）。同時指示：**API 的部分先不做**，先完成其他能做的工作。
 - （2026-10-09 晚）Mac 使用自動電力模式：只暫停會產生正式 performance-sensitive 結果的 Mac 實驗（正式 Mac performance benchmark、
   正式 incident collection 先 deferred）；一般 heavy 工作、correctness、資料處理、開發測試、gpu-server 工作照常。本 project 目前唯一
-  performance-sensitive 的數字是正式 LLM run 的 `latency_s`（SPEC §4 的 latency 指標），而正式 run 已因付費 API deferred；
-  dry-run、測試、審查不產生正式結果，不受影響。電力模式期間若要跑正式 run，必須先恢復一般電力設定或延後（見 Blocked B）。
+  performance-sensitive 的數字是正式 LLM run 的 `latency_s`（SPEC §4 的 latency 指標），而正式 run 當時已因付費 API deferred；
+  dry-run、測試、審查不產生正式結果，不受影響。電力模式期間若要跑正式 run，必須先恢復一般電力設定或延後（當時指向付費 run 的段落，該段已移除；之後的正式 run——第一輪 2026-10-16、Study 2 2026-10-17——推論都在 gpu-server，Mac 只做 client；結案後沒有待跑的正式 run）。
 
-## 下一步
+## 下一步：無（2026-10-19 暫時結案）
 
-### keyless Core（2026-10-09 全部完成）
+- 使用者 2026-10-19 接受 Study 2 的正式結果（101 / 108 success、6 failure、1 agent_error；RQ1 判定「以驟降為主」，但只有 4 條可判定曲線，證據很弱），Study 2 視為完成。
+- 不啟動 Study 3、不新增正式研究、不重跑正式評測、不修改既定 Gate。
+- 之後若要以 Claude API 做跨模型比較，需要使用者另外授權（另立 decision；換模型等於換 agent，不與本機模型的結果合併）。
+- 結案稽核（2026-10-19）的修正都只是文件與非研究性的工程，見 decision 034「結案」。
+
+### 歷史：keyless Core（2026-10-09 全部完成）
 
 1. 驟降判定可選擇（decision 015：`--criterion wilson95 | bonferroni95`，sweep 必須明確指定）。
 2. eval baseline 分析：`uv run python -m experiments.analyze_baseline runs/<eval-run> [runs/<rerun> ...] --out runs/<name>`
@@ -269,6 +274,8 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
    Task → Agent actions → state changes → grader → replay from checkpoint；測試確保 README 與程式輸出同步。
 
 ## Blocked / 需要使用者
+
+**目前沒有任何 blocked 或待使用者處理的事項**（2026-10-19 暫時結案）。唯一的未來事項需要使用者另外授權：以 Claude API 做跨模型比較（見 C）。不會有 Study 3。以下保留為歷史紀錄。
 
 ### A. Study 2（decision 034）：**已完成（2026-10-17）**
 
@@ -299,15 +306,15 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
   7. 跑 eval baseline，再分段跑 sweep；
   8. 執行 `study2_analysis` 與 `study2_report`。
   有任何缺陷修正，或 P90 超過上限，就在第 6 步之前先請使用者確認。
-- **進度（2026-10-17）**：第 1–6 步完成。
+- **進度（2026-10-17）**：第 1–8 步全部完成。
   - dev run `study2-dev-20261017`：72 個 episode、660 次呼叫；成功率 L1 1.000、L2 0.875、L3 0.833；max_turns 比例都是 0（含 L3）。
   - 成功的 65 個 episode 與 oracle 的最終狀態都相同（疑似 grader 漏洞 0 個）。
   - 7 個未成功／不安全的 episode 逐一判定，都是 agent 錯誤（epic-closeout-L2-s1 × 3、epic-closeout-L3-s1 × 2、sync-repair-L3-s0、
     scoped-triage-L3-s0），沒有缺陷，也沒有修正輪（decision 034「dev 驗證與凍結」）。
   - 估算（source 規則 B）：P50 21,908、P90 26,632，上限 70,000。依核准流程直接凍結，不需要再請使用者確認。
-  - 下一步：第 7 步 eval baseline
-    （`tools/with-gpu-lock -- uv run python -m experiments.run_baseline --split eval --suite study2 --rollouts 3 --confirm-local-run --max-model-calls 4320`）；
-    108 個 episode 全部成功就不跑 sweep（天花板）。GPU lock 被其他工作占用時不搶占，等待後重試。
+  - （已完成）第 7 步 eval baseline
+    （`tools/with-gpu-lock -- uv run python -m experiments.run_baseline --split eval --suite study2 --rollouts 3 --confirm-local-run --max-model-calls 4320 --run-name study2-eval-20261017`）；
+    108 個 episode 全部成功就不跑 sweep（天花板）。GPU lock 被其他工作占用時不搶占，等待後重試。完整的指令見 README「怎麼跑」。
   - GPU lock 曾被其他工作占用約 7 小時（2026-10-16 19:23Z – 10-17 02:16Z，GPU 使用率 100%，持有者不是 Ollama）；不搶占，等待後重試。
   - **eval baseline 完成**（`study2-eval-20261017`，2026-10-17 02:26–02:53Z）：108 個 episode、987 次呼叫，沒有中斷或因預算停止；
     結束時確認 server 已停止、共用模型目錄不變、lock 已釋放。
@@ -356,6 +363,7 @@ decision 025 的 R = 3、SweepPlan 選項 A（`bonferroni95` + (2, 10, 48, 0.3)�
 
 Anthropic 路徑完整保留：`--provider anthropic --dry-run` / `--confirm-paid-run --max-cost-usd X`（decision 009 / 012 / 014 / 025 的規則）。
 若日後取得 Claude Max 方案的免費 API 額度，另立 decision 決定是否使用；換模型等於換 agent，與本機結果不得合併。
+（2026-10-19 使用者：之後若要以 Claude API 做跨模型比較，會另外授權；在那之前不執行任何付費 API call。）
 
 ### D. 環境：已解決（2026-10-09）
 

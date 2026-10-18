@@ -2,6 +2,7 @@
 
 日期：2026-10-11　狀態：採用（使用者 2026-10-11 指示）。本文件決定架構與流程；正式設定的凍結見 §5
 （凍結值待遠端可用、開發題測試之後另立 decision，並經使用者確認）。
+（2026-10-19 補註：凍結值已由 decision 030 經使用者確認，於 2026-10-16 填入 `agents.ollama.LOCAL_MODEL_CONFIG`。）
 
 ## 背景
 
@@ -93,7 +94,7 @@
 正式 run 之前必須凍結以下項目，寫成一份新的 decision 並經使用者確認：model tag、量化版本與 digest、Ollama 版本、prompt
 （`baseline/v1`）、tool schema（env 的 5 個 tools）、推論參數，以及各階段的模型呼叫上限。
 
-草案（`agents.ollama.LOCAL_MODEL_CONFIG`，`model_digest` / `ollama_version` 為 null，表示尚未凍結）：
+草案（`agents.ollama.LOCAL_MODEL_CONFIG`，`model_digest` / `ollama_version` 為 null，表示尚未凍結；2026-10-16 已由 decision 030 填入並凍結）：
 
 | 項目 | 草案值 | 理由 |
 |---|---|---|

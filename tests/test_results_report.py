@@ -306,3 +306,33 @@ def test_the_page_attaches_the_preregistered_analyses(clean_runs: tuple[Path, Pa
     page = (tmp_path / "out" / "README.md").read_text(encoding="utf-8")
     assert "baseline-analysis.md" in page and "sweep-analysis.md" in page and "Wilson" in page and "Bonferroni）" not in page
 
+
+
+
+def test_the_cli_never_overwrites_the_sealed_round1_outputs(clean_runs: tuple[Path, Path], tmp_path: Path,
+                                                             monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """第一輪已封存（docs/results/round1-seal.json）：CLI 拒絕寫進封存的 docs/results 與 README，而且在寫任何檔案之前就拒絕（結案稽核）。
+
+    封存的路徑換成暫存目錄中的副本，所以即使檢查失效，也不會寫到 repo 本身。"""
+    assert results_report.SEALED_RESULTS == ROOT / "docs" / "results" and results_report.SEALED_README == ROOT / "README.md"
+    sealed = tmp_path / "repo" / "docs" / "results"
+    sealed.mkdir(parents=True)
+    (sealed / "README.md").write_text("sealed page\n", encoding="utf-8")
+    readme = tmp_path / "repo" / "README.md"
+    original = f"# x\n{README_START}\nsealed\n{README_END}\n"
+    readme.write_text(original, encoding="utf-8")
+    monkeypatch.setattr(results_report, "SEALED_RESULTS", sealed)
+    monkeypatch.setattr(results_report, "SEALED_README", readme)
+    baseline, sweep = clean_runs
+    args = ["--baseline-run", str(baseline), "--sweep-run", str(sweep), "--replicates", "200"]
+    monkeypatch.chdir(tmp_path / "repo")  # 封存頁「重現」中的相對路徑寫法
+    for out in (str(sealed), str(sealed) + "/.", str(sealed / ".." / "results"), str(tmp_path / "repo" / "docs" / "RESULTS"), "docs/results"):
+        with pytest.raises(SystemExit):
+            results_report.main([*args, "--out", out])
+        assert "sealed" in capsys.readouterr().err
+    for readme_arg in (str(readme), "README.md", "./README.md"):
+        with pytest.raises(SystemExit):
+            results_report.main([*args, "--out", str(tmp_path / "r"), "--readme", readme_arg])
+        assert "sealed" in capsys.readouterr().err and not (tmp_path / "r").exists()
+    assert [p.name for p in sealed.iterdir()] == ["README.md"] and (sealed / "README.md").read_text(encoding="utf-8") == "sealed page\n"
+    assert readme.read_text(encoding="utf-8") == original

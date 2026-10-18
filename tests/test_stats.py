@@ -26,16 +26,16 @@
 - 驗證錯誤（docstring 明文「否則 ValueError」）：values 的值非有限 int / float 或為 bool（含超出 float 範圍的 int，
   比照 decision 007 的「超出 ±float max 的 int 不算有限」）；strata 的值非 str；seed 非 int 或為 bool。
   replicates = True **不**測：docstring 只寫「replicates 為 int >= 1」，沒有像 values / seed 那樣註明「bool 不算」。
-- 涵蓋率（decision 010 §5，門檻 ≥ 0.88）。**估計目標（estimand）尚未由任何 decision log 決定**：
-  decision 005 寫「正式統計的母體 = eval split 的 15 個 instances」（task 固定、只有 rollout 雜訊是隨機的），
+- 涵蓋率（decision 010 §5，門檻 ≥ 0.88）。**估計目標（estimand）已由 decision 013 §6 澄清（不改協定）**：
+  decision 005 寫「正式統計的母體 = eval split 的 15 個 instances」（task 固定、只有 rollout 雜訊是隨機的），這是正式的 estimand；
   decision 010 則以「task 可交換」為由採單階段 cluster bootstrap（對應 family 內的 superpopulation）。兩種讀法下
   eval 設計（5 families × 3 題）的涵蓋率不同（superpopulation 約 0.84–0.87 < 0.88；固定 15 題約 0.90–0.995，依題組而定），
   因此本檔：
   * ``test_bootstrap_coverage_large_strata_implementation_check``：16 / 20 / 24 題、superpopulation 真值，是
     **實作正確性檢查**（percentile bootstrap 近似有效的區間），**不是** eval CI 的驗證。
   * ``test_bootstrap_coverage_at_eval_design_5x3_superpopulation``：在真正的 5 × 3 設計上斷言預先登記的門檻 ≥ 0.88，
-    以 ``xfail(strict=True)`` 標示「已知未達成、待 decision log 決定 estimand」；m = 3 時 percentile bootstrap 的層內變異
-    只有不偏估計的 (m − 1)/m = 2/3，CI 偏窄。決定 estimand 之後必須依該 decision log 改寫此測試（strict：若意外通過也會失敗）。
+    以 ``xfail(strict=True)`` 記錄 decision 013 §6 的已知限制（superpopulation 讀法下未達門檻）；m = 3 時 percentile bootstrap
+    的層內變異只有不偏估計的 (m − 1)/m = 2/3，CI 偏窄。strict：若意外通過也會失敗。
 - 本檔只用 stdlib + pytest、固定 seed；不在 import / collection 階段呼叫任何被測函式。
 """
 
@@ -1040,9 +1040,9 @@ EVAL_DESIGN_EXPERIMENTS = 1000
     strict=True,
     raises=AssertionError,
     reason=(
-        "已知未達成、待決定：decision 010 §5 的涵蓋率門檻 >= 0.88 在 decision 005 的 5 x 3 eval 設計、superpopulation 真值下"
-        "不成立（約 0.84-0.87；m = 3 時 percentile bootstrap 的層內變異只有不偏估計的 2/3）。estimand"
-        "（superpopulation vs. decision 005 的『母體 = 15 個 instances』）尚無 decision log；決定後必須依該 decision 改寫本測試。"
+        "已知限制（decision 013 §6）：decision 010 §5 的涵蓋率門檻 >= 0.88 在 decision 005 的 5 x 3 eval 設計、superpopulation"
+        "真值下不成立（約 0.84-0.87；m = 3 時 percentile bootstrap 的層內變異只有不偏估計的 2/3）。正式 estimand 是 decision 005"
+        "的『母體 = 15 個固定 instances』（decision 013 §6 澄清）；本測試以 strict xfail 記錄 superpopulation 讀法下的限制。"
     ),
 )
 def test_bootstrap_coverage_at_eval_design_5x3_superpopulation() -> None:

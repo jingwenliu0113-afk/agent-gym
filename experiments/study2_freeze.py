@@ -1,6 +1,6 @@
 """Study 2 的凍結紀錄（decision 034 §6）：``docs/decisions/034-freeze-record.json``。不呼叫任何模型。
 
-    uv run python -m experiments.study2_freeze --dev-run runs/<dev> [...] --out docs/decisions/034-freeze-record.json
+    uv run python -m experiments.study2_freeze --dev-run runs/<dev> [--dev-run runs/<dev-rerun> ...] --out docs/decisions/034-freeze-record.json
 
 記錄第一次 eval-seed 推論之前必須固定的所有值：
 
@@ -10,7 +10,7 @@
 - 程式的 git commit；
 - dev 驗證：各級別的成功率、turn 數、max_turns 比例（含 L3），待判定與疑似 grader 漏洞的數目；
 - 估算：source 規則 B 下的 P50 / P90 與上限，以及 P90 是否超過上限；
-- 每條規則在 eval 中有作用的題數，以及已知的涵蓋限制。
+- 每條規則在 eval 中有作用的題數（``binding_rules_in_eval``；其他已知的涵蓋限制記在 decision 034）。
 
 ``check_record(record)`` 確認紀錄與目前的程式一致：測試在凍結之後每次都檢查，題目或協定在凍結後不得再改動。
 """

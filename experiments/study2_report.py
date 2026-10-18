@@ -1,7 +1,9 @@
 """Study 2 的結果報告（decision 034 §1）：``docs/results/study2/`` 與 README 中 ``<!-- study2:start -->`` / ``<!-- study2:end -->`` 之間的段落。
 
-    uv run python -m experiments.study2_report --baseline-run runs/<eval> [...] [--sweep-run runs/<sweep> ...] \\
-        --out docs/results/study2 [--readme README.md]
+    uv run python -m experiments.study2_report --baseline-run runs/<eval> [--baseline-run runs/<eval-rerun> ...] \\
+        [--sweep-run runs/<sweep-1> --sweep-run runs/<sweep-2> ...] --out docs/results/study2 [--readme README.md]
+
+每個旗標只接一個目錄，可重複給。
 
 - 分析一律呼叫 ``experiments.study2_analysis.analyze``（事先登記的估計量與結論規則）；這裡不另外計算任何判定。
 - 輸出：``summary.json``（分析結果與溯源）、``README.md``（結果頁）、``recoverability.svg``（每個 source 一格，依級別分段）。

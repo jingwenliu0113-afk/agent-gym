@@ -43,8 +43,9 @@ def test_repo_files_match_the_seal() -> None:
     assert report["repo_mismatches"] == []
 
 
-@pytest.mark.skipif(not all((ROOT / "runs" / d).is_dir() for d in ROUND1_RUN_DIRS), reason="runs/ 不在 repo；只在有原始 run 目錄的機器上檢查")
+@pytest.mark.skipif(not any((ROOT / "runs" / d).is_dir() for d in ROUND1_RUN_DIRS), reason="runs/ 不在 repo；只在有原始 run 目錄的機器上檢查")
 def test_run_dirs_match_the_seal() -> None:
+    """只要有任何一個封存的 run 目錄存在就比對全部：缺少其中一個是錯誤，不是略過（結案稽核）。"""
     report = verify_seal(ROOT, _seal(), runs=True)
     assert report["run_mismatches"] == []
     assert report["run_missing"] == []
@@ -104,3 +105,30 @@ def test_round1_report_regenerates_byte_identical(tmp_path: Path) -> None:
         assert (tmp_path / Path(name).name).read_bytes() == (ROOT / name).read_bytes(), name
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     assert render_readme_block(summary) in readme
+
+
+def test_check_fails_when_only_some_sealed_run_dirs_exist(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                                           capsys: pytest.CaptureFixture[str]) -> None:
+    """結案稽核：缺少一個封存的 run 目錄時，--check 必須失敗，而不是只比對 repo 的部分就回報 OK。"""
+    import shutil
+
+    (tmp_path / "docs" / "results").mkdir(parents=True)
+    for name in ROUND1_REPO_FILES:
+        (tmp_path / name).write_text(name, encoding="utf-8")
+    (tmp_path / "README.md").write_text("<!-- results:start -->\nblock\n<!-- results:end -->\n", encoding="utf-8")
+    for run_dir in ROUND1_RUN_DIRS:
+        (tmp_path / "runs" / run_dir).mkdir(parents=True)
+        (tmp_path / "runs" / run_dir / "a.json").write_text("a", encoding="utf-8")
+    (tmp_path / SEAL_PATH).write_text(round1_seal.render(build_seal(tmp_path)), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    assert round1_seal.main(["--check"]) == 0
+    assert "round-1 seal: OK" in capsys.readouterr().out
+
+    shutil.rmtree(tmp_path / "runs" / ROUND1_RUN_DIRS[0])
+    assert round1_seal.main(["--check"]) == 1
+    assert f"run_missing: {ROUND1_RUN_DIRS[0]}/a.json" in capsys.readouterr().err
+
+    for run_dir in ROUND1_RUN_DIRS[1:]:
+        shutil.rmtree(tmp_path / "runs" / run_dir)
+    assert round1_seal.main(["--check"]) == 0  # 沒有任何 runs/：只比對 repo 的部分，並明說
+    assert "repo files only" in capsys.readouterr().out

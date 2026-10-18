@@ -10,15 +10,16 @@ Task → Agent actions → state changes → grader → replay from checkpoint
 每條 trajectory 逐步記錄 model message、tool call、結果與前後的 state hash；grader 把「最後成功」與「過程安全」分開評；
 從任一 checkpoint 還原後重新 rollout，就能估計 **P(success | checkpoint k)**——從哪一步開始救不回來。
 
-> **目前狀態**：Core 的 infrastructure 已完成並以 synthetic policy 驗證。Core 的 LLM 改用自行部署的本機模型
-> （`qwen3.5:9b-q4_K_M`，台中 gpu-server 的 Ollama，decision 026）；付費 API 改為 Optional。本 Project 在 GPU lock 內啟動自己的
-> Ollama server（與 incident-investigator 共用模型檔案，decision 029）；設定凍結（decision 030）後的正式實驗已完成，見下方「結果」與
-> [docs/results/README.md](docs/results/README.md)。下面的示範是 **synthetic policy，不是 LLM 結果**。
+> **目前狀態（2026-10-19 暫時結案）**：Core 的 infrastructure 已完成並以 synthetic policy 驗證。Core 的 LLM 是自行部署的本機模型
+> （`qwen3.5:9b-q4_K_M`，台中 gpu-server 的 Ollama，decision 026）；付費 API 為 Optional。本 Project 在 GPU lock 內啟動自己的
+> Ollama server（與 incident-investigator 共用模型檔案，decision 029）。第一輪正式實驗（設定凍結，decision 030）已完成並封存：
+> Gate `gradual`、天花板效應、不進 Advanced。獨立的第二輪研究 Study 2（decision 034）也已完成。不再新增正式研究；
+> 以 Claude API 做跨模型比較需要使用者另外授權。結論的分類見下方「結論的分類」。下面的示範是 **synthetic policy，不是 LLM 結果**。
 
 ## 示範：replay 能回答什麼（synthetic，keyless，可重現）
 
 <!-- demo:start -->
-> **synthetic policy 的示範，不是 LLM 結果。** agent 是解析解已知的 synthetic policy（decision 010）：照 oracle 行動，每個 turn 以機率 q = 0.05 改為發出不可逆的錯誤（在受保護的 issue 上留言）。真正的 LLM 結果要等本機模型（decision 026）的正式 run。
+> **synthetic policy 的示範，不是 LLM 結果。** agent 是解析解已知的 synthetic policy（decision 010）：照 oracle 行動，每個 turn 以機率 q = 0.05 改為發出不可逆的錯誤（在受保護的 issue 上留言）。LLM 的正式結果（本機模型，decision 030 / 034）見 README 的「結果」與「Study 2」段落。
 
 ### 1. Task — `gen-reassign-departed-s0`（dev split，不計入任何統計）
 
@@ -83,29 +84,61 @@ Task → Agent actions → state changes → grader → replay from checkpoint
 | 元件 | 位置 | 重點 |
 |---|---|---|
 | Environment | `apps/issue_tracker/`、`env/` | 決定性、canonical state hash、snapshot / restore（格式與 hash 驗證、原子性） |
-| Tasks | `tasks/` | 手寫 smoke tasks（只做回歸）＋ parameterized generator：5 個題型 × 4 seeds（dev 5 題、eval 15 題），每題附 oracle 與會被判錯的 negatives |
+| Tasks | `tasks/` | 手寫 smoke tasks（只做回歸）＋ parameterized generator v1：5 個題型 × 4 seeds（dev 5 題、eval 15 題；第一輪）＋ generator v2：4 個題型 × 3 個級別（dev 24 題、eval 36 題；Study 2，task format v2 的 `max_count` / `unless`）；每題附 oracle 與會被判錯的 negatives |
 | Grader | `grader/` | final-state correctness、constraint violations、forbidden actions / attempts、unnecessary mutations、tool errors、steps、tokens、latency、cost；以重放驗證 records 的完整性 |
 | Recorder / replay | `agents/policy.py`、`replay/` | checkpoint 自帶前綴並在載入時重放驗證；trajectory 以 `verify()` 重放驗證（分析工具載入後一律呼叫）；restore 後 agent 看到的 conversation 與原 episode 逐 byte 相同 |
 | Agent adapters | `agents/ollama.py`、`agents/baseline.py` | Core：Ollama 原生 `/api/chat` adapter（只連 loopback、只呼叫允許的端點、tool call 與 JSON 結構驗證、截斷防護、模型釘選；decision 026）。Optional：Anthropic Messages adapter（decision 009） |
 | Failure localization | `replay/localization.py`、`replay/stats.py` | coarse → 反覆 refine 的 checkpoint sweep、Wilson CI、family 分層 task-level bootstrap、驟降判定 |
-| 實驗腳本 | `experiments/` | baseline / sweep 的執行（dry-run、本機模型的呼叫次數上限與 GPU lock、Optional 的成本上限、manifest）、偵測力模擬、預先登記的分析、本機模型的檢查與開發題彙整（`local_probe`） |
+| 實驗腳本 | `experiments/` | baseline / sweep 的執行（dry-run、本機模型的呼叫次數上限與 GPU lock、Optional 的成本上限、manifest）、偵測力模擬、預先登記的分析、本機模型的檢查與開發題彙整（`local_probe`）、第一輪的報告與封存（`results_report`、`round1_seal`）；Study 2 的 dev 驗證與估算（`study2_dev`）、凍結紀錄（`study2_freeze`）、分析（`study2_analysis`）與報告（`study2_report`） |
 | GPU lock 與 server | `tools/with-gpu-lock`、`agents/ollama_serve.py` | 在 gpu-server 的 GPU lock 內啟動本 Project 自己的 Ollama server（共用的模型檔案只讀）、確認通道接到這次的 server、結束時停止並比對快照（decision 029） |
 
 所有實驗設計與格式變更都記在 [docs/decisions/](docs/decisions/)（001–034），包含預先登記的統計協定（005）、baseline 設定（009）、
 failure localization 協定（010 / 013）、偵測力模擬（011）、run 協定（012 / 025）、本機模型（026 – 028）、自己的 Ollama server（029 / 031）、
-設定凍結（030）、逐次呼叫紀錄（032）、結果報告（033）、第二輪研究的提案（034，待確認）、分析規則（016 / 017）、中斷後續跑與寫入的規則（018 – 020 / 023 / 024）與 dry-run 輸出的區分（021 / 022）。
+設定凍結（030）、逐次呼叫紀錄（032）、結果報告（033）、第二輪研究 Study 2（034：已核准、凍結並完成；凍結紀錄 `034-freeze-record.json`）、分析規則（016 / 017）、中斷後續跑與寫入的規則（018 – 020 / 023 / 024）與 dry-run 輸出的區分（021 / 022）。
 
 ## 怎麼跑
 
 ```bash
 uv sync --extra llm                                            # llm extra 讓 SDK 契約測試也會執行（只用 `uv sync` 時這些測試會 skip）
-uv run pytest                                                  # 全部測試（約 3–4 分鐘）
-uv run python -m experiments.demo_synthetic --out docs/demo    # 上面的 synthetic 示範
+uv run pytest                                                  # 全部測試（約 15 分鐘，Mac）
+uv run python -m experiments.demo_synthetic --out docs/demo --update-readme README.md  # 重新產生上面的 synthetic 示範
 uv run python -m experiments.run_baseline --split dev --dry-run  # 不連網：以 oracle 假 client 走完整條 baseline 流程（預設 provider：本機 Ollama）
+uv run python -m experiments.round1_seal --check               # 第一輪封存的比對
 ```
 
-本機模型的正式 run（需要 gpu-server 與 GPU lock）的步驟見 [NEXT.md](NEXT.md)。付費 API（Optional）的成本估算：
-`uv run python -m experiments.cost_estimate`；程式不讀取、不保存任何 API key。
+付費 API（Optional）的成本估算：`uv run python -m experiments.cost_estimate`；程式不讀取、不保存任何 API key。
+`ruff check` 使用外部安裝的 ruff（不在 uv 的依賴中）。
+
+**可重現的範圍**
+
+- **只有 repo 就能重現**：全部測試、synthetic 示範、dry-run、成本估算、`study2_dev power` / `assumed` 的模擬；
+  已 commit 的兩輪報告與 README 段落都由測試比對（第一輪：封存的 sha256；Study 2：由 `docs/results/study2/summary.json` 重新呈現）。
+- **需要原始 run 目錄**：由原始紀錄重新產生報告（第一輪：`local-eval-20261016`、`local-sweep-20261016-1`；
+  Study 2：`study2-eval-20261017`、`study2-sweep-20261017-1` … `-6`）。有這些目錄時，測試會逐 byte 重新產生並比對；沒有時這些測試會 skip。
+  `local-dev-smoke-20261015` 只由 `round1_seal --check` 比對 sha256（沒有任何 runs/ 時只比對 repo 的部分並明說）；
+  `study2-dev-20261017` 是凍結紀錄（`034-freeze-record.json`）的輸入，沒有測試重新產生。`runs/` 不進 repo，只存在原始的 Mac。
+- **需要原本的 gpu-server**：重跑推論（MACHINE_POLICY、decision 029 / 030）。每次呼叫的 seed 隨機（decision 032），
+  重跑得到的是同一分布的新樣本，不是相同的數字。Study 2 依 decision 034 §9 不再對 eval seed 推論。
+
+**正式 run 的指令（紀錄）**
+
+- 第一輪：見 [docs/results/README.md 的「重現」](docs/results/README.md) 與 decision 030「確認後的步驟」。第一輪已封存：
+  `results_report` 拒絕寫進 `docs/results` 與這個 README；驗證時把 `--out` 指到其他目錄、不加 `--readme`，或用上面的 `round1_seal --check`。
+- Study 2（decision 034）：推論都在 GPU lock 內，呼叫上限由程式檢查。`study2_analysis` / `study2_report` 的 `--baseline-run`、`--sweep-run` 與
+  `study2_freeze` 的 `--dev-run` 每個旗標只接一個目錄（可重複給）；`run_sweep` 的 `--baseline-run` / `--resume-from` 可在一個旗標後列出多個目錄。
+
+```bash
+tools/with-gpu-lock -- uv run python -m experiments.run_baseline --split dev --suite study2 --rollouts 3 --confirm-local-run --max-model-calls 2880 --run-name study2-dev-20261017
+uv run python -m experiments.study2_dev review runs/study2-dev-20261017 --out runs/study2-dev-review-20261017
+uv run python -m experiments.study2_dev estimate runs/study2-dev-20261017 --source-rule first_failure --cap 70000
+uv run python -m experiments.study2_freeze --dev-run runs/study2-dev-20261017   # 只寫一次；之後由 tests/test_study2_freeze.py 比對
+tools/with-gpu-lock -- uv run python -m experiments.run_baseline --split eval --suite study2 --rollouts 3 --confirm-local-run --max-model-calls 4320 --run-name study2-eval-20261017
+# sweep 第 N 段（實際 N = 1 … 6）：第 2 段起加上 --resume-from runs/study2-sweep-20261017-1 … runs/study2-sweep-20261017-<N-1>；
+# 某一段沒有因預算停止（summary.json 的 stopped_by_budget 為 false）就結束
+tools/with-gpu-lock -- uv run python -m experiments.run_sweep --baseline-run runs/study2-eval-20261017 --plan 2,10,48,0.3 --criterion bonferroni95 --confirm-local-run --max-model-calls 3000 --total-model-calls 70000 --run-name study2-sweep-20261017-<N>
+uv run python -m experiments.study2_analysis --baseline-run runs/study2-eval-20261017 --sweep-run runs/study2-sweep-20261017-1 --sweep-run runs/study2-sweep-20261017-2 --sweep-run runs/study2-sweep-20261017-3 --sweep-run runs/study2-sweep-20261017-4 --sweep-run runs/study2-sweep-20261017-5 --sweep-run runs/study2-sweep-20261017-6 --out runs/<新目錄>
+uv run python -m experiments.study2_report --baseline-run runs/study2-eval-20261017 --sweep-run runs/study2-sweep-20261017-1 --sweep-run runs/study2-sweep-20261017-2 --sweep-run runs/study2-sweep-20261017-3 --sweep-run runs/study2-sweep-20261017-4 --sweep-run runs/study2-sweep-20261017-5 --sweep-run runs/study2-sweep-20261017-6 --out docs/results/study2 --readme README.md
+```
 
 ## 結果
 
@@ -140,8 +173,39 @@ uv run python -m experiments.run_baseline --split dev --dry-run  # 不連網：�
 
 <!-- study2:end -->
 
+## 結論的分類（2026-10-19 結案）
+
+**已證實的結論**（事先登記的分析；只適用於凍結的 `qwen3.5:9b-q4_K_M` 與這兩組題目）
+
+- 第一輪：eval baseline 45 / 45 成功、全部安全；sweep 480 / 480 rerun 成功，15 個 source 都沒有 cliff。這組題目對這個模型沒有可以定位的失敗（天花板效應）。
+- Study 2 eval baseline：108 個 episode 中 101 success、6 failure、1 agent_error（epic-closeout-L2-s3 r2：輸出達到 num_predict 而截斷、
+  沒有完成作答，計為未成功）；success L1 0.972、L2 0.917、L3 0.917；成功但不安全的 episode 0 個。
+  未成功的 7 個 episode 分布在 5 題，依 source 規則 B 每題取一條，所以 sweep 有 5 條失敗的 source。
+- Study 2 RQ1：事先登記的判定是「以驟降為主」（`mostly_cliff`）：可判定的失敗曲線中 cliff 4 / 4，Wilson 95% CI [0.510, 1.000]，
+  4 條都是行為性 cliff。**證據很弱**：可判定的曲線只有 4 條，n = 4 時只有 4 / 4 能讓 CI 下限超過 0.5（4 / 5 時 CI 為 [0.376, 0.964]，
+  就會是「無法判斷」）；另有 1 條無法判定。這個判定只說明這 4 條曲線的形狀，不足以推廣到其他模型或題目。
+
+**未通過的 Gate 與檢定**
+
+- 第一輪 Core Gate：機械化結果是 `gradual`，Gate 不通過，不進 Advanced、不加第二個 app。因為沒有任何失敗，這**不是**
+  「失敗是逐步累積」的證據；封存的 `docs/results/sweep-analysis.md` 中的這句是分析工具對 `gradual` 的固定說法，以
+  `docs/results/README.md` 的說明為準（decision 033 的補充）。
+- Study 2 的分級檢定：無效（L1 − L3 = 0.056，95% CI [−0.028, 0.167]）。依事先登記的規則，RQ2 只以結構參數描述，不下難度結論；
+  L1 > L2 = L3 的點估計不是難度的證據。
+- Study 2 不做任何 Gate 判定，也不重新開啟 Core Gate；Advanced 維持關閉。
+
+**探索性發現**（看過結果之後整理；不是結論，只作為未來研究的假設）
+
+- 4 條 cliff 都落在模型寫下錯誤計畫或解讀的那一個 turn；其中 3 條，那個 turn 的狀態變更是正確的或沒有改變狀態。
+  沒有做移除該計畫後重跑的介入檢驗（decision 034「事後的描述性觀察」）。
+- dev 驗證的 7 個未成功或不安全的 episode，逐一判定都是讀錯或漏掉 instruction 中寫明的規則（不是題目缺陷）；eval 只逐一看過 4 條 cliff 的關鍵 turn，
+  沒有逐一判定 eval 的每個失敗。max_turns 比例在 dev 與 eval 都是 0。
+- 「逐步」是 decision 034 §7 的類別名稱（可判定、沒有合格的下降），31 條成功的 source 多數是完全沒有下降的平線，不是「逐步下降」。
+
 ## 限制
 
-- eval 只有 15 題：結果只能當 infrastructure validation 與初步觀察，不宣稱統計上的泛化（decision 005 / 013）。
-- 驟降判定的 SweepPlan 依預先登記的偵測力門檻沒有合格方案，正式採用哪個選項待決定（decision 011 / 015）。
+- 第一輪的 eval 只有 15 題、Study 2 的 eval 36 題：結果只能當初步觀察，不宣稱統計上的泛化（decision 005 / 013 / 034）。
+- 驟降判定：在 decision 010 原本的判定下，沒有 SweepPlan 達到 decision 011 預先登記的偵測力門檻；使用者在任何 LLM 結果之前選定選項 A
+  （`bonferroni95`、plan (2, 10, 48, 0.3)；模擬偵測 0.83、誤判 0.03；decision 025 §3），兩輪都使用。模擬的曲線形狀是假設，真實的形狀未知。
+- 所有結論只針對一個凍結的本機模型；沒有跨模型比較（以 Claude API 做比較需要使用者另外授權）。
 - 其他已知限制見 [NEXT.md](NEXT.md)。

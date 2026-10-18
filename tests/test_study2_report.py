@@ -136,3 +136,27 @@ def test_readme_block_states_the_rq1_sample_size(formal_baseline_dry_sweep: tupl
     assert "失敗的 source 5 條，無法判定 1 條、max_turns 混淆 0 條" in block
     summary["analysis"]["sweep"]["rq1"] = {**rq1, "outcome": "no_decidable", "k": 0, "n": 0}
     assert "可判定的失敗曲線中 cliff 0 / 0（失敗的 source 5 條" in rep.render_readme_block(summary)  # n = 0 時不附 CI
+
+
+ROOT = Path(__file__).resolve().parent.parent
+STUDY2_RESULTS = ROOT / "docs" / "results" / "study2"
+STUDY2_EVAL = ROOT / "runs" / "study2-eval-20261017"
+STUDY2_SWEEPS = [ROOT / "runs" / f"study2-sweep-20261017-{n}" for n in range(1, 7)]
+
+
+def test_the_committed_study2_results_match_the_summary() -> None:
+    """正式的 Study 2 報告、曲線圖與 README 段落，必須等於從已 commit 的 summary.json 重新呈現的結果（結案稽核）。Study 2 沒有 sha256 封存：這裡只檢查呈現與 summary.json 一致，
+    summary.json 本身只在有原始 run 目錄時逐 byte 重新產生（下一個測試）。"""
+    summary = json.loads((STUDY2_RESULTS / "summary.json").read_text(encoding="utf-8"))
+    assert summary["provenance"]["dry_run"] is False and summary["provenance"]["replicates"] == 10_000
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert rep.embed(readme, rep.render_readme_block(summary)) == readme
+    assert (STUDY2_RESULTS / "README.md").read_text(encoding="utf-8") == rep.render_page(summary)
+    assert (STUDY2_RESULTS / "recoverability.svg").read_text(encoding="utf-8") == rep.recoverability_svg(summary)
+
+
+@pytest.mark.skipif(not all(d.is_dir() for d in [STUDY2_EVAL, *STUDY2_SWEEPS]), reason="runs/ 不在 repo；只在有原始 run 目錄的機器上檢查")
+def test_the_study2_summary_regenerates_byte_identical_from_the_raw_runs() -> None:
+    summary = rep.build([STUDY2_EVAL], STUDY2_SWEEPS)
+    text = json.dumps(summary, ensure_ascii=False, indent=1, sort_keys=True) + "\n"
+    assert text == (STUDY2_RESULTS / "summary.json").read_text(encoding="utf-8")

@@ -71,3 +71,12 @@
 ## 對實驗的影響
 
 無。分析方法、判定規則與 Gate 都沒有改變。
+
+## 補充（2026-10-19，結案時的文字釐清）
+
+- Gate 的規則與結果沒有改變：`gradual` → Gate 不通過，不進 Advanced、不加第二個 app。
+- decision 025 §4 與 SPEC「收尾」把 `gradual` 對應到正式結論「失敗是逐步累積」。第一輪沒有任何失敗（480 / 480 rerun 成功），
+  所以這個結論沒有證據，結果頁依本 decision 寫成天花板效應，沒有採用這句。這是 SPEC 與現況的已記錄差異，不是 Gate 的改變。
+- 封存的 `docs/results/sweep-analysis.md` 中「失敗是逐步累積…有驟降的模式也彼此不同」是分析工具對 `gradual` 的固定說法，
+  不適用於沒有任何失敗的資料；以 `docs/results/README.md` 的說明為準。封存的檔案不修改。
+- 第一輪已封存：`results_report` 的 CLI 拒絕寫進 `docs/results` 與 README（結案稽核加上的檢查，有測試）。

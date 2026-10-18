@@ -119,11 +119,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"wrote {SEAL_PATH}")
         return 0
     seal = json.loads(path.read_text(encoding="utf-8"))
-    report = verify_seal(root, seal, runs=all((root / "runs" / d).is_dir() for d in ROUND1_RUN_DIRS))
+    # 任何一個封存的 run 目錄存在，就比對全部（缺少其中一個是錯誤）；一個都沒有時只比對 repo 的部分，並明說（結案稽核）
+    runs = any((root / "runs" / d).is_dir() for d in ROUND1_RUN_DIRS)
+    report = verify_seal(root, seal, runs=runs)
     problems = [f"{kind}: {name}" for kind, names in report.items() for name in names]
     for line in problems:
         print(line, file=sys.stderr)
-    print("round-1 seal: OK" if not problems else f"round-1 seal: {len(problems)} problem(s)")
+    if problems:
+        print(f"round-1 seal: {len(problems)} problem(s)")
+    else:
+        print("round-1 seal: OK" + ("" if runs else " (repo files only; the sealed runs/ directories are absent)"))
     return 0 if not problems else 1
 
 

@@ -1,14 +1,17 @@
-"""Week 1 #5：baseline agent 在 week1 dev / eval split 上的 run（decision 009 / 012）。
+"""baseline agent 在 dev / eval split 上的 run（suite：week1 = 第一輪，或 study2 = decision 034；decision 009 / 012 / 026）。
 
 用法::
 
     uv run python -m experiments.run_baseline --split dev --dry-run
-        不連網、不需要任何 credential：以 oracle 劇本的 OracleFakeClient 走完整條流程
-        （AnthropicPolicy → runner → manifest → grader → summary），只用來驗證 harness。
+        不連網、不需要任何 credential：以該 provider 形狀的 oracle 假 client（預設 Ollama）走完整條流程
+        （policy → runner → manifest → grader → summary），只用來驗證 harness。
+    tools/with-gpu-lock -- uv run python -m experiments.run_baseline --split eval [--suite study2] --rollouts 3 \\
+        --confirm-local-run --max-model-calls N --run-name <name>
+        本機模型的正式 run（需要 GPU lock；Study 2 的 N 必須是 dev 2880 / eval 4320）。
     uv run python -m experiments.cost_estimate
         印出付費 run 的成本估算（不連網；另一個入口）。
-    uv run --extra llm python -m experiments.run_baseline --split dev --max-cost-usd 5 --confirm-paid-run
-        真正呼叫 Anthropic API。只能在使用者確認模型與成本之後執行；credential 由 SDK 自行從環境變數解析，
+    uv run --extra llm python -m experiments.run_baseline --split dev --provider anthropic --max-cost-usd 5 --confirm-paid-run
+        Optional：真正呼叫 Anthropic API（只限 week1）。只能在使用者確認模型與成本之後執行；credential 由 SDK 自行從環境變數解析，
         本腳本不讀取、不檢查、不記錄任何 key。
 
 輸出目錄（gitignored）：``runs/<run_name>/`` 下 ``run.json``（開始時寫入：split、rollouts、config_id、dry_run；decision 021 §1）、

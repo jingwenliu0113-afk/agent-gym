@@ -2,6 +2,8 @@
 
 日期：2026-10-08　狀態：採用（只是讓選項可用；**正式 sweep 使用哪一個判定仍屬使用者決策**）
 
+（2026-10-19 補註：使用者已於 2026-10-09 選擇選項 A，正式 sweep 使用 `bonferroni95`，見 decision 025 §3；第一輪與 Study 2 的 sweep 都使用它。）
+
 ## 背景
 
 decision 011 依預先登記的規則沒有合格的 SweepPlan，列出 A / B / C 三個選項待使用者決定；選項 A 的 Bonferroni 判定當時只存在於模擬程式
@@ -30,4 +32,4 @@ decision 011 依預先登記的規則沒有合格的 SweepPlan，列出 A / B / 
 
 ## 對實驗的影響
 
-- 正式 sweep 必須明確指定 `--criterion`；選擇哪一個仍待使用者決定（decision 011 的選項 A / B / C）。
+- 正式 sweep 必須明確指定 `--criterion`；選擇哪一個仍待使用者決定（decision 011 的選項 A / B / C）。（已決定：選項 A，decision 025 §3）

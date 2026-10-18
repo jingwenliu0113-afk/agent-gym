@@ -3,7 +3,10 @@
 用法::
 
     uv run python -m experiments.results_report --baseline-run runs/<eval> [--baseline-run ...] \\
-        --sweep-run runs/<sweep-1> [--sweep-run ...] --out docs/results --readme README.md
+        --sweep-run runs/<sweep-1> [--sweep-run ...] --out runs/<check-dir>
+
+第一輪已封存（docs/results/round1-seal.json）：CLI 拒絕 ``--out docs/results`` 與 ``--readme README.md``；驗證時寫到其他目錄後比對，
+或執行 ``python -m experiments.round1_seal --check``。
 
 - 分析一律經過預先登記的分析工具：``analyze_baseline.analyze_runs`` 與 ``analyze_sweep.analyze_sweep_runs``（載入時完整核對
   manifest、summary、trajectory 與續跑的血緣；不一致 → ValueError）。兩者的完整報告（``render_markdown``）原樣寫成
@@ -22,6 +25,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import os
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -655,6 +659,19 @@ def _write(out: Path, summary: dict[str, Any], baseline_md: str, sweep_md: str) 
     (out / "sweep-analysis.md").write_text(sweep_md, encoding="utf-8")
 
 
+_ROOT = Path(__file__).resolve().parents[1]
+SEALED_RESULTS = _ROOT / "docs" / "results"  # 第一輪已封存（docs/results/round1-seal.json）：CLI 不再寫入
+SEALED_README = _ROOT / "README.md"  # 其中的 results 段落也在封存內
+
+
+def _same_path(path: str | Path, target: Path) -> bool:
+    """不分大小寫、不依賴工作目錄地比較兩個路徑（macOS 的檔案系統不分大小寫）。"""
+    resolved, target = Path(path).resolve(), Path(target).resolve()
+    if resolved.exists() and target.exists() and os.path.samefile(resolved, target):
+        return True
+    return os.path.normcase(str(resolved)).casefold() == os.path.normcase(str(target)).casefold()
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--baseline-run", action="append", required=True)
@@ -664,6 +681,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--allow-dry-run", action="store_true", help="允許以 dry-run 的輸出產生報告（不會寫進 README）")
     parser.add_argument("--replicates", type=int, default=10000)
     args = parser.parse_args(argv)
+    if _same_path(args.out, SEALED_RESULTS) or (args.readme and _same_path(args.readme, SEALED_README)):
+        parser.error("the round-1 results are sealed (docs/results/round1-seal.json): write to another directory without --readme "
+                     "and compare, or run `python -m experiments.round1_seal --check`")
     try:
         summary, baseline_md, sweep_md = _build(args.baseline_run, args.sweep_run, args.replicates)
         if summary["provenance"]["dry_run"] and not args.allow_dry_run:

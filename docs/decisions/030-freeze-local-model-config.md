@@ -64,6 +64,8 @@ decision 026 §5 要求：正式模型、量化版本、prompt、tool schema、�
 
 ## 確認後的步驟
 
+（2026-10-19 補註：以下步驟已於 2026-10-16 全部完成：`local-eval-20261016`、`local-sweep-20261016-1`，Gate `gradual`；見 decision 033 與 `docs/results/`。第一輪已封存，`results_report` 不再寫入 `docs/results`。）
+
 1. ~~把 `model_digest`、`ollama_version` 填入 `agents.ollama.LOCAL_MODEL_CONFIG`~~（2026-10-16 完成）。config_id 會因此改變；開發題測試屬於草案設定，
    不與正式結果合併。
 2. 正式 eval baseline：

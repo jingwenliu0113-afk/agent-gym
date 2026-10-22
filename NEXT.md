@@ -232,7 +232,7 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
    - 結果報告：`experiments/results_report.py` 產生 `docs/results/` 與 README 的結果段落，附上預先登記分析工具的完整報告；
    - 第三輪對抗式審查（25 個 agent，確認 22 項）都已修正，並以正式資料重新產生結果。
 
-測試（2026-10-23，decision 035 的工程完成時）：`uv run pytest` → 9519 passed、1 skipped（Linux 專用的 PDEATHSIG 測試）、1 xfailed（decision 013 §6 的 strict xfail），約 14–15 分鐘（Mac；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip）；`ruff check`（外部安裝的 ruff，不在 uv 的依賴中）通過。
+測試（2026-10-23，Haiku 比較完成時）：`uv run pytest` → 9521 passed、1 skipped（Linux 專用的 PDEATHSIG 測試）、1 xfailed（decision 013 §6 的 strict xfail），約 14–15 分鐘（Mac；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip）；`ruff check`（外部安裝的 ruff，不在 uv 的依賴中）通過。
 
 ## 使用者決策（2026-10-08 / 10-09 / 10-11）
 

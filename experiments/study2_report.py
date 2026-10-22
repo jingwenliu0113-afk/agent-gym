@@ -1,4 +1,5 @@
 """Study 2 的結果報告（decision 034 §1）：``docs/results/study2/`` 與 README 中 ``<!-- study2:start -->`` / ``<!-- study2:end -->`` 之間的段落。
+Claude Haiku 5.5 的跨模型比較（decision 035）寫到 ``docs/results/study2-haiku/`` 與 ``<!-- study2-haiku:start -->`` 段落（``VARIANTS``）。
 
     uv run python -m experiments.study2_report --baseline-run runs/<eval> [--baseline-run runs/<eval-rerun> ...] \\
         [--sweep-run runs/<sweep-1> --sweep-run runs/<sweep-2> ...] --out docs/results/study2 [--readme README.md]
@@ -19,12 +20,16 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import math
 import os
 from pathlib import Path
 from typing import Any, Sequence
 
+from agents.baseline import ANTHROPIC_POLICY, haiku_agent_config
+from agents.ollama import local_agent_config
 from experiments.call_log import reconcile
 from experiments.study2_analysis import BOOTSTRAP_REPLICATES, CLASS_TEXT, RQ1_TEXT, SKIP_TEXT, Study2Analysis, analyze, render_markdown
+from replay.aborts import read_manifest
 from replay.trajectory import Trajectory
 from tasks.generator_v2 import EVAL_SEEDS, FAMILIES, LEVELS
 
@@ -32,11 +37,58 @@ README_START = "<!-- study2:start -->"
 README_END = "<!-- study2:end -->"
 ROUND1_RESULTS = Path(__file__).resolve().parents[1] / "docs" / "results"
 
+# 兩個 agent 的報告：本機模型（decision 034）與 Claude Haiku 5.5（decision 035）各有自己的目錄與 README 段落。
+VARIANTS: dict[str, dict[str, str]] = {
+    "study2": {
+        "start": README_START, "end": README_END,
+        "heading": "### Study 2：分級的多步驟任務（decision 034）",
+        "intro": "獨立的後續研究；第一輪的結果與判定不變，本段也不做 Core Gate 的判定。",
+        "page": "docs/results/study2/README.md",
+    },
+    "study2-haiku": {
+        "start": "<!-- study2-haiku:start -->", "end": "<!-- study2-haiku:end -->",
+        "heading": "### Study 2 跨模型比較：Claude Haiku 5.5（decision 035）",
+        "intro": "與 Study 2 相同的 36 題與協定，agent 換成 Claude Haiku 5.5；第一輪與 Study 2 的結果與判定不變，本段也不做 Core Gate 的判定。",
+        "page": "docs/results/study2-haiku/README.md",
+    },
+}
+RESULT_DIRS: dict[str, Path] = {name: ROUND1_RESULTS / Path(v["page"]).parent.name for name, v in VARIANTS.items()}
+
+
+def variant(summary: dict[str, Any]) -> str:
+    """報告屬於哪個 agent：provenance 的 config_id（baseline 目錄 run.json 的設定）是凍結的本機 agent（decision 034）→ "study2"；
+    是 decision 035 的 Haiku agent → "study2-haiku"；其他 → ValueError（不猜測，不寫進任何一份報告）。"""
+    config_id = summary["provenance"].get("config_id")
+    if config_id == local_agent_config().config_id:
+        return "study2"
+    if config_id == haiku_agent_config().config_id:
+        return "study2-haiku"
+    raise ValueError(f"the baseline agent config {config_id!r} is neither the frozen local agent (decision 034) nor the Haiku "
+                     "agent (decision 035)")
+
+
+def _spent(run_dirs: Sequence[Path]) -> float:
+    return math.fsum(row.cost_usd for d in run_dirs for row in read_manifest(d / "manifest.jsonl"))
+
+
+def _run_config_id(baseline_dirs: Sequence[Path]) -> str | None:
+    """baseline 目錄 run.json 的 config_id（每個目錄都有，不依賴是否有完成的 trajectory）；不只一種 → ValueError。"""
+    ids = set()
+    for directory in baseline_dirs:
+        try:
+            ids.add(json.loads((directory / "run.json").read_text(encoding="utf-8")).get("config_id"))
+        except (OSError, ValueError, AttributeError):
+            ids.add(None)
+    if len(ids) > 1:
+        raise ValueError("the baseline directories were produced by different agent configs")
+    return next(iter(ids), None)
+
 
 def _provenance(baseline_dirs: Sequence[Path], sweep_dirs: Sequence[Path], analysis: Study2Analysis) -> dict[str, Any]:
     trajectories = sorted(p for d in baseline_dirs for p in (d / "trajectories").glob("*.json"))
     agent = Trajectory.load(trajectories[0]).agent if trajectories else None
     mc = {} if agent is None else agent.model_config
+    run_config_id = _run_config_id(baseline_dirs)
     return {
         "baseline_runs": [d.name for d in baseline_dirs],
         "sweep_runs": [d.name for d in sweep_dirs],
@@ -44,12 +96,15 @@ def _provenance(baseline_dirs: Sequence[Path], sweep_dirs: Sequence[Path], analy
         "data_complete": analysis.data_complete,
         "replicates": None if analysis.baseline["level_check"]["l1_minus_l3"] is None
         else analysis.baseline["level_check"]["l1_minus_l3"]["replicates"],
-        "config_id": None if agent is None else agent.config_id,
+        "config_id": run_config_id if agent is None else agent.config_id,
         "model": mc.get("model"),
         "model_digest": mc.get("model_digest"),
         "ollama_version": mc.get("ollama_version"),
         "calls_baseline": reconcile(list(baseline_dirs)),
         "calls_sweep": reconcile(list(sweep_dirs)) if sweep_dirs else None,
+        # 付費的 agent（decision 035）才有的欄位；本機模型的 summary 不變
+        **({"provider": "anthropic", "spent_usd": {"baseline": _spent(baseline_dirs), "sweep": _spent(sweep_dirs)}}
+           if (agent is not None and agent.policy == ANTHROPIC_POLICY) or run_config_id == haiku_agent_config().config_id else {}),
     }
 
 
@@ -66,9 +121,19 @@ def _data_complete(summary: dict[str, Any]) -> bool:
 
 def render_page(summary: dict[str, Any]) -> str:
     prov = summary["provenance"]
-    lines = [summary["markdown"].rstrip("\n")]  # dry-run 與資料不完整的標示在分析的 markdown 中
-    lines += ["", "## 設定與紀錄", "",
-              f"- 模型：`{prov['model']}`，digest `{prov['model_digest']}`，Ollama {prov['ollama_version']}",
+    markdown = summary["markdown"].rstrip("\n")  # dry-run 與資料不完整的標示在分析的 markdown 中
+    if variant(summary) == "study2-haiku":
+        first, _, rest = markdown.partition("\n")
+        markdown = "# Study 2 跨模型比較：Claude Haiku 5.5（decision 035；分析規則同 decision 034）\n" + rest
+        spent = prov["spent_usd"]
+        model_lines = ["- 模型：`claude-haiku-5-5`（Anthropic API；agent 設定同 decision 009，只換模型）",
+                       f"- 列出的目錄的實際花費（manifest 合計）：eval baseline ${spent['baseline']:.4f}、sweep ${spent['sweep']:.4f}，"
+                       f"合計 ${spent['baseline'] + spent['sweep']:.4f}。全部付費呼叫（含中止、中斷與沒有列出的目錄）以總帳為準，"
+                       "見 decision 035（總預算 $70）"]
+    else:
+        model_lines = [f"- 模型：`{prov['model']}`，digest `{prov['model_digest']}`，Ollama {prov['ollama_version']}"]
+    lines = [markdown]
+    lines += ["", "## 設定與紀錄", "", *model_lines,
               f"- config_id：`{prov['config_id']}`",
               f"- baseline 目錄：{', '.join(prov['baseline_runs'])}；sweep 目錄：{', '.join(prov['sweep_runs']) or '—'}"]
     for name in ("calls_baseline", "calls_sweep"):
@@ -91,7 +156,8 @@ def recoverability_svg(summary: dict[str, Any]) -> str:
     rows = [(lv, f) for lv in LEVELS for f in FAMILIES]
     height = top + len(rows) * (panel_h + gap) + len(LEVELS) * 22 + 30
     dry = summary["provenance"]["dry_run"]
-    title = ("[dry-run] " if dry else "") + "Study 2 recoverability：P(success | k)"
+    title = ("[dry-run] " if dry else "") + "Study 2 recoverability" + (
+        "（Claude Haiku 5.5）" if variant(summary) == "study2-haiku" else "") + "：P(success | k)"
     rq1 = "沒有 sweep" if sweep is None else RQ1_TEXT[sweep["rq1"]["outcome"]]
     out = [
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" width="{width}" height="{height}" role="img" '
@@ -163,8 +229,9 @@ def render_readme_block(summary: dict[str, Any]) -> str:
     levels = a["baseline"]["levels"]
     check = a["baseline"]["level_check"]
     sweep = a["sweep"]
-    lines = [README_START, "", "### Study 2：分級的多步驟任務（decision 034）", "",
-             "獨立的後續研究；第一輪的結果與判定不變，本段也不做 Core Gate 的判定。" + ("" if _data_complete(summary) else "**資料不完整。**"), "",
+    v = VARIANTS[variant(summary)]
+    lines = [v["start"], "", v["heading"], "",
+             v["intro"] + ("" if _data_complete(summary) else "**資料不完整。**"), "",
              "| 級別 | success | 成功但不安全 |", "|---|---|---|"]
     fmt = lambda v: "—" if v is None else f"{v:.3f}"  # noqa: E731
     for lv in LEVELS:
@@ -173,7 +240,7 @@ def render_readme_block(summary: dict[str, Any]) -> str:
     lines += ["", f"- 分級：{valid_text}（L1 − L3 的 95% CI 下限 "
                   f"{fmt(None if check['l1_minus_l3'] is None else check['l1_minus_l3']['low'])}）",
               "- RQ1：" + ("沒有 sweep（" + SKIP_TEXT[a["sweep_skipped"]] + "）" if sweep is None else _rq1_line(sweep["rq1"])),
-              "", "完整結果：[docs/results/study2/README.md](docs/results/study2/README.md)。", "", README_END]
+              "", f"完整結果：[{v['page']}]({v['page']})。", "", v["end"]]
     return "\n".join(lines)
 
 
@@ -186,14 +253,15 @@ def _rq1_line(rq1: dict[str, Any]) -> str:
 
 
 def embed(readme: str, block: str) -> str:
-    """README 中剛好一對 study2 標記 → 取代其間的內容；沒有標記 → 加在最後；不只一對 → ValueError。"""
-    starts, ends = readme.count(README_START), readme.count(README_END)
+    """README 中剛好一對該段落的標記（block 的第一行與最後一行）→ 取代其間的內容；沒有標記 → 加在最後；不只一對 → ValueError。"""
+    start, end = block.split("\n")[0], block.split("\n")[-1]
+    starts, ends = readme.count(start), readme.count(end)
     if starts == 0 and ends == 0:
         return readme.rstrip("\n") + "\n\n" + block + "\n"
-    if starts != 1 or ends != 1 or readme.index(README_START) > readme.index(README_END):
-        raise ValueError("the README must contain exactly one study2 block")
-    before, rest = readme.split(README_START)
-    _, after = rest.split(README_END)
+    if starts != 1 or ends != 1 or readme.index(start) > readme.index(end):
+        raise ValueError(f"the README must contain exactly one {start} … {end} block")
+    before, rest = readme.split(start)
+    _, after = rest.split(end)
     return before + block + after
 
 
@@ -204,6 +272,13 @@ def _is_round1_path(path: Path) -> bool:
     if resolved.exists() and ROUND1_RESULTS.exists() and os.path.samefile(resolved, ROUND1_RESULTS):
         return True
     return os.path.normcase(str(resolved)).casefold() == target
+
+
+def _same_dir(path: Path, target: Path) -> bool:
+    resolved, target = Path(path).resolve(), Path(target).resolve()
+    if resolved.exists() and target.exists() and os.path.samefile(resolved, target):
+        return True
+    return os.path.normcase(str(resolved)).casefold() == os.path.normcase(str(target)).casefold()
 
 
 def _under_round1(path: Path) -> bool:
@@ -219,6 +294,11 @@ def write_report(baseline_runs: Sequence[str | Path], sweep_runs: Sequence[str |
     if readme is not None and _under_round1(Path(readme).parent):
         raise ValueError("the README of the sealed round-1 results is never modified (decision 034 §1)")
     summary = build(baseline_runs, sweep_runs, replicates=replicates)
+    own = variant(summary)
+    for name, directory in RESULT_DIRS.items():  # 一個 agent 的報告不寫進另一個 agent 的目錄或其子目錄（decision 035 §6）
+        resolved = Path(out).resolve()
+        if name != own and any(_same_dir(p, directory) for p in (resolved, *resolved.parents)):
+            raise ValueError(f"{directory} holds the {name} report; this report is {own} (write it to {RESULT_DIRS[own]})")
     if not summary["provenance"]["dry_run"] and replicates != BOOTSTRAP_REPLICATES:
         raise ValueError(f"a formal Study 2 report uses B = {BOOTSTRAP_REPLICATES} (decision 034 §7)")
     new_readme = None

@@ -12,7 +12,7 @@ dry-run（oracle 假 client）不受限制。
 from __future__ import annotations
 
 import functools
-from typing import Sequence
+from typing import Any, Sequence
 
 from tasks.generator import GENERATOR_VERSION as WEEK1_GENERATOR, GeneratedInstance, week1_pool
 from tasks.generator_v2 import GENERATOR_VERSION as STUDY2_GENERATOR, study2_pool
@@ -25,6 +25,29 @@ STUDY2_FROZEN = True  # dev 驗證（2026-10-17）沒有缺陷修正、P90 26,63
 STUDY2_SWEEP_CAP: int | None = 70_000  # 正式 sweep 的累計呼叫上限（decision 034 §8；使用者選擇 source 規則 B，2026-10-17）
 STUDY2_SEGMENT_CAP = 3000  # 正式 sweep 每段的呼叫上限；段與段之間釋放 GPU lock（decision 034 §8）
 STUDY2_BASELINE_CAPS = {"dev": 2880, "eval": 4320}  # 每輪 dev / eval baseline 的呼叫上限（24 或 36 題 × R 3 × max_turns 20 × 2 次嘗試）
+
+
+# decision 035：Claude Haiku 5.5 跑 Study 2 的 eval（付費 API；使用者 2026-10-22 授權）。不跑 dev（使用者決定不試跑）。
+STUDY2_PAID_MODEL = "claude-haiku-5-5"
+STUDY2_PAID_TOTAL_USD = 70.0  # eval baseline、sweep 與所有中止的嘗試合計
+STUDY2_PAID_BASELINE_USD = 15.0  # eval baseline 的上限
+STUDY2_PAID_ROLLOUTS = 3
+
+
+def check_study2_paid_run(*, model: Any, split: str, max_cost_usd: Any, sweep: bool, rollouts: Any = None) -> None:
+    """Study 2 的付費推論（decision 035）：只限 ``STUDY2_PAID_MODEL``、只限 eval；baseline 的上限 0 < x <= 15 美元、R = 3；
+    sweep 這一次要求的上限 0 < x <= 70 美元。累計的扣除（總帳、程序鎖、保險絲）由 ``experiments.billing.paid_session`` 在
+    run_split / run_sweeps 內處理。違反 → ValueError。
+    run_split / run_sweeps 在 client 不是 oracle 假 client、agent 是 Anthropic 時呼叫（不只在 CLI）。"""
+    if model != STUDY2_PAID_MODEL:
+        raise ValueError(f"paid Study 2 runs are registered only for {STUDY2_PAID_MODEL} (decision 035)")
+    if split != "eval":
+        raise ValueError("paid Study 2 runs use the eval split only; there is no paid dev run (decision 035 §1)")
+    cap = STUDY2_PAID_TOTAL_USD if sweep else STUDY2_PAID_BASELINE_USD
+    if (isinstance(max_cost_usd, bool) or not isinstance(max_cost_usd, (int, float)) or not 0 < max_cost_usd <= cap):
+        raise ValueError(f"a paid Study 2 {'sweep' if sweep else 'eval baseline'} needs 0 < --max-cost-usd <= {cap:g} (decision 035 §3)")
+    if not sweep and rollouts != STUDY2_PAID_ROLLOUTS:
+        raise ValueError(f"a paid Study 2 eval baseline must use --rollouts {STUDY2_PAID_ROLLOUTS} (decision 035 §4)")
 
 
 def check_study2_limits(*, split: str, call_log: bool, max_model_calls: int | None, sweep: bool) -> None:

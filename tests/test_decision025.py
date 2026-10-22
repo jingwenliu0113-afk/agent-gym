@@ -122,7 +122,7 @@ def test_registered_settings() -> None:
 def made(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     calls: list[str] = []
 
-    def make() -> OracleFakeClient:
+    def make(model_config=None) -> OracleFakeClient:  # 同 make_anthropic_client 的簽名
         calls.append("client")
         return OracleFakeClient([*POOL, *week1_pool("dev")])  # dev sanity 也用得到
 

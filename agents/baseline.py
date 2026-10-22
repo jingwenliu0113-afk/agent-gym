@@ -36,7 +36,9 @@ Response → PolicyStep（``parse_response``；以屬性讀取 ``stop_reason``�
 - 用量：input_tokens = input + cache_creation + cache_read；output_tokens = output（None / 缺少視為 0）；
   ``cost_usd = (input×p.input + cw5m×p.cache_write + cw1h×p.cache_write_1h + cache_read×p.cache_read + output×p.output) / 1e6``，
   其中 cw1h = ``usage.cache_creation.ephemeral_1h_input_tokens``（沒有細項時為 0）、cw5m = cache_creation − cw1h；
-  model 不在 PRICING → cost_usd = None。
+  model 不在 PRICING → cost_usd = None；PRICING 有 ``long_context`` 而 prompt（input + cache 寫入 + cache 讀取）超過其 threshold
+  → 整個 request 用那一組費率（Haiku 5.5，decision 035）；usage 回報的 inference_geo / service_tier / speed 依
+  ``_billing_modifiers`` 調整或使成本未知。
 - ``PolicyStep.meta`` = ``{"response_model", "request_id", "stop_reason", "stop_details", "tool_use_blocks",
   "usage": {"input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens",
   "cache_creation_1h_input_tokens"}}``；stop_details 為 ``{"category", "explanation"}`` 或 None。
@@ -86,9 +88,17 @@ BASELINE_MODEL_CONFIG: dict[str, Any] = {
     "client": {"max_retries": 4, "timeout_s": 600},
 }
 
-# 每百萬 tokens 的美元價格（claude-api skill 模型表，快取日期 2026-10-06）。只用於量測成本，不屬於 config。
-PRICING: dict[str, dict[str, float]] = {
+# decision 035：跨模型比較的 agent，與 decision 009 只差 model（Study 2 的 eval，付費 API）。
+HAIKU_MODEL = "claude-haiku-5-5"
+
+# 每百萬 tokens 的美元價格（claude-api skill 模型表，快取日期 2026-10-06；Haiku 5.5 另以官方價格頁核對，2026-10-22）。
+# 只用於量測成本，不屬於 config。``long_context``：prompt（input + cache 寫入 + cache 讀取）超過 threshold 的 request
+# 整個改用這組費率（Haiku 5.5；decision 035 §3）。
+PRICING: dict[str, dict[str, Any]] = {
     "claude-opus-5-5": {"input": 4.00, "output": 20.00, "cache_write": 5.00, "cache_write_1h": 8.00, "cache_read": 0.20},
+    HAIKU_MODEL: {"input": 0.10, "output": 0.50, "cache_write": 0.125, "cache_write_1h": 0.20, "cache_read": 0.01,
+                  "long_context": {"threshold": 100_000, "input": 0.50, "output": 2.50, "cache_write": 0.625,
+                                   "cache_write_1h": 1.00, "cache_read": 0.05}},
 }
 
 ALLOWED_BLOCK_TYPES: dict[str, tuple[str, ...]] = {
@@ -122,6 +132,20 @@ def baseline_agent_config() -> AgentConfig:
         system_prompt=BASELINE_SYSTEM_PROMPT,
         developer_prompt=BASELINE_DEVELOPER_PROMPT,
         model_config=copy.deepcopy(BASELINE_MODEL_CONFIG),
+    )
+
+
+def haiku_agent_config() -> AgentConfig:
+    """decision 035：與 ``baseline_agent_config()`` 相同，只把 model 換成 ``HAIKU_MODEL``（每次回傳新物件）。"""
+    config = baseline_agent_config()
+    model_config = copy.deepcopy(config.model_config)
+    model_config["model"] = HAIKU_MODEL
+    return AgentConfig(
+        policy=config.policy,
+        prompt_version=config.prompt_version,
+        system_prompt=config.system_prompt,
+        developer_prompt=config.developer_prompt,
+        model_config=model_config,
     )
 
 
@@ -333,6 +357,9 @@ def _read_usage(response: Any, model: str) -> tuple[dict[str, Any], int, int, in
     prices = PRICING.get(model)
     cost = None
     if prices is not None:
+        long_context = prices.get("long_context")
+        if long_context is not None and input_tokens + cache_write + cache_read > long_context["threshold"]:
+            prices = long_context
         cost = (
             input_tokens * prices["input"]
             + (cache_write - cache_1h) * prices["cache_write"]
@@ -340,7 +367,18 @@ def _read_usage(response: Any, model: str) -> tuple[dict[str, Any], int, int, in
             + cache_read * prices["cache_read"]
             + output_tokens * prices["output"]
         ) / 1e6
+        cost = _billing_modifiers(usage, cost)
     return raw, cache_1h, input_tokens + cache_write + cache_read, output_tokens, cost
+
+
+def _billing_modifiers(usage: Any, cost: float) -> float | None:
+    """API 在 usage 回報的計價條件（decision 035 §3，官方價格頁 2026-10-22）：inference_geo 為 None / "global" → 標準價；
+    "us"（US-only 推論）→ × 1.1；其他值、service_tier 不是 None / "standard"、或 speed 不是 None / "standard" → 成本未知
+    （None；decision 014：付費 run 停止，不猜測）。"""
+    geo, tier, speed = (getattr(usage, name, None) for name in ("inference_geo", "service_tier", "speed"))
+    if tier not in (None, "standard") or speed not in (None, "standard") or geo not in (None, "global", "us"):
+        return None
+    return cost * 1.1 if geo == "us" else cost
 
 
 def billed_usage(response: Any, model: str) -> dict[str, Any]:

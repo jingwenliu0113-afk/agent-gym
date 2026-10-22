@@ -2,7 +2,7 @@
 
 ## 目前位置
 
-**2026-10-19 暫時結案。** Core：Day 1、Week 1（含 #5：凍結的本機模型已跑完整的正式 eval baseline，2026-10-16）與 SPEC §6 全部完成；Gate `gradual`，不進 Advanced。Study 2 已完成（2026-10-17），使用者 2026-10-19 接受結果；不啟動 Study 3、不新增正式研究。結論的分類（已證實／未通過的 Gate 與檢定／探索性）見 README「結論的分類」。
+**2026-10-19 暫時結案；2026-10-22 使用者授權以 Claude Haiku 5.5 做跨模型比較（decision 035，進行中）。** Core：Day 1、Week 1（含 #5：凍結的本機模型已跑完整的正式 eval baseline，2026-10-16）與 SPEC §6 全部完成；Gate `gradual`，不進 Advanced。Study 2 已完成（2026-10-17），使用者 2026-10-19 接受結果；不啟動 Study 3、不新增正式研究。結論的分類（已證實／未通過的 Gate 與檢定／探索性）見 README「結論的分類」。
 **2026-10-11 起 Core 的 LLM 改用自行部署的本機模型**（`qwen3.5:9b-q4_K_M`，台中 gpu-server 的 Ollama；decision 026）；付費 API 改為 Optional。
 **2026-10-15**：本 Project 在 GPU lock 內啟動自己的 Ollama server（與 incident-investigator 共用模型檔案、共用目錄只讀；decision 029），
 已在 gpu-server 實測：server 檢查、截斷自我測試、開發題測試（15 / 15 成功）全部通過，每次結束都確認 server 已停止、共用目錄沒有改變、
@@ -232,7 +232,7 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
    - 結果報告：`experiments/results_report.py` 產生 `docs/results/` 與 README 的結果段落，附上預先登記分析工具的完整報告；
    - 第三輪對抗式審查（25 個 agent，確認 22 項）都已修正，並以正式資料重新產生結果。
 
-測試（2026-10-19 結案時）：`uv run pytest` → 9470 passed、1 skipped（Linux 專用的 PDEATHSIG 測試）、1 xfailed（decision 013 §6 的 strict xfail），約 14–15 分鐘（Mac；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip）；`ruff check`（外部安裝的 ruff，不在 uv 的依賴中）通過。
+測試（2026-10-23，decision 035 的工程完成時）：`uv run pytest` → 9519 passed、1 skipped（Linux 專用的 PDEATHSIG 測試）、1 xfailed（decision 013 §6 的 strict xfail），約 14–15 分鐘（Mac；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip）；`ruff check`（外部安裝的 ruff，不在 uv 的依賴中）通過。
 
 ## 使用者決策（2026-10-08 / 10-09 / 10-11）
 
@@ -254,7 +254,18 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
   performance-sensitive 的數字是正式 LLM run 的 `latency_s`（SPEC §4 的 latency 指標），而正式 run 當時已因付費 API deferred；
   dry-run、測試、審查不產生正式結果，不受影響。電力模式期間若要跑正式 run，必須先恢復一般電力設定或延後（當時指向付費 run 的段落，該段已移除；之後的正式 run——第一輪 2026-10-16、Study 2 2026-10-17——推論都在 gpu-server，Mac 只做 client；結案後沒有待跑的正式 run）。
 
-## 下一步：無（2026-10-19 暫時結案）
+## 下一步：Claude Haiku 5.5 的跨模型比較（decision 035，2026-10-22 授權）
+
+- 使用者授權：模型 Claude Haiku 5.5、總預算約 70 美元、不做試跑、直接開始。協定與預算在任何付費呼叫之前寫進 decision 035。
+- 已完成的工程（先寫測試）：Haiku 的 agent 設定（與 decision 009 只差 model）、依 prompt 長度選擇費率、付費 Study 2 的檢查
+  （只限凍結的 Haiku agent、只限 eval、R = 3）、總帳 `~/.agent-gym/study2-haiku-billing.jsonl`（每次呼叫前預留、後結算；baseline 合計
+  ≤ 15 美元、全部 ≤ 70 − 1 美元；每次呼叫前的保險絲；程序鎖；檢查都在 `run_split` / `run_sweeps` 及其內部函式中）、失敗的 source 先跑、
+  報告寫到 `docs/results/study2-haiku/` 與 README 的 study2-haiku 段落。付費前經過四輪對抗式審查（decision 035「付費前審查」）。
+- **等待使用者**：在自己的環境設定 Anthropic API 的 credential（不要貼給 Claude；程式不讀取、不保存），然後才發出第一個付費呼叫。
+- 步驟：eval baseline（`--max-cost-usd 15`）→ 有失敗就跑 sweep（`--total-cost-usd 70`）→ `study2_report` → 更新 README「結論的分類」與本檔。
+- API key 由使用者自行在環境中設定（程式與 Claude 都不讀取、不保存）。
+
+### 2026-10-19 的結案狀態
 
 - 使用者 2026-10-19 接受 Study 2 的正式結果（101 / 108 success、6 failure、1 agent_error；RQ1 判定「以驟降為主」，但只有 4 條可判定曲線，證據很弱），Study 2 視為完成。
 - 不啟動 Study 3、不新增正式研究、不重跑正式評測、不修改既定 Gate。
@@ -275,7 +286,7 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 
 ## Blocked / 需要使用者
 
-**目前沒有任何 blocked 或待使用者處理的事項**（2026-10-19 暫時結案）。唯一的未來事項需要使用者另外授權：以 Claude API 做跨模型比較（見 C）。不會有 Study 3。以下保留為歷史紀錄。
+2026-10-19 結案時沒有待處理的事項；2026-10-22 使用者授權以 Claude Haiku 5.5 做跨模型比較（見「下一步」與 C）。不會有 Study 3。以下保留為歷史紀錄。
 
 ### A. Study 2（decision 034）：**已完成（2026-10-17）**
 
@@ -364,6 +375,7 @@ decision 025 的 R = 3、SweepPlan 選項 A（`bonferroni95` + (2, 10, 48, 0.3)�
 Anthropic 路徑完整保留：`--provider anthropic --dry-run` / `--confirm-paid-run --max-cost-usd X`（decision 009 / 012 / 014 / 025 的規則）。
 若日後取得 Claude Max 方案的免費 API 額度，另立 decision 決定是否使用；換模型等於換 agent，與本機結果不得合併。
 （2026-10-19 使用者：之後若要以 Claude API 做跨模型比較，會另外授權；在那之前不執行任何付費 API call。）
+（2026-10-22 使用者授權：Claude Haiku 5.5 跑 Study 2 的 eval，總預算約 70 美元，不試跑；見 decision 035。）
 
 ### D. 環境：已解決（2026-10-09）
 

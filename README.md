@@ -13,8 +13,8 @@ Task → Agent actions → state changes → grader → replay from checkpoint
 > **目前狀態（2026-10-19 暫時結案）**：Core 的 infrastructure 已完成並以 synthetic policy 驗證。Core 的 LLM 是自行部署的本機模型
 > （`qwen3.5:9b-q4_K_M`，台中 gpu-server 的 Ollama，decision 026）；付費 API 為 Optional。本 Project 在 GPU lock 內啟動自己的
 > Ollama server（與 incident-investigator 共用模型檔案，decision 029）。第一輪正式實驗（設定凍結，decision 030）已完成並封存：
-> Gate `gradual`、天花板效應、不進 Advanced。獨立的第二輪研究 Study 2（decision 034）也已完成。不再新增正式研究；
-> 以 Claude API 做跨模型比較需要使用者另外授權。結論的分類見下方「結論的分類」。下面的示範是 **synthetic policy，不是 LLM 結果**。
+> Gate `gradual`、天花板效應、不進 Advanced。獨立的第二輪研究 Study 2（decision 034）也已完成。2026-10-22 使用者授權以
+> Claude Haiku 5.5 跑同一組 Study 2 題目的跨模型比較（decision 035，付費 API，總預算 70 美元），結果見下方「Study 2 跨模型比較」段落。結論的分類見下方「結論的分類」。下面的示範是 **synthetic policy，不是 LLM 結果**。
 
 ## 示範：replay 能回答什麼（synthetic，keyless，可重現）
 
@@ -92,9 +92,9 @@ Task → Agent actions → state changes → grader → replay from checkpoint
 | 實驗腳本 | `experiments/` | baseline / sweep 的執行（dry-run、本機模型的呼叫次數上限與 GPU lock、Optional 的成本上限、manifest）、偵測力模擬、預先登記的分析、本機模型的檢查與開發題彙整（`local_probe`）、第一輪的報告與封存（`results_report`、`round1_seal`）；Study 2 的 dev 驗證與估算（`study2_dev`）、凍結紀錄（`study2_freeze`）、分析（`study2_analysis`）與報告（`study2_report`） |
 | GPU lock 與 server | `tools/with-gpu-lock`、`agents/ollama_serve.py` | 在 gpu-server 的 GPU lock 內啟動本 Project 自己的 Ollama server（共用的模型檔案只讀）、確認通道接到這次的 server、結束時停止並比對快照（decision 029） |
 
-所有實驗設計與格式變更都記在 [docs/decisions/](docs/decisions/)（001–034），包含預先登記的統計協定（005）、baseline 設定（009）、
+所有實驗設計與格式變更都記在 [docs/decisions/](docs/decisions/)（001–035），包含預先登記的統計協定（005）、baseline 設定（009）、
 failure localization 協定（010 / 013）、偵測力模擬（011）、run 協定（012 / 025）、本機模型（026 – 028）、自己的 Ollama server（029 / 031）、
-設定凍結（030）、逐次呼叫紀錄（032）、結果報告（033）、第二輪研究 Study 2（034：已核准、凍結並完成；凍結紀錄 `034-freeze-record.json`）、分析規則（016 / 017）、中斷後續跑與寫入的規則（018 – 020 / 023 / 024）與 dry-run 輸出的區分（021 / 022）。
+設定凍結（030）、逐次呼叫紀錄（032）、結果報告（033）、第二輪研究 Study 2（034：已核准、凍結並完成；凍結紀錄 `034-freeze-record.json`）、Claude Haiku 5.5 的跨模型比較（035）、分析規則（016 / 017）、中斷後續跑與寫入的規則（018 – 020 / 023 / 024）與 dry-run 輸出的區分（021 / 022）。
 
 ## 怎麼跑
 
@@ -140,6 +140,17 @@ uv run python -m experiments.study2_analysis --baseline-run runs/study2-eval-202
 uv run python -m experiments.study2_report --baseline-run runs/study2-eval-20261017 --sweep-run runs/study2-sweep-20261017-1 --sweep-run runs/study2-sweep-20261017-2 --sweep-run runs/study2-sweep-20261017-3 --sweep-run runs/study2-sweep-20261017-4 --sweep-run runs/study2-sweep-20261017-5 --sweep-run runs/study2-sweep-20261017-6 --out docs/results/study2 --readme README.md
 ```
 
+- Claude Haiku 5.5 的跨模型比較（decision 035）：付費 API，credential 由 SDK 從環境解析（程式不讀取、不保存任何 key）；
+  所有付費呼叫在呼叫前後寫進總帳 `~/.agent-gym/study2-haiku-billing.jsonl`（任何 checkout 之外），總預算 70 美元由程式依總帳檢查
+  （baseline 合計 ≤ 15 美元；每次呼叫前另有保險絲），一次只能跑一個付費程序；sweep 先跑失敗的 source，採計的 baseline 全部成功時不跑 sweep。
+
+```bash
+uv run --extra llm python -m experiments.run_baseline --split eval --suite study2 --provider anthropic --model claude-haiku-5-5 --rollouts 3 --max-cost-usd 15 --confirm-paid-run --run-name <haiku-eval>
+uv run --extra llm python -m experiments.run_sweep --baseline-run runs/<haiku-eval> --plan 2,10,48,0.3 --criterion bonferroni95 --confirm-paid-run --max-cost-usd 70 --total-cost-usd 70 --run-name <haiku-sweep-1>
+# 中斷或因預算停止後：新的 --run-name，並以 --resume-from 列出所有先前的段；總預算會自動扣除
+uv run python -m experiments.study2_report --baseline-run runs/<haiku-eval> --sweep-run runs/<haiku-sweep-1> --out docs/results/study2-haiku --readme README.md
+```
+
 ## 結果
 
 <!-- results:start -->
@@ -172,6 +183,9 @@ uv run python -m experiments.study2_report --baseline-run runs/study2-eval-20261
 完整結果：[docs/results/study2/README.md](docs/results/study2/README.md)。
 
 <!-- study2:end -->
+
+<!-- study2-haiku:start -->
+<!-- study2-haiku:end -->
 
 ## 結論的分類（2026-10-19 結案）
 

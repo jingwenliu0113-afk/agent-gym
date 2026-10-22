@@ -13,6 +13,10 @@
         --resume-from 可重複給）。以 analyze_sweep 的完整核對讀這些目錄，plan 與 criterion 必須相同；已完成的 source 不再執行，
         做到一半的 source 接續執行、已有最終結果的 rollout 不再執行（不重複付費；decision 023）。之後以 analyze_sweep 同時分析
         所有目錄。--max-cost-usd 是這一次執行的上限（先前目錄已花的金額會印出）。
+    uv run --extra llm python -m experiments.run_sweep --baseline-run runs/<haiku-eval> --plan 2,10,48,0.3 \\
+        --criterion bonferroni95 --confirm-paid-run --max-cost-usd 70 --total-cost-usd 70 --run-name <name>
+        Study 2 的付費 sweep（decision 035，只限 Claude Haiku 5.5）：這一次的上限 = min(--max-cost-usd, 70 − 1（安全邊際）− 總帳
+        ``~/.agent-gym/study2-haiku-billing.jsonl`` 的全部花費)，由 run_sweeps 在程序鎖內計算；每次呼叫前另有保險絲；失敗的 source 先跑。
 
 --baseline-run 要列出 eval baseline 的**所有**目錄（中斷後重跑的也算；與 analyze_baseline 相同），source 依 decision 019 §1 選取。
 
@@ -43,10 +47,13 @@ from env.hashing import canonical_json
 from experiments.analyze_baseline import RolloutRecord, load_runs
 from replay.trajectory import load_strict_json
 from replay.aborts import utc_instant
+from experiments import billing
 from experiments.call_log import CALL_LOG, CallLog, count_calls, interrupt_on_termination
 from experiments.run_baseline import (
     budget_reached,
     check_budget_args,
+    check_paid_registration,
+    check_study2_paid_agent,
     CostMeter,
     is_oracle_fake,
     Ledger,
@@ -61,7 +68,14 @@ from replay.localization import CLIFF_CRITERIA, RolloutOutcome, SweepPlan, Sweep
 from replay.runner import Clock
 from replay.stats import BootstrapResult, stratified_task_bootstrap
 from replay.trajectory import Trajectory
-from tasks.suites import check_model_run, check_study2_limits, suite_for_task_ids, suite_pool
+from tasks.suites import (
+    STUDY2_PAID_TOTAL_USD,
+    check_model_run,
+    check_study2_limits,
+    check_study2_paid_run,
+    suite_for_task_ids,
+    suite_pool,
+)
 
 COMPLETED_OUTCOMES = ("success", "failure", "refusal")
 
@@ -330,6 +344,18 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
+SWEEP_ORDERS = ("pool", "failed_first")
+
+
+def sweep_order(sources: Mapping[str, Trajectory | None], pool: Sequence[str], order: str) -> list[str]:
+    """執行 source 的順序（decision 035 §4）："pool" = pool 順序；"failed_first" = 失敗的 source（``grade().success`` 為 False）
+    依 pool 順序在前，其他依 pool 順序在後。"""
+    if order == "pool":
+        return list(pool)
+    failed = [t for t in pool if sources.get(t) is not None and not sources[t].grade().success]
+    return failed + [t for t in pool if t not in set(failed)]
+
+
 def run_sweeps(
     sources: Mapping[str, Trajectory | None],
     client: Any,
@@ -347,8 +373,57 @@ def run_sweeps(
     carried: Mapping[str, Mapping[tuple[int, int], RolloutOutcome]] | None = None,
     max_model_calls: int | None = None,
     call_log: bool = False,
+    order: str = "pool",
+) -> SweepRunSummary:
+    """``_run_sweeps`` 加上付費 run 的檢查（``check_paid_registration``）。Study 2 的付費 sweep（decision 035）在
+    ``billing.paid_session(phase="sweep")`` 內執行：程序鎖、以總帳計算的累計上限、每次呼叫的預留與保險絲；order 必須是 "failed_first"。"""
+    common = dict(plan=plan, criterion=criterion, run_dir=run_dir, clock=clock, agent_config=agent_config, replicates=replicates,
+                  skip=skip, resumed_from=resumed_from, dry_run=dry_run, carried=carried, max_model_calls=max_model_calls,
+                  call_log=call_log, order=order)
+    if not isinstance(sources, Mapping):
+        return _run_sweeps(sources, client, max_cost_usd=max_cost_usd, **common)  # 以原本的檢查拒絕
+    try:
+        suite = suite_for_task_ids(list(sources))
+        config = (source_config(sources) or baseline_agent_config()) if agent_config is None else agent_config
+    except ValueError:
+        suite, config = "", None  # _run_sweeps 以原本的檢查拒絕
+    if config is None or not (check_paid_registration(client, config, suite, max_cost_usd) and suite == "study2"):
+        return _run_sweeps(sources, client, max_cost_usd=max_cost_usd, **common)
+    check_study2_paid_agent(config)
+    check_study2_paid_run(model=config.model_config.get("model"), split="eval", max_cost_usd=max_cost_usd, sweep=True)
+    if order != "failed_first":
+        raise ValueError("a paid Study 2 sweep runs the failed sources first (order='failed_first'; decision 035 §4)")
+    billing.check_run_dir(run_dir)
+    with billing.paid_session(phase="sweep", requested=max_cost_usd, run=Path(run_dir).name,
+                              config_id=config.config_id) as session:
+        return _run_sweeps(sources, client, max_cost_usd=session.cap, session=session, **common)
+
+
+def _run_sweeps(
+    sources: Mapping[str, Trajectory | None],
+    client: Any,
+    *,
+    plan: SweepPlan,
+    criterion: str,
+    run_dir: str | Path,
+    max_cost_usd: float | None = None,
+    clock: Clock = time.perf_counter,
+    agent_config: AgentConfig | None = None,
+    replicates: int = 10000,
+    skip: Collection[str] = (),
+    resumed_from: Collection[str] = (),
+    dry_run: bool = False,
+    carried: Mapping[str, Mapping[tuple[int, int], RolloutOutcome]] | None = None,
+    max_model_calls: int | None = None,
+    call_log: bool = False,
+    order: str = "pool",
+    session: Any = None,
 ) -> SweepRunSummary:
     """依 eval pool 的順序對每個非 None、且不在 skip 中的 source 執行 ``replay.localization.sweep``（共用一個 manifest）。
+
+    order（decision 035 §4）："pool"（預設）或 "failed_first"：先依 pool 順序跑失敗的 source（``grade().success`` 為 False），
+    再依 pool 順序跑其他 source。Study 2 的付費 sweep（Anthropic agent、不是 oracle 假 client）必須是 "failed_first"，
+    並以 ``check_study2_paid_run(sweep=True)`` 檢查上限。各 source 的 sweep 互相獨立，順序不影響估計值。
 
     - criterion（驟降判定，CLIFF_CRITERIA 之一）沒有預設值：與 plan 一樣必須明確給定（decision 011 / 015 的選擇屬於使用者決策）。
     - 事前檢查（ValueError，不執行）：plan 為 SweepPlan；criterion 在 CLIFF_CRITERIA 中；sources 的 key 剛好是全部 eval task
@@ -409,9 +484,22 @@ def run_sweeps(
     else:
         config = copy.deepcopy(agent_config)
     check_budget_args(max_cost_usd, config, max_model_calls)
+    if order not in SWEEP_ORDERS:
+        raise ValueError(f"order must be one of: {', '.join(SWEEP_ORDERS)}")
+    if order != "pool" and not (suite == "study2" and config.policy == ANTHROPIC_POLICY):
+        raise ValueError("order='failed_first' is only for paid Study 2 sweeps (decision 035 §4)")
+    paid_study2 = check_paid_registration(client, config, suite, max_cost_usd) and suite == "study2"
+    if session is not None and not paid_study2:
+        raise ValueError("a billing session is only for paid Study 2 runs (decision 035)")
     if not is_oracle_fake(client):  # 真正的模型推論：Study 2 的開關（decision 034）
         check_model_run(suite, "eval")
-        if suite == "study2":
+        if paid_study2:  # 付費（decision 035）
+            check_study2_paid_agent(config)
+            check_study2_paid_run(model=config.model_config.get("model"), split="eval", max_cost_usd=max_cost_usd, sweep=True)
+            if order != "failed_first":
+                raise ValueError("a paid Study 2 sweep runs the failed sources first (order='failed_first'; decision 035 §4)")
+            billing.check_session(session, phase="sweep", max_cost_usd=max_cost_usd)
+        elif suite == "study2":
             check_study2_limits(split="eval", call_log=call_log, max_model_calls=max_model_calls, sweep=True)
     for task_id, source in sources.items():
         if source is None:
@@ -442,7 +530,7 @@ def run_sweeps(
     write_atomic(log_path, b"")  # 每個 sweep 目錄一定有 manifest（decision 024 §1）
     calls = CallLog(client, run_dir / CALL_LOG) if call_log else None  # 逐次呼叫紀錄（decision 032）
     current = {"task_id": ""}
-    ledger = Ledger()
+    ledger = Ledger(session=session)
 
     def policy_factory(k: int, rollout_index: int, attempt: int) -> CostMeter:
         logged = calls is not None and max_model_calls is not None and calls.count >= max_model_calls  # 含失敗的呼叫（decision 034 §8）
@@ -458,7 +546,7 @@ def run_sweeps(
     families = {instance.task.task_id: instance.task.family for instance in suite_pool(suite, "eval")}
     results: dict[str, SweepResult] = {}
     stopped = False
-    for task_id in pool:
+    for task_id in sweep_order(sources, pool, order):
         source = sources[task_id]
         if source is None or task_id in skipped:
             continue
@@ -474,7 +562,7 @@ def run_sweeps(
                 rollout_dir=run_dir / "rollouts" / task_id,
                 prior=priors.get(task_id),
             )
-        except BudgetExceeded:
+        except (BudgetExceeded, billing.BudgetFuse):  # 保險絲（付費 Study 2，decision 035 §3）與預算停止相同
             stopped = True
             break
         results[task_id] = result
@@ -544,6 +632,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--total-model-calls", type=int, default=None,
                         help="本機 sweep 的累計呼叫上限：這一段的上限 = min(--max-model-calls, 上限 − --resume-from 目錄 calls.jsonl 的呼叫數)"
                              "（decision 034 §8）")
+    parser.add_argument("--total-cost-usd", type=float, default=None,
+                        help="Study 2 付費 sweep 的總預算（decision 035：必須是 70）；這一次的上限 = min(--max-cost-usd, 70 − 1 的安全邊際 − "
+                             "總帳的全部花費)，由 run_sweeps 在程序鎖內計算（experiments.billing）")
     parser.add_argument("--ollama-url", default=ollama_url_default(),
                         help="只接受 loopback；預設取 tools/with-gpu-lock 設定的通道 URL")
     parser.add_argument(
@@ -552,6 +643,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    if args.total_cost_usd is not None and not args.confirm_paid_run:
+        parser.error("--total-cost-usd is only for paid Study 2 sweeps (decision 035)")
     plan = parse_plan(args.plan)
     if not args.dry_run and (plan != REGISTERED_PLAN or args.criterion != REGISTERED_CRITERION):
         parser.error(
@@ -670,13 +763,35 @@ def main(argv: list[str] | None = None) -> int:
     else:
         if args.max_cost_usd is None:
             parser.error("--confirm-paid-run requires --max-cost-usd")
-        if suite != "week1":
-            parser.error("paid runs are only registered for the week1 suite (Optional, decision 026 §4)")
-        client = make_anthropic_client()
+        if suite == "study2":  # decision 035：上限由總帳（所有 Haiku 付費呼叫）計算
+            from experiments.study2_analysis import analyze_baseline_runs
+
+            if args.total_cost_usd != STUDY2_PAID_TOTAL_USD:
+                parser.error(f"a paid Study 2 sweep must use --total-cost-usd {STUDY2_PAID_TOTAL_USD:g} (decision 035 §3)")
+            try:
+                adopted = analyze_baseline_runs(args.baseline_run, replicates=1)
+                if adopted["n_failed_episodes"] == 0 and not adopted["missing_tasks"] and not adopted["rollout_counts_not_r"]:
+                    # 採計的 episode 全部成功（含中斷後重跑的目錄）
+                    parser.error("every adopted eval baseline episode succeeded: ceiling, no sweep (decision 034 §8 / 035 §4)")
+                check_model_run(suite, "eval")
+                check_study2_paid_agent(config)
+                check_study2_paid_run(model=config.model_config.get("model"), split="eval", max_cost_usd=args.max_cost_usd,
+                                      sweep=True)
+                spent, cap = billing.check_budget(phase="sweep", requested=args.max_cost_usd, config_id=config.config_id)
+                billing.check_run_dir(run_dir)
+            except ValueError as exc:
+                parser.error(str(exc))
+            print(f"total budget ${args.total_cost_usd:g} ({billing.DEFAULT_JOURNAL}): spent ${spent.total:.4f} (eval baseline "
+                  f"${spent.baseline:.4f}, sweep ${spent.sweep:.4f}); this run may spend ${cap:.4f} "
+                  f"(safety margin ${billing.SAFETY_MARGIN_USD:g})", file=sys.stderr)
+        elif args.total_cost_usd is not None:
+            parser.error("--total-cost-usd is only for paid Study 2 sweeps (decision 035)")
+        client = make_anthropic_client(config.model_config)
+    paid_study2 = args.confirm_paid_run and suite == "study2"
     summary = run_sweeps(
         sources, client, plan=plan, criterion=args.criterion, run_dir=run_dir, max_cost_usd=args.max_cost_usd,
         skip=skip, resumed_from=resumed_from, dry_run=args.dry_run, carried=carried, agent_config=config,
-        max_model_calls=max_model_calls, call_log=bool(args.confirm_local_run),
+        max_model_calls=max_model_calls, call_log=bool(args.confirm_local_run), order="failed_first" if paid_study2 else "pool",
     )
     for task_id in summary.sources:
         result = summary.results.get(task_id)

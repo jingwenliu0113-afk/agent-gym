@@ -18,9 +18,9 @@ import dataclasses
 import math
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
-from agents.baseline import MAX_EPISODE_ATTEMPTS
+from agents.baseline import ANTHROPIC_POLICY, MAX_EPISODE_ATTEMPTS
 from env.hashing import canonical_json
 from experiments.analyze_baseline import baseline_suite, directory_identity, run_labels
 from experiments.run_sweep import (
@@ -29,8 +29,10 @@ from experiments.run_sweep import (
     SweepRunSummary,
     baseline_directories,
     is_run_id,
+    SWEEP_ORDERS,
     load_sources,
     run_description,
+    sweep_order,
 )
 from replay.aborts import AttemptRecord, read_manifest, utc_date
 from replay.localization import (
@@ -740,6 +742,17 @@ def _check_run_file(
     return run_id, parents, data["dry_run"], plan, criterion, tuple(skipped)
 
 
+def allowed_orders(sources: Mapping[str, Trajectory | None]) -> tuple[str, ...]:
+    """sweep 可以採用的執行順序：Study 2 的付費（Anthropic agent）source 是 pool 或 failed_first（decision 035 §4）；
+    其他（第一輪、本機模型的 Study 2）只有 pool 順序。"""
+    try:
+        suite = suite_for_task_ids(list(sources))
+    except ValueError:
+        return ("pool",)
+    paid = any(source is not None and source.agent.policy == ANTHROPIC_POLICY for source in sources.values())
+    return SWEEP_ORDERS if suite == "study2" and paid else ("pool",)
+
+
 def _str_list(value: Any, what: str) -> list[str]:
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value) or len(set(value)) != len(value):
         raise ValueError(f"{what} must be a list of distinct strings")
@@ -780,8 +793,12 @@ def _check_summary(
     stopped = summary["stopped_by_budget"]
     if not isinstance(stopped, bool):
         raise ValueError(f"{directory}: summary.stopped_by_budget must be a bool")
-    if done != (to_run[: len(done)] if stopped else to_run):
-        raise ValueError(f"{directory}: summary.completed must be every source to run (or, when stopped by budget, a prefix)")
+    # 執行順序：pool 順序；Study 2 的付費 sweep 是失敗的 source 優先（decision 035 §4）。兩者都完全由 source 決定
+    orders = [[task_id for task_id in sweep_order(sources, listed, order) if task_id in set(to_run)]
+              for order in allowed_orders(sources)]
+    if not any(done == (expected[: len(done)] if stopped else expected) for expected in orders):
+        raise ValueError(f"{directory}: summary.completed must be every source to run (or, when stopped by budget, a prefix) "
+                         f"in {' or '.join(allowed_orders(sources))} order")
     stored = summary["results"]
     if not isinstance(stored, dict) or set(stored) != set(done):
         raise ValueError(f"{directory}: summary.results must hold exactly the completed sweeps")

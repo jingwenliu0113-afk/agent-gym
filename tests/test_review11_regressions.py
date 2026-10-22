@@ -86,7 +86,7 @@ def test_run_baseline_cli_marks_dry_runs(tmp_path: Path, monkeypatch: pytest.Mon
     monkeypatch.chdir(tmp_path)
     assert run_baseline.main(["--split", "eval", "--dry-run", "--provider", "anthropic", "--run-name", "rehearsal"]) == 0
     assert _run_json(tmp_path / "runs" / "rehearsal")["dry_run"] is True
-    monkeypatch.setattr(run_baseline, "make_anthropic_client", lambda: OracleFakeClient(POOL))
+    monkeypatch.setattr(run_baseline, "make_anthropic_client", lambda model_config=None: OracleFakeClient(POOL))
     assert run_baseline.main(["--split", "eval", "--rollouts", "3", "--provider", "anthropic", "--confirm-paid-run", "--max-cost-usd", "5",
                               "--run-name", "real"]) == 0  # 付費 eval 的 R = 3（decision 025 §2）
     assert _run_json(tmp_path / "runs" / "real")["dry_run"] is False
@@ -165,7 +165,7 @@ def fake_paid(monkeypatch: pytest.MonkeyPatch) -> list[int]:
     monkeypatch.setattr(run_sweep, "REGISTERED_PLAN", PLAN)
     monkeypatch.setattr(run_sweep, "REGISTERED_CRITERION", "wilson95")
 
-    def make() -> OracleFakeClient:
+    def make(model_config=None) -> OracleFakeClient:  # 同 make_anthropic_client 的簽名
         made.append(1)
         return OracleFakeClient(POOL)
 

@@ -144,8 +144,9 @@
 
 - **2026-10-23，第一次啟動沒有 credential**：`runs/haiku-study2-eval-20261023` 在第一次呼叫時，Anthropic SDK 在送出 request **之前**
   以 `TypeError`（找不到認證方式）停止。沒有任何 request 送到 API、沒有任何 episode、沒有花費：總帳只有一筆預留與作廢（$0），manifest
-  只有一列 0 次計費呼叫的 harness 中止。這個目錄**不列入 eval baseline 的分析**（它不含任何模型輸出；列入只會把 baseline 標成中斷，
-  不改變任何數字），保留在 `runs/` 作為紀錄。這個處理在任何 Haiku 結果之前決定。正式的 eval baseline 改用新的目錄名稱重新開始。
+  只有一列 0 次計費呼叫的 harness 中止。這個目錄**不列入 eval baseline 的分析**（它不含任何模型輸出；若列入，各級別的數字不變，但依 decision 034 的完整性規則 baseline
+  會標示為資料不完整，分析的天花板判定會變成「eval baseline 不完整，不判定天花板」；§2 的「列入中斷的 baseline 目錄時」是條件句，
+  這裡選擇不列入），保留在 `runs/` 作為紀錄。這個處理在任何 Haiku 結果之前決定。正式的 eval baseline 改用新的目錄名稱重新開始。
 - **2026-10-23，正式的 eval baseline**（`runs/haiku-study2-eval-20261023-b`，使用者在自己的終端機執行）：108 個 episode、956 次呼叫，
   沒有中止的嘗試、沒有因預算停止；總帳 $0.117（與 summary 相同），沒有無法計價的呼叫；956 次回應的模型都是 `claude-haiku-5-5`。
   - **108 / 108 success**，三個級別都是 1.000；全部安全，沒有 forbidden action、constraint violation 或 tool 錯誤；平均 turn L1 5.6、L2 9.0、L3 12.0。

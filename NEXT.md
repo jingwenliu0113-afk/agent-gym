@@ -257,7 +257,7 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 ## 下一步：無（Claude Haiku 5.5 的跨模型比較已完成，2026-10-23）
 
 - 結果：eval baseline 108 / 108 success、全部安全、沒有 tool 錯誤；完全天花板，依事先登記的規則不跑 sweep；總帳 $0.117。
-  報告在 `docs/results/study2-haiku/` 與 README；結論的分類已更新（README「結論的分類」、decision 035「執行紀錄」）。
+  報告在 `docs/results/study2-haiku/` 與 README；結論的分類已更新（README「結論的分類」）；執行與結果的紀錄見 decision 035「執行紀錄」。
 - 沒有待處理的事項；之後若要做其他研究或其他付費 run，需要使用者另外決定。
 
 ### 2026-10-22 的準備紀錄
@@ -267,10 +267,11 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
   （只限凍結的 Haiku agent、只限 eval、R = 3）、總帳 `~/.agent-gym/study2-haiku-billing.jsonl`（每次呼叫前預留、後結算；baseline 合計
   ≤ 15 美元、全部 ≤ 70 − 1 美元；每次呼叫前的保險絲；程序鎖；檢查都在 `run_split` / `run_sweeps` 及其內部函式中）、失敗的 source 先跑、
   報告寫到 `docs/results/study2-haiku/` 與 README 的 study2-haiku 段落。付費前經過四輪對抗式審查（decision 035「付費前審查」）。
-- **等待使用者**：在自己的環境設定 Anthropic API 的 credential（不要貼給 Claude；程式不讀取、不保存），然後才發出第一個付費呼叫。
-  2026-10-23 第一次啟動因為沒有 credential，在送出 request 之前停止（$0；`runs/haiku-study2-eval-20261023` 不列入分析，見 decision 035「執行紀錄」）。
-  下一次用新的目錄名稱，例如 `haiku-study2-eval-20261023-b`。
-- 步驟：eval baseline（`--max-cost-usd 15`）→ 有失敗就跑 sweep（`--total-cost-usd 70`）→ `study2_report` → 更新 README「結論的分類」與本檔。
+- （已完成）使用者在自己的環境設定 Anthropic API 的 credential（不要貼給 Claude；程式不讀取、不保存）後，才發出付費呼叫。
+  2026-10-23 第一次啟動因為沒有 credential，在送出 request 之前停止（$0；`runs/haiku-study2-eval-20261023` 不列入分析，見 decision 035
+  「執行紀錄」）；正式的 eval baseline 改用新目錄 `haiku-study2-eval-20261023-b` 完成。
+- 當時的步驟：eval baseline（`--max-cost-usd 15`）→ 有失敗就跑 sweep（`--total-cost-usd 70`）→ `study2_report` → 更新 README「結論的分類」與本檔。
+  實際：baseline 108 / 108 成功，依 §4 不跑 sweep。
 - API key 由使用者自行在環境中設定（程式與 Claude 都不讀取、不保存）。
 
 ### 2026-10-19 的結案狀態
@@ -294,7 +295,8 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 
 ## Blocked / 需要使用者
 
-2026-10-19 結案時沒有待處理的事項；2026-10-22 使用者授權以 Claude Haiku 5.5 做跨模型比較（見「下一步」與 C）。不會有 Study 3。以下保留為歷史紀錄。
+2026-10-19 結案時沒有待處理的事項；2026-10-22 使用者授權以 Claude Haiku 5.5 做跨模型比較，2026-10-23 完成（108 / 108，天花板，$0.117；
+見「下一步」與 C）。**目前沒有待處理的事項。** 不會有 Study 3。以下保留為歷史紀錄。
 
 ### A. Study 2（decision 034）：**已完成（2026-10-17）**
 
@@ -384,6 +386,7 @@ Anthropic 路徑完整保留：`--provider anthropic --dry-run` / `--confirm-pai
 若日後取得 Claude Max 方案的免費 API 額度，另立 decision 決定是否使用；換模型等於換 agent，與本機結果不得合併。
 （2026-10-19 使用者：之後若要以 Claude API 做跨模型比較，會另外授權；在那之前不執行任何付費 API call。）
 （2026-10-22 使用者授權：Claude Haiku 5.5 跑 Study 2 的 eval，總預算約 70 美元，不試跑；見 decision 035。）
+（2026-10-23 完成：108 / 108 成功、天花板、不跑 sweep，總帳 $0.117。）
 
 ### D. 環境：已解決（2026-10-09）
 

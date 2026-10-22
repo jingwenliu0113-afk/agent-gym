@@ -262,6 +262,8 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
   ≤ 15 美元、全部 ≤ 70 − 1 美元；每次呼叫前的保險絲；程序鎖；檢查都在 `run_split` / `run_sweeps` 及其內部函式中）、失敗的 source 先跑、
   報告寫到 `docs/results/study2-haiku/` 與 README 的 study2-haiku 段落。付費前經過四輪對抗式審查（decision 035「付費前審查」）。
 - **等待使用者**：在自己的環境設定 Anthropic API 的 credential（不要貼給 Claude；程式不讀取、不保存），然後才發出第一個付費呼叫。
+  2026-10-23 第一次啟動因為沒有 credential，在送出 request 之前停止（$0；`runs/haiku-study2-eval-20261023` 不列入分析，見 decision 035「執行紀錄」）。
+  下一次用新的目錄名稱，例如 `haiku-study2-eval-20261023-b`。
 - 步驟：eval baseline（`--max-cost-usd 15`）→ 有失敗就跑 sweep（`--total-cost-usd 70`）→ `study2_report` → 更新 README「結論的分類」與本檔。
 - API key 由使用者自行在環境中設定（程式與 Claude 都不讀取、不保存）。
 

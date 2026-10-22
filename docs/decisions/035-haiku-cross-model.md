@@ -139,3 +139,10 @@
 - **重啟程序與程式不符**（major）：adapter 修正會產生新的設定，不能沿用先前的 episode。→ §2 改寫。
 - 次要：天花板時程式仍會跑 sweep（→ 由程式拒絕）；「失敗的 source」的定義寫明（§4）；失敗優先的順序只接受於付費的 Study 2；
   多餘的 `--total-cost-usd` 在任何副作用之前就拒絕。
+
+## 執行紀錄
+
+- **2026-10-23，第一次啟動沒有 credential**：`runs/haiku-study2-eval-20261023` 在第一次呼叫時，Anthropic SDK 在送出 request **之前**
+  以 `TypeError`（找不到認證方式）停止。沒有任何 request 送到 API、沒有任何 episode、沒有花費：總帳只有一筆預留與作廢（$0），manifest
+  只有一列 0 次計費呼叫的 harness 中止。這個目錄**不列入 eval baseline 的分析**（它不含任何模型輸出；列入只會把 baseline 標成中斷，
+  不改變任何數字），保留在 `runs/` 作為紀錄。這個處理在任何 Haiku 結果之前決定。正式的 eval baseline 改用新的目錄名稱重新開始。

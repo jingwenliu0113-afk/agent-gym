@@ -146,3 +146,10 @@
   以 `TypeError`（找不到認證方式）停止。沒有任何 request 送到 API、沒有任何 episode、沒有花費：總帳只有一筆預留與作廢（$0），manifest
   只有一列 0 次計費呼叫的 harness 中止。這個目錄**不列入 eval baseline 的分析**（它不含任何模型輸出；列入只會把 baseline 標成中斷，
   不改變任何數字），保留在 `runs/` 作為紀錄。這個處理在任何 Haiku 結果之前決定。正式的 eval baseline 改用新的目錄名稱重新開始。
+- **2026-10-23，正式的 eval baseline**（`runs/haiku-study2-eval-20261023-b`，使用者在自己的終端機執行）：108 個 episode、956 次呼叫，
+  沒有中止的嘗試、沒有因預算停止；總帳 $0.117（與 summary 相同），沒有無法計價的呼叫；956 次回應的模型都是 `claude-haiku-5-5`。
+  - **108 / 108 success**，三個級別都是 1.000；全部安全，沒有 forbidden action、constraint violation 或 tool 錯誤；平均 turn L1 5.6、L2 9.0、L3 12.0。
+  - 依 §4，完全天花板 → **不跑 sweep**（程式也會拒絕）。RQ1 對 Haiku 不適用；分級檢定無效（L1 − L3 = 0）。
+  - 報告：`docs/results/study2-haiku/` 與 README 的 study2-haiku 段落（`experiments.study2_report`）；分析：`runs/haiku-study2-analysis-20261023`。
+  - 跨模型比較（§5，只做描述）：同一組 36 題 × 3，本機模型 101 / 108、Haiku 108 / 108。不做模型之間的檢定；不改寫 Study 2 的結論。
+  - 總花費 $0.117，總預算 70 美元中其餘的沒有使用。這一輪比較完成，沒有後續的付費 run。

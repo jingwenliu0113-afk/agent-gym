@@ -2,7 +2,7 @@
 
 ## 目前位置
 
-**2026-10-19 暫時結案；2026-10-22 使用者授權以 Claude Haiku 5.5 做跨模型比較（decision 035，進行中）。** Core：Day 1、Week 1（含 #5：凍結的本機模型已跑完整的正式 eval baseline，2026-10-16）與 SPEC §6 全部完成；Gate `gradual`，不進 Advanced。Study 2 已完成（2026-10-17），使用者 2026-10-19 接受結果；不啟動 Study 3、不新增正式研究。結論的分類（已證實／未通過的 Gate 與檢定／探索性）見 README「結論的分類」。
+**2026-10-19 暫時結案；2026-10-22 使用者授權以 Claude Haiku 5.5 做跨模型比較（decision 035），2026-10-23 完成：108 / 108 成功（天花板，不跑 sweep），花費 $0.117。** Core：Day 1、Week 1（含 #5：凍結的本機模型已跑完整的正式 eval baseline，2026-10-16）與 SPEC §6 全部完成；Gate `gradual`，不進 Advanced。Study 2 已完成（2026-10-17），使用者 2026-10-19 接受結果；不啟動 Study 3、不新增正式研究。結論的分類（已證實／未通過的 Gate 與檢定／探索性）見 README「結論的分類」。
 **2026-10-11 起 Core 的 LLM 改用自行部署的本機模型**（`qwen3.5:9b-q4_K_M`，台中 gpu-server 的 Ollama；decision 026）；付費 API 改為 Optional。
 **2026-10-15**：本 Project 在 GPU lock 內啟動自己的 Ollama server（與 incident-investigator 共用模型檔案、共用目錄只讀；decision 029），
 已在 gpu-server 實測：server 檢查、截斷自我測試、開發題測試（15 / 15 成功）全部通過，每次結束都確認 server 已停止、共用目錄沒有改變、
@@ -254,7 +254,13 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
   performance-sensitive 的數字是正式 LLM run 的 `latency_s`（SPEC §4 的 latency 指標），而正式 run 當時已因付費 API deferred；
   dry-run、測試、審查不產生正式結果，不受影響。電力模式期間若要跑正式 run，必須先恢復一般電力設定或延後（當時指向付費 run 的段落，該段已移除；之後的正式 run——第一輪 2026-10-16、Study 2 2026-10-17——推論都在 gpu-server，Mac 只做 client；結案後沒有待跑的正式 run）。
 
-## 下一步：Claude Haiku 5.5 的跨模型比較（decision 035，2026-10-22 授權）
+## 下一步：無（Claude Haiku 5.5 的跨模型比較已完成，2026-10-23）
+
+- 結果：eval baseline 108 / 108 success、全部安全、沒有 tool 錯誤；完全天花板，依事先登記的規則不跑 sweep；總帳 $0.117。
+  報告在 `docs/results/study2-haiku/` 與 README；結論的分類已更新（README「結論的分類」、decision 035「執行紀錄」）。
+- 沒有待處理的事項；之後若要做其他研究或其他付費 run，需要使用者另外決定。
+
+### 2026-10-22 的準備紀錄
 
 - 使用者授權：模型 Claude Haiku 5.5、總預算約 70 美元、不做試跑、直接開始。協定與預算在任何付費呼叫之前寫進 decision 035。
 - 已完成的工程（先寫測試）：Haiku 的 agent 設定（與 decision 009 只差 model）、依 prompt 長度選擇費率、付費 Study 2 的檢查

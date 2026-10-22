@@ -714,3 +714,27 @@ def test_the_fuse_is_a_budget_stop_in_the_sweep_and_the_directory_stays_analyzab
     assert summary.stopped_by_budget and len(summary.completed) < 36
     assert all(row.error_class != "harness" for row in read_manifest(runs("s") / "manifest.jsonl"))
     assert analyze_sweep_runs([runs("s")], [haiku_baseline], replicates=10) is not None
+
+
+# ---------------------------------------------------------------- 已 commit 的正式結果（decision 035，2026-10-23）
+
+HAIKU_RESULTS = ROOT / "docs" / "results" / "study2-haiku"
+HAIKU_EVAL = ROOT / "runs" / "haiku-study2-eval-20261023-b"
+
+
+def test_the_committed_haiku_results_match_the_summary() -> None:
+    """正式的 Haiku 報告、曲線圖與 README 段落，必須等於從已 commit 的 summary.json 重新呈現的結果。"""
+    summary = json.loads((HAIKU_RESULTS / "summary.json").read_text(encoding="utf-8"))
+    assert summary["provenance"]["dry_run"] is False and summary["provenance"]["replicates"] == 10_000
+    assert rep.variant(summary) == "study2-haiku"
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert rep.embed(readme, rep.render_readme_block(summary)) == readme
+    assert (HAIKU_RESULTS / "README.md").read_text(encoding="utf-8") == rep.render_page(summary)
+    assert (HAIKU_RESULTS / "recoverability.svg").read_text(encoding="utf-8") == rep.recoverability_svg(summary)
+
+
+@pytest.mark.skipif(not HAIKU_EVAL.is_dir(), reason="runs/ 不在 repo；只在有原始 run 目錄的機器上檢查")
+def test_the_haiku_summary_regenerates_byte_identical_from_the_raw_run() -> None:
+    summary = rep.build([HAIKU_EVAL], [])
+    text = json.dumps(summary, ensure_ascii=False, indent=1, sort_keys=True) + "\n"
+    assert text == (HAIKU_RESULTS / "summary.json").read_text(encoding="utf-8")

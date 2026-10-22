@@ -14,7 +14,7 @@ Task → Agent actions → state changes → grader → replay from checkpoint
 > （`qwen3.5:9b-q4_K_M`，台中 gpu-server 的 Ollama，decision 026）；付費 API 為 Optional。本 Project 在 GPU lock 內啟動自己的
 > Ollama server（與 incident-investigator 共用模型檔案，decision 029）。第一輪正式實驗（設定凍結，decision 030）已完成並封存：
 > Gate `gradual`、天花板效應、不進 Advanced。獨立的第二輪研究 Study 2（decision 034）也已完成。2026-10-22 使用者授權以
-> Claude Haiku 5.5 跑同一組 Study 2 題目的跨模型比較（decision 035，付費 API，總預算 70 美元），結果見下方「Study 2 跨模型比較」段落。結論的分類見下方「結論的分類」。下面的示範是 **synthetic policy，不是 LLM 結果**。
+> Claude Haiku 5.5 跑同一組 Study 2 題目的跨模型比較（decision 035，付費 API）：108 / 108 成功（天花板，不跑 sweep），花費 $0.117。結論的分類見下方「結論的分類」。下面的示範是 **synthetic policy，不是 LLM 結果**。
 
 ## 示範：replay 能回答什麼（synthetic，keyless，可重現）
 
@@ -185,11 +185,27 @@ uv run python -m experiments.study2_report --baseline-run runs/<haiku-eval> --sw
 <!-- study2:end -->
 
 <!-- study2-haiku:start -->
+
+### Study 2 跨模型比較：Claude Haiku 5.5（decision 035）
+
+與 Study 2 相同的 36 題與協定，agent 換成 Claude Haiku 5.5；第一輪與 Study 2 的結果與判定不變，本段也不做 Core Gate 的判定。
+
+| 級別 | success | 成功但不安全 |
+|---|---|---|
+| L1 | 1.000 | 0.000 |
+| L2 | 1.000 | 0.000 |
+| L3 | 1.000 | 0.000 |
+
+- 分級：無效（L1 − L3 的 95% CI 下限 0.000）
+- RQ1：沒有 sweep（完全天花板：eval baseline 每題 R 次全部成功（decision 034 §8））
+
+完整結果：[docs/results/study2-haiku/README.md](docs/results/study2-haiku/README.md)。
+
 <!-- study2-haiku:end -->
 
-## 結論的分類（2026-10-19 結案）
+## 結論的分類（2026-10-19 結案；2026-10-23 加入 Claude Haiku 5.5 的跨模型比較）
 
-**已證實的結論**（事先登記的分析；只適用於凍結的 `qwen3.5:9b-q4_K_M` 與這兩組題目）
+**已證實的結論**（事先登記的分析；只適用於各自的 agent 與這兩組題目）
 
 - 第一輪：eval baseline 45 / 45 成功、全部安全；sweep 480 / 480 rerun 成功，15 個 source 都沒有 cliff。這組題目對這個模型沒有可以定位的失敗（天花板效應）。
 - Study 2 eval baseline：108 個 episode 中 101 success、6 failure、1 agent_error（epic-closeout-L2-s3 r2：輸出達到 num_predict 而截斷、
@@ -198,6 +214,9 @@ uv run python -m experiments.study2_report --baseline-run runs/<haiku-eval> --sw
 - Study 2 RQ1：事先登記的判定是「以驟降為主」（`mostly_cliff`）：可判定的失敗曲線中 cliff 4 / 4，Wilson 95% CI [0.510, 1.000]，
   4 條都是行為性 cliff。**證據很弱**：可判定的曲線只有 4 條，n = 4 時只有 4 / 4 能讓 CI 下限超過 0.5（4 / 5 時 CI 為 [0.376, 0.964]，
   就會是「無法判斷」）；另有 1 條無法判定。這個判定只說明這 4 條曲線的形狀，不足以推廣到其他模型或題目。
+- Claude Haiku 5.5（decision 035，同一組 36 題與協定）：eval baseline 108 / 108 success、全部安全，沒有任何 forbidden action
+  或 tool 錯誤（本機模型有 36 次 tool 錯誤）；完全天花板，依事先登記的規則不跑 sweep。付費 API 的實際花費 $0.117（預算 70 美元）。
+  跨模型比較只做描述（decision 035 §5）：同樣的題目，本機模型有 7 個 episode 未成功，Haiku 沒有；不做模型之間的假設檢定。
 
 **未通過的 Gate 與檢定**
 
@@ -206,7 +225,9 @@ uv run python -m experiments.study2_report --baseline-run runs/<haiku-eval> --sw
   `docs/results/README.md` 的說明為準（decision 033 的補充）。
 - Study 2 的分級檢定：無效（L1 − L3 = 0.056，95% CI [−0.028, 0.167]）。依事先登記的規則，RQ2 只以結構參數描述，不下難度結論；
   L1 > L2 = L3 的點估計不是難度的證據。
-- Study 2 不做任何 Gate 判定，也不重新開啟 Core Gate；Advanced 維持關閉。
+- Haiku 5.5 的分級檢定：無效（三個級別都是 1.000，L1 − L3 = 0）。Haiku 沒有失敗的 source，所以 RQ1 對 Haiku 不適用（天花板），
+  跨模型比較也無法補強 Study 2 RQ1 只有 4 條曲線的弱點。
+- Study 2 與跨模型比較都不做任何 Gate 判定，也不重新開啟 Core Gate；Advanced 維持關閉。
 
 **探索性發現**（看過結果之後整理；不是結論，只作為未來研究的假設）
 
@@ -215,11 +236,13 @@ uv run python -m experiments.study2_report --baseline-run runs/<haiku-eval> --sw
 - dev 驗證的 7 個未成功或不安全的 episode，逐一判定都是讀錯或漏掉 instruction 中寫明的規則（不是題目缺陷）；eval 只逐一看過 4 條 cliff 的關鍵 turn，
   沒有逐一判定 eval 的每個失敗。max_turns 比例在 dev 與 eval 都是 0。
 - 「逐步」是 decision 034 §7 的類別名稱（可判定、沒有合格的下降），31 條成功的 source 多數是完全沒有下降的平線，不是「逐步下降」。
+- Haiku 的平均 turn 數（L1 5.6、L2 9.0、L3 12.0）與本機模型（eval：L1 5.4、L2 9.3、L3 12.6）相近；Study 2 的題目對兩個 agent 都接近天花板，本機模型的失敗集中在
+  讀錯或漏掉寫明的規則（描述性，不是結論）。
 
 ## 限制
 
 - 第一輪的 eval 只有 15 題、Study 2 的 eval 36 題：結果只能當初步觀察，不宣稱統計上的泛化（decision 005 / 013 / 034）。
 - 驟降判定：在 decision 010 原本的判定下，沒有 SweepPlan 達到 decision 011 預先登記的偵測力門檻；使用者在任何 LLM 結果之前選定選項 A
   （`bonferroni95`、plan (2, 10, 48, 0.3)；模擬偵測 0.83、誤判 0.03；decision 025 §3），兩輪都使用。模擬的曲線形狀是假設，真實的形狀未知。
-- 所有結論只針對一個凍結的本機模型；沒有跨模型比較（以 Claude API 做比較需要使用者另外授權）。
+- 結論只針對兩個凍結的 agent（本機 `qwen3.5:9b-q4_K_M` 與 Claude Haiku 5.5）；跨模型比較只有一組 36 題、兩個 agent，只做描述。
 - 其他已知限制見 [NEXT.md](NEXT.md)。

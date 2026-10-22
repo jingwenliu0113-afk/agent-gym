@@ -1,0 +1,232 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 734 1588" width="734" height="1588" role="img" aria-labelledby="t d" font-family="-apple-system, BlinkMacSystemFont, 'Noto Sans TC', 'Segoe UI', sans-serif">
+<title id="t">Study 2 recoverability（Claude Haiku 5.5）：P(success | k)</title>
+<desc id="d">0 個 source，依級別分段、每列一個題型、每欄一個 seed。實心點：P(success | k)；空心點：P(success ∧ safe | k)。RQ1：沒有 sweep。數值見 summary.json。</desc>
+<style>
+:root{--surface:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--muted:#8a8984;--grid:#e4e3df;--series:#2a78d6;}
+@media (prefers-color-scheme: dark){:root{--surface:#1a1a19;--ink:#ffffff;--ink2:#c3c2b7;--muted:#8f8e88;--grid:#383835;--series:#3987e5;}}
+.bg{fill:var(--surface)}.t1{fill:var(--ink);font-size:15px;font-weight:600}.t2{fill:var(--ink2);font-size:11px}.t3{fill:var(--muted);font-size:10px}.grid{stroke:var(--grid);stroke-width:1}.line{fill:none;stroke:var(--series);stroke-width:2}.dot{fill:var(--series);stroke:var(--surface);stroke-width:2}.safe{fill:var(--surface);stroke:var(--series);stroke-width:1.5}.cliff{stroke:var(--ink2);stroke-width:1.5;stroke-dasharray:4 3}
+</style>
+<rect class="bg" x="0" y="0" width="734" height="1588" rx="8"/>
+<text class="t1" x="16" y="26">Study 2 recoverability（Claude Haiku 5.5）：P(success | k)</text>
+<text class="t2" x="16" y="44">x：checkpoint k；y：0–1。實心點 P(success | k)；空心點 P(success ∧ safe | k)；虛線：cliff。</text>
+<text class="t2" x="16" y="60">RQ1：沒有 sweep。</text>
+<text class="t1" x="16" y="90">L1</text>
+<text class="t2" x="42" y="109">epic-closeout s2</text>
+<line class="grid" x1="42" y1="184.0" x2="228" y2="184.0"/>
+<text class="t3" x="38" y="187.0" text-anchor="end">0</text>
+<line class="grid" x1="42" y1="116.0" x2="228" y2="116.0"/>
+<text class="t3" x="38" y="119.0" text-anchor="end">1</text>
+<text class="t3" x="42" y="150.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="276" y="109">epic-closeout s3</text>
+<line class="grid" x1="276" y1="184.0" x2="462" y2="184.0"/>
+<text class="t3" x="272" y="187.0" text-anchor="end">0</text>
+<line class="grid" x1="276" y1="116.0" x2="462" y2="116.0"/>
+<text class="t3" x="272" y="119.0" text-anchor="end">1</text>
+<text class="t3" x="276" y="150.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="510" y="109">epic-closeout s4</text>
+<line class="grid" x1="510" y1="184.0" x2="696" y2="184.0"/>
+<text class="t3" x="506" y="187.0" text-anchor="end">0</text>
+<line class="grid" x1="510" y1="116.0" x2="696" y2="116.0"/>
+<text class="t3" x="506" y="119.0" text-anchor="end">1</text>
+<text class="t3" x="510" y="150.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="42" y="227">scoped-triage s2</text>
+<line class="grid" x1="42" y1="302.0" x2="228" y2="302.0"/>
+<text class="t3" x="38" y="305.0" text-anchor="end">0</text>
+<line class="grid" x1="42" y1="234.0" x2="228" y2="234.0"/>
+<text class="t3" x="38" y="237.0" text-anchor="end">1</text>
+<text class="t3" x="42" y="268.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="276" y="227">scoped-triage s3</text>
+<line class="grid" x1="276" y1="302.0" x2="462" y2="302.0"/>
+<text class="t3" x="272" y="305.0" text-anchor="end">0</text>
+<line class="grid" x1="276" y1="234.0" x2="462" y2="234.0"/>
+<text class="t3" x="272" y="237.0" text-anchor="end">1</text>
+<text class="t3" x="276" y="268.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="510" y="227">scoped-triage s4</text>
+<line class="grid" x1="510" y1="302.0" x2="696" y2="302.0"/>
+<text class="t3" x="506" y="305.0" text-anchor="end">0</text>
+<line class="grid" x1="510" y1="234.0" x2="696" y2="234.0"/>
+<text class="t3" x="506" y="237.0" text-anchor="end">1</text>
+<text class="t3" x="510" y="268.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="42" y="345">sync-repair s2</text>
+<line class="grid" x1="42" y1="420.0" x2="228" y2="420.0"/>
+<text class="t3" x="38" y="423.0" text-anchor="end">0</text>
+<line class="grid" x1="42" y1="352.0" x2="228" y2="352.0"/>
+<text class="t3" x="38" y="355.0" text-anchor="end">1</text>
+<text class="t3" x="42" y="386.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="276" y="345">sync-repair s3</text>
+<line class="grid" x1="276" y1="420.0" x2="462" y2="420.0"/>
+<text class="t3" x="272" y="423.0" text-anchor="end">0</text>
+<line class="grid" x1="276" y1="352.0" x2="462" y2="352.0"/>
+<text class="t3" x="272" y="355.0" text-anchor="end">1</text>
+<text class="t3" x="276" y="386.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="510" y="345">sync-repair s4</text>
+<line class="grid" x1="510" y1="420.0" x2="696" y2="420.0"/>
+<text class="t3" x="506" y="423.0" text-anchor="end">0</text>
+<line class="grid" x1="510" y1="352.0" x2="696" y2="352.0"/>
+<text class="t3" x="506" y="355.0" text-anchor="end">1</text>
+<text class="t3" x="510" y="386.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="42" y="463">verified-close s2</text>
+<line class="grid" x1="42" y1="538.0" x2="228" y2="538.0"/>
+<text class="t3" x="38" y="541.0" text-anchor="end">0</text>
+<line class="grid" x1="42" y1="470.0" x2="228" y2="470.0"/>
+<text class="t3" x="38" y="473.0" text-anchor="end">1</text>
+<text class="t3" x="42" y="504.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="276" y="463">verified-close s3</text>
+<line class="grid" x1="276" y1="538.0" x2="462" y2="538.0"/>
+<text class="t3" x="272" y="541.0" text-anchor="end">0</text>
+<line class="grid" x1="276" y1="470.0" x2="462" y2="470.0"/>
+<text class="t3" x="272" y="473.0" text-anchor="end">1</text>
+<text class="t3" x="276" y="504.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="510" y="463">verified-close s4</text>
+<line class="grid" x1="510" y1="538.0" x2="696" y2="538.0"/>
+<text class="t3" x="506" y="541.0" text-anchor="end">0</text>
+<line class="grid" x1="510" y1="470.0" x2="696" y2="470.0"/>
+<text class="t3" x="506" y="473.0" text-anchor="end">1</text>
+<text class="t3" x="510" y="504.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t1" x="16" y="584">L2</text>
+<text class="t2" x="42" y="603">epic-closeout s2</text>
+<line class="grid" x1="42" y1="678.0" x2="228" y2="678.0"/>
+<text class="t3" x="38" y="681.0" text-anchor="end">0</text>
+<line class="grid" x1="42" y1="610.0" x2="228" y2="610.0"/>
+<text class="t3" x="38" y="613.0" text-anchor="end">1</text>
+<text class="t3" x="42" y="644.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="276" y="603">epic-closeout s3</text>
+<line class="grid" x1="276" y1="678.0" x2="462" y2="678.0"/>
+<text class="t3" x="272" y="681.0" text-anchor="end">0</text>
+<line class="grid" x1="276" y1="610.0" x2="462" y2="610.0"/>
+<text class="t3" x="272" y="613.0" text-anchor="end">1</text>
+<text class="t3" x="276" y="644.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="510" y="603">epic-closeout s4</text>
+<line class="grid" x1="510" y1="678.0" x2="696" y2="678.0"/>
+<text class="t3" x="506" y="681.0" text-anchor="end">0</text>
+<line class="grid" x1="510" y1="610.0" x2="696" y2="610.0"/>
+<text class="t3" x="506" y="613.0" text-anchor="end">1</text>
+<text class="t3" x="510" y="644.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="42" y="721">scoped-triage s2</text>
+<line class="grid" x1="42" y1="796.0" x2="228" y2="796.0"/>
+<text class="t3" x="38" y="799.0" text-anchor="end">0</text>
+<line class="grid" x1="42" y1="728.0" x2="228" y2="728.0"/>
+<text class="t3" x="38" y="731.0" text-anchor="end">1</text>
+<text class="t3" x="42" y="762.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="276" y="721">scoped-triage s3</text>
+<line class="grid" x1="276" y1="796.0" x2="462" y2="796.0"/>
+<text class="t3" x="272" y="799.0" text-anchor="end">0</text>
+<line class="grid" x1="276" y1="728.0" x2="462" y2="728.0"/>
+<text class="t3" x="272" y="731.0" text-anchor="end">1</text>
+<text class="t3" x="276" y="762.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="510" y="721">scoped-triage s4</text>
+<line class="grid" x1="510" y1="796.0" x2="696" y2="796.0"/>
+<text class="t3" x="506" y="799.0" text-anchor="end">0</text>
+<line class="grid" x1="510" y1="728.0" x2="696" y2="728.0"/>
+<text class="t3" x="506" y="731.0" text-anchor="end">1</text>
+<text class="t3" x="510" y="762.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="42" y="839">sync-repair s2</text>
+<line class="grid" x1="42" y1="914.0" x2="228" y2="914.0"/>
+<text class="t3" x="38" y="917.0" text-anchor="end">0</text>
+<line class="grid" x1="42" y1="846.0" x2="228" y2="846.0"/>
+<text class="t3" x="38" y="849.0" text-anchor="end">1</text>
+<text class="t3" x="42" y="880.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="276" y="839">sync-repair s3</text>
+<line class="grid" x1="276" y1="914.0" x2="462" y2="914.0"/>
+<text class="t3" x="272" y="917.0" text-anchor="end">0</text>
+<line class="grid" x1="276" y1="846.0" x2="462" y2="846.0"/>
+<text class="t3" x="272" y="849.0" text-anchor="end">1</text>
+<text class="t3" x="276" y="880.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="510" y="839">sync-repair s4</text>
+<line class="grid" x1="510" y1="914.0" x2="696" y2="914.0"/>
+<text class="t3" x="506" y="917.0" text-anchor="end">0</text>
+<line class="grid" x1="510" y1="846.0" x2="696" y2="846.0"/>
+<text class="t3" x="506" y="849.0" text-anchor="end">1</text>
+<text class="t3" x="510" y="880.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="42" y="957">verified-close s2</text>
+<line class="grid" x1="42" y1="1032.0" x2="228" y2="1032.0"/>
+<text class="t3" x="38" y="1035.0" text-anchor="end">0</text>
+<line class="grid" x1="42" y1="964.0" x2="228" y2="964.0"/>
+<text class="t3" x="38" y="967.0" text-anchor="end">1</text>
+<text class="t3" x="42" y="998.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="276" y="957">verified-close s3</text>
+<line class="grid" x1="276" y1="1032.0" x2="462" y2="1032.0"/>
+<text class="t3" x="272" y="1035.0" text-anchor="end">0</text>
+<line class="grid" x1="276" y1="964.0" x2="462" y2="964.0"/>
+<text class="t3" x="272" y="967.0" text-anchor="end">1</text>
+<text class="t3" x="276" y="998.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="510" y="957">verified-close s4</text>
+<line class="grid" x1="510" y1="1032.0" x2="696" y2="1032.0"/>
+<text class="t3" x="506" y="1035.0" text-anchor="end">0</text>
+<line class="grid" x1="510" y1="964.0" x2="696" y2="964.0"/>
+<text class="t3" x="506" y="967.0" text-anchor="end">1</text>
+<text class="t3" x="510" y="998.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t1" x="16" y="1078">L3</text>
+<text class="t2" x="42" y="1097">epic-closeout s2</text>
+<line class="grid" x1="42" y1="1172.0" x2="228" y2="1172.0"/>
+<text class="t3" x="38" y="1175.0" text-anchor="end">0</text>
+<line class="grid" x1="42" y1="1104.0" x2="228" y2="1104.0"/>
+<text class="t3" x="38" y="1107.0" text-anchor="end">1</text>
+<text class="t3" x="42" y="1138.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="276" y="1097">epic-closeout s3</text>
+<line class="grid" x1="276" y1="1172.0" x2="462" y2="1172.0"/>
+<text class="t3" x="272" y="1175.0" text-anchor="end">0</text>
+<line class="grid" x1="276" y1="1104.0" x2="462" y2="1104.0"/>
+<text class="t3" x="272" y="1107.0" text-anchor="end">1</text>
+<text class="t3" x="276" y="1138.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="510" y="1097">epic-closeout s4</text>
+<line class="grid" x1="510" y1="1172.0" x2="696" y2="1172.0"/>
+<text class="t3" x="506" y="1175.0" text-anchor="end">0</text>
+<line class="grid" x1="510" y1="1104.0" x2="696" y2="1104.0"/>
+<text class="t3" x="506" y="1107.0" text-anchor="end">1</text>
+<text class="t3" x="510" y="1138.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="42" y="1215">scoped-triage s2</text>
+<line class="grid" x1="42" y1="1290.0" x2="228" y2="1290.0"/>
+<text class="t3" x="38" y="1293.0" text-anchor="end">0</text>
+<line class="grid" x1="42" y1="1222.0" x2="228" y2="1222.0"/>
+<text class="t3" x="38" y="1225.0" text-anchor="end">1</text>
+<text class="t3" x="42" y="1256.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="276" y="1215">scoped-triage s3</text>
+<line class="grid" x1="276" y1="1290.0" x2="462" y2="1290.0"/>
+<text class="t3" x="272" y="1293.0" text-anchor="end">0</text>
+<line class="grid" x1="276" y1="1222.0" x2="462" y2="1222.0"/>
+<text class="t3" x="272" y="1225.0" text-anchor="end">1</text>
+<text class="t3" x="276" y="1256.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="510" y="1215">scoped-triage s4</text>
+<line class="grid" x1="510" y1="1290.0" x2="696" y2="1290.0"/>
+<text class="t3" x="506" y="1293.0" text-anchor="end">0</text>
+<line class="grid" x1="510" y1="1222.0" x2="696" y2="1222.0"/>
+<text class="t3" x="506" y="1225.0" text-anchor="end">1</text>
+<text class="t3" x="510" y="1256.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="42" y="1333">sync-repair s2</text>
+<line class="grid" x1="42" y1="1408.0" x2="228" y2="1408.0"/>
+<text class="t3" x="38" y="1411.0" text-anchor="end">0</text>
+<line class="grid" x1="42" y1="1340.0" x2="228" y2="1340.0"/>
+<text class="t3" x="38" y="1343.0" text-anchor="end">1</text>
+<text class="t3" x="42" y="1374.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="276" y="1333">sync-repair s3</text>
+<line class="grid" x1="276" y1="1408.0" x2="462" y2="1408.0"/>
+<text class="t3" x="272" y="1411.0" text-anchor="end">0</text>
+<line class="grid" x1="276" y1="1340.0" x2="462" y2="1340.0"/>
+<text class="t3" x="272" y="1343.0" text-anchor="end">1</text>
+<text class="t3" x="276" y="1374.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="510" y="1333">sync-repair s4</text>
+<line class="grid" x1="510" y1="1408.0" x2="696" y2="1408.0"/>
+<text class="t3" x="506" y="1411.0" text-anchor="end">0</text>
+<line class="grid" x1="510" y1="1340.0" x2="696" y2="1340.0"/>
+<text class="t3" x="506" y="1343.0" text-anchor="end">1</text>
+<text class="t3" x="510" y="1374.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="42" y="1451">verified-close s2</text>
+<line class="grid" x1="42" y1="1526.0" x2="228" y2="1526.0"/>
+<text class="t3" x="38" y="1529.0" text-anchor="end">0</text>
+<line class="grid" x1="42" y1="1458.0" x2="228" y2="1458.0"/>
+<text class="t3" x="38" y="1461.0" text-anchor="end">1</text>
+<text class="t3" x="42" y="1492.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="276" y="1451">verified-close s3</text>
+<line class="grid" x1="276" y1="1526.0" x2="462" y2="1526.0"/>
+<text class="t3" x="272" y="1529.0" text-anchor="end">0</text>
+<line class="grid" x1="276" y1="1458.0" x2="462" y2="1458.0"/>
+<text class="t3" x="272" y="1461.0" text-anchor="end">1</text>
+<text class="t3" x="276" y="1492.0">沒有曲線（未完成或沒有 source）</text>
+<text class="t2" x="510" y="1451">verified-close s4</text>
+<line class="grid" x1="510" y1="1526.0" x2="696" y2="1526.0"/>
+<text class="t3" x="506" y="1529.0" text-anchor="end">0</text>
+<line class="grid" x1="510" y1="1458.0" x2="696" y2="1458.0"/>
+<text class="t3" x="506" y="1461.0" text-anchor="end">1</text>
+<text class="t3" x="510" y="1492.0">沒有曲線（未完成或沒有 source）</text>
+</svg>

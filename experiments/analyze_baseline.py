@@ -25,7 +25,7 @@ from replay.aborts import ERROR_CLASSES, AttemptRecord, read_manifest, utc_date
 from replay.localization import ROLLOUT_OUTCOMES, classify_rollout
 from replay.stats import BootstrapResult, stratified_task_bootstrap
 from replay.trajectory import Trajectory, TrajectoryError, load_strict_json
-from tasks.suites import suite_containing, suite_for_generator, suite_pool
+from tasks.suites import segment_pool, suite_containing, suite_for_generator, suite_pool
 
 ANALYSIS_FORMAT = "agent-gym/baseline-analysis/v3"  # v2：decision 017 §4；v3：dry_run（021 §1）
 COMPLETED = ("success", "failure", "refusal")
@@ -149,7 +149,10 @@ def load_runs(run_dirs: Sequence[str | Path]) -> LoadedRuns:
     merge_key: dict[str, Any] | None = None
     modes: set[bool] = set()
     for directory, label, rows in zip(directories, labels, manifests):
-        description = _check_run_file(directory, rows)
+        description = _check_run_file(directory, rows, suite)
+        dir_tasks = tasks
+        if "seeds" in description:  # 一個登記的 eval seed 區塊（decision 036 §6）
+            dir_tasks = {i.task.task_id: i.task for i in segment_pool(suite, tuple(description["seeds"]))}
         modes.add(description["dry_run"])
         if len(modes) > 1:
             raise ValueError("dry-run and paid baseline runs cannot be merged (decision 021 §1)")
@@ -162,8 +165,8 @@ def load_runs(run_dirs: Sequence[str | Path]) -> LoadedRuns:
                 raise ValueError("runs with different generator / grader / schema / config / max_turns cannot be merged")
             if row.checkpoint_id is not None:
                 raise ValueError(f"{directory} contains checkpoint rollouts; not a baseline run")
-            if row.task_id not in tasks:
-                raise ValueError(f"{directory}: {row.task_id!r} is not an eval task")
+            if row.task_id not in dir_tasks:
+                raise ValueError(f"{directory}: {row.task_id!r} is not an eval task{' of its seed segment' if dir_tasks is not tasks else ''}")
         groups: dict[tuple[str, int], list[AttemptRecord]] = {}
         for row in rows:
             groups.setdefault((row.task_id, row.rollout_index), []).append(row)
@@ -173,7 +176,7 @@ def load_runs(run_dirs: Sequence[str | Path]) -> LoadedRuns:
             keys = list(groups)
             results: list[dict[str, Any] | None] = [None] * len(keys)
         else:
-            _check_summary(directory, summary, rows, tasks)
+            _check_summary(directory, summary, rows, dir_tasks)
             if any(not _same(summary[name], description[name]) for name in ("split", "rollouts", "config_id")):
                 raise ValueError(f"{directory}: summary.json disagrees with {RUN_FILE}")
             keys, results = _summary_results(directory, summary)
@@ -181,7 +184,7 @@ def load_runs(run_dirs: Sequence[str | Path]) -> LoadedRuns:
                 raise ValueError(f"{directory}: the manifest and the summary list different rollouts")
         for key, result in zip(keys, results):
             attempts = sorted(groups.get(key, []), key=lambda r: r.attempt)
-            record, trajectory = _record(directory, label, key, attempts, result, tasks)
+            record, trajectory = _record(directory, label, key, attempts, result, dir_tasks)
             records.append(record)
             if trajectory is not None:
                 trajectories[(label, key[0], key[1])] = trajectory
@@ -194,10 +197,11 @@ def load_runs(run_dirs: Sequence[str | Path]) -> LoadedRuns:
 
 
 RUN_FILE_KEYS = frozenset({"format", "split", "rollouts", "config_id", "dry_run"})
+SEGMENT_KEY = "seeds"  # 只跑一個登記的 eval seed 區塊的目錄（decision 036 §6）
 
 
-def _check_run_file(directory: Path, rows: list[AttemptRecord]) -> dict[str, Any]:
-    """decision 021 §1：baseline 目錄的 ``run.json``；回傳其內容。"""
+def _check_run_file(directory: Path, rows: list[AttemptRecord], suite: str = "week1") -> dict[str, Any]:
+    """decision 021 §1：baseline 目錄的 ``run.json``；回傳其內容。seed 區塊的目錄另有 ``seeds``（必須是 suite 登記的區塊）。"""
     path = directory / RUN_FILE
     try:
         data = load_strict_json(path.read_bytes()) if path.exists() else None
@@ -205,8 +209,14 @@ def _check_run_file(directory: Path, rows: list[AttemptRecord]) -> dict[str, Any
         raise ValueError(f"cannot read {path}: {exc}") from exc  # 訊息包含檔案路徑（decision 024 §4）
     if not isinstance(data, dict) or data.get("format") != SUMMARY_FORMAT:
         raise ValueError(f"{directory} has no {RUN_FILE} of format {SUMMARY_FORMAT}; not a baseline run")
-    if set(data) != RUN_FILE_KEYS:
-        raise ValueError(f"{directory}: {RUN_FILE} must have exactly the keys {sorted(RUN_FILE_KEYS)}")
+    if set(data) not in (RUN_FILE_KEYS, RUN_FILE_KEYS | {SEGMENT_KEY}):
+        raise ValueError(f"{directory}: {RUN_FILE} must have exactly the keys {sorted(RUN_FILE_KEYS)} (and {SEGMENT_KEY!r} "
+                         "for a seed segment)")
+    if SEGMENT_KEY in data:
+        seeds = data[SEGMENT_KEY]
+        if not isinstance(seeds, list) or not all(type(seed) is int for seed in seeds):
+            raise ValueError(f"{directory}: {RUN_FILE} seeds must be a list of ints")
+        segment_pool(suite, tuple(seeds))  # 不是登記的區塊 → ValueError
     if data["split"] != "eval":
         raise ValueError(f"{directory} is not an eval run")
     if type(data["rollouts"]) is not int or data["rollouts"] < 1:

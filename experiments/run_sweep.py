@@ -48,7 +48,7 @@ from env.hashing import canonical_json
 from experiments.analyze_baseline import RolloutRecord, load_runs
 from replay.trajectory import load_strict_json
 from replay.aborts import utc_instant
-from experiments import billing
+from experiments import billing, study3_plan
 from experiments.call_log import CALL_LOG, CallLog, count_calls, interrupt_on_termination
 from experiments.run_baseline import (
     budget_reached,
@@ -350,7 +350,7 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
-SWEEP_ORDERS = ("pool", "failed_first")
+SWEEP_ORDERS = ("pool", "failed_first", "frozen_permutation")
 
 
 def sweep_order(sources: Mapping[str, Trajectory | None], pool: Sequence[str], order: str) -> list[str]:
@@ -358,6 +358,8 @@ def sweep_order(sources: Mapping[str, Trajectory | None], pool: Sequence[str], o
     依 pool 順序在前，其他依 pool 順序在後。"""
     if order == "pool":
         return list(pool)
+    if order == "frozen_permutation":  # decision 036 §6：凍結紀錄中的排列裡的失敗 source（上限由呼叫端處理）
+        return study3_plan.failed_order(sources, study3_plan.frozen_permutation(pool, study3_plan.read_freeze()))
     failed = [t for t in pool if sources.get(t) is not None and not sources[t].grade().success]
     return failed + [t for t in pool if t not in set(failed)]
 
@@ -380,13 +382,14 @@ def run_sweeps(
     max_model_calls: int | None = None,
     call_log: bool = False,
     order: str = "pool",
+    cumulative_left_calls: int | None = None,
 ) -> SweepRunSummary:
     """``_run_sweeps`` 加上付費 run 的檢查（``check_paid_registration``）。有付費規格的研究的付費 sweep（decision 035 / 036 §7）在
     ``billing.paid_session(spec=..., phase="sweep")`` 內執行：該研究總帳的程序鎖、以總帳計算的累計上限、每次呼叫的預留與保險絲；
     order 必須是該規格的 ``sweep_order``。"""
     common = dict(plan=plan, criterion=criterion, run_dir=run_dir, clock=clock, agent_config=agent_config, replicates=replicates,
                   skip=skip, resumed_from=resumed_from, dry_run=dry_run, carried=carried, max_model_calls=max_model_calls,
-                  call_log=call_log, order=order)
+                  call_log=call_log, order=order, cumulative_left_calls=cumulative_left_calls)
     if not isinstance(sources, Mapping):
         return _run_sweeps(sources, client, max_cost_usd=max_cost_usd, **common)  # 以原本的檢查拒絕
     try:
@@ -426,11 +429,16 @@ def _run_sweeps(
     call_log: bool = False,
     order: str = "pool",
     session: Any = None,
+    cumulative_left_calls: int | None = None,
 ) -> SweepRunSummary:
     """依 eval pool 的順序對每個非 None、且不在 skip 中的 source 執行 ``replay.localization.sweep``（共用一個 manifest）。
 
     order（decision 035 §4）："pool"（預設）或 "failed_first"：先依 pool 順序跑失敗的 source（``grade().success`` 為 False），
-    再依 pool 順序跑其他 source。有付費規格的研究的付費 sweep（Anthropic agent、不是 oracle 假 client）必須是該規格的
+    再依 pool 順序跑其他 source。"frozen_permutation"（decision 036 §6，``experiments.study3_plan``）：凍結紀錄中的排列裡的失敗
+    source，完成 ``MAX_SOURCES`` 條（含 skip 中已完成者）就停止；開始每一條沒有接續紀錄（carried）的 source 之前，剩下的累計上限
+    必須 ≥ 凍結紀錄的預留額（本機：``cumulative_left_calls`` − 這次的呼叫數；付費：總預算 − 安全邊際 − 開始時的總帳 − 這次的花費），
+    否則在 source 之間停止（stopped_by_budget）。沒有凍結紀錄 → ValueError。有開關、登記了本機順序的研究，本機的正式 sweep 必須
+    使用該順序並給 cumulative_left_calls。有付費規格的研究的付費 sweep（Anthropic agent、不是 oracle 假 client）必須是該規格的
     ``sweep_order``，並以 ``check_paid_run(sweep=True)`` 檢查上限。各 source 的 sweep 互相獨立，順序不影響估計值。
 
     - criterion（驟降判定，CLIFF_CRITERIA 之一）沒有預設值：與 plan 一樣必須明確給定（decision 011 / 015 的選擇屬於使用者決策）。
@@ -495,8 +503,11 @@ def _run_sweeps(
     if order not in SWEEP_ORDERS:
         raise ValueError(f"order must be one of: {', '.join(SWEEP_ORDERS)}")
     registered = paid_spec(suite)
-    if order != "pool" and not (registered is not None and order == registered.sweep_order and config.policy == ANTHROPIC_POLICY):
-        raise ValueError(f"order={order!r} is only for paid sweeps of a study that registers it (decision 035 §4)")
+    allowed = {"pool", study(suite).sweep_order}
+    if registered is not None and config.policy == ANTHROPIC_POLICY:
+        allowed.add(registered.sweep_order)
+    if order not in allowed:
+        raise ValueError(f"order={order!r} is only for sweeps of a study that registers it (decision 035 §4 / 036 §6)")
     spec = registered_paid_spec(client, config, suite, max_cost_usd)
     if session is not None and spec is None:
         raise ValueError("a billing session is only for paid runs of a study with a paid spec (decision 035 / 036)")
@@ -510,6 +521,19 @@ def _run_sweeps(
             billing.check_session(session, spec=spec, phase="sweep", max_cost_usd=max_cost_usd)
         elif study(suite).gated:  # 有開關的研究的本機推論：登記的呼叫上限（付費但沒有付費規格的，已由 registered_paid_spec 拒絕）
             check_limits(suite, split="eval", call_log=call_log, max_model_calls=max_model_calls, sweep=True)
+            local_order = study(suite).sweep_order
+            if order != local_order:
+                raise ValueError(f"a formal local {suite} sweep uses order={local_order!r} (decision {study(suite).decision})")
+            if local_order == "frozen_permutation" and (type(cumulative_left_calls) is not int or cumulative_left_calls < 0):
+                raise ValueError("a formal local frozen_permutation sweep needs cumulative_left_calls (the cumulative cap minus "
+                                 "every earlier segment's calls; decision 036 §6)")
+    frozen: dict[str, Any] | None = None
+    if order == "frozen_permutation":  # 凍結紀錄（排列與預留額）在任何副作用之前讀取
+        record = study3_plan.read_freeze()
+        run_order = study3_plan.failed_order(sources, study3_plan.frozen_permutation(pool, record))
+        kind = "haiku_usd" if session is not None else "local_calls"
+        frozen = {"order": run_order, "limit": study3_plan.MAX_SOURCES - sum(1 for t in run_order if t in skipped),
+                  "reserve": study3_plan.reserve(record, kind) if session is not None or cumulative_left_calls is not None else None}
     for task_id, source in sources.items():
         if source is None:
             continue
@@ -552,13 +576,25 @@ def _run_sweeps(
                                                          attempt=attempt, k=k)
         return CostMeter(make_policy(bound, config), ledger)
 
+    def left() -> float:
+        """剩下的累計上限（frozen_permutation 的預留額檢查）。"""
+        if session is not None:
+            return session.total - billing.SAFETY_MARGIN_USD - session.spent_before - ledger.cost_usd
+        return cumulative_left_calls - (calls.count if calls is not None else ledger.calls)
+
     families = {instance.task.task_id: instance.task.family for instance in suite_pool(suite, "eval")}
     results: dict[str, SweepResult] = {}
     stopped = False
-    for task_id in sweep_order(sources, pool, order):
+    for task_id in (frozen["order"] if frozen is not None else sweep_order(sources, pool, order)):
         source = sources[task_id]
         if source is None or task_id in skipped:
             continue
+        if frozen is not None:
+            if len(results) >= frozen["limit"]:
+                break
+            if frozen["reserve"] is not None and task_id not in priors and left() < frozen["reserve"]:
+                stopped = True  # 在 source 之間停止：剩下的不夠一條的預留額（decision 036 §6）
+                break
         current["task_id"] = task_id
         try:
             result = sweep(
@@ -731,6 +767,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
     suite = suite_for_task_ids(list(sources))
     max_model_calls = args.max_model_calls
+    cumulative_left: int | None = None
     if args.total_model_calls is not None:
         if not args.confirm_local_run:
             parser.error("--total-model-calls is only for local runs (--confirm-local-run)")
@@ -752,6 +789,7 @@ def main(argv: list[str] | None = None) -> int:
             parser.error(f"the cumulative cap of {args.total_model_calls} model calls is reached ({previous_calls} in the "
                          "--resume-from directories); the sweep stops here (decision 034 §8)")
         max_model_calls = min(args.max_model_calls, remaining)
+        cumulative_left = remaining
         print(f"cumulative calls: {previous_calls} of {args.total_model_calls}; this segment may use {max_model_calls}", file=sys.stderr)
     if args.dry_run:
         client: Any = (OllamaOracleFakeClient if config.policy == OLLAMA_POLICY else OracleFakeClient)(suite_pool(suite, "eval"))
@@ -801,10 +839,12 @@ def main(argv: list[str] | None = None) -> int:
             parser.error(f"no paid runs are registered for {suite}")
         client = make_anthropic_client(config.model_config)
     paid = paid_spec(suite) if args.confirm_paid_run else None
+    order = paid.sweep_order if paid is not None else study(suite).sweep_order if args.confirm_local_run else "pool"
     summary = run_sweeps(
         sources, client, plan=plan, criterion=args.criterion, run_dir=run_dir, max_cost_usd=args.max_cost_usd,
         skip=skip, resumed_from=resumed_from, dry_run=args.dry_run, carried=carried, agent_config=config,
-        max_model_calls=max_model_calls, call_log=bool(args.confirm_local_run), order="pool" if paid is None else paid.sweep_order,
+        max_model_calls=max_model_calls, call_log=bool(args.confirm_local_run), order=order,
+        cumulative_left_calls=cumulative_left,
     )
     for task_id in summary.sources:
         result = summary.results.get(task_id)

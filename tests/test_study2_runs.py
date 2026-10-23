@@ -55,7 +55,7 @@ def test_the_week1_default_is_unchanged(tmp_path: Path) -> None:
 
 def test_run_split_rejects_an_unknown_suite(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="suite"):
-        run_split("dev", OllamaOracleFakeClient(DEV), run_dir=tmp_path / "x", agent_config=local_agent_config(), suite="study3")
+        run_split("dev", OllamaOracleFakeClient(DEV), run_dir=tmp_path / "x", agent_config=local_agent_config(), suite="study9")
 
 
 def test_a_study2_dry_run_sweep_and_its_analysis(study2_baseline: Path, tmp_path: Path) -> None:

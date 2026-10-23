@@ -17,7 +17,7 @@ from tasks.suites import (
 
 
 def test_suites_and_pools() -> None:
-    assert SUITES == ("week1", "study2")
+    assert SUITES == ("week1", "study2", "study3")  # study3：decision 036
     for split in ("dev", "eval"):
         assert [i.task.task_id for i in suite_pool("week1", split)] == [i.task.task_id for i in week1_pool(split)]
         assert [i.task.task_id for i in suite_pool("study2", split)] == [i.task.task_id for i in study2_pool(split)]

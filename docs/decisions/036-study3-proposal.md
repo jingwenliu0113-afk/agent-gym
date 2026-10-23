@@ -80,9 +80,9 @@
    - 下列失敗各自另列一行，不與其他規則的失敗合併解讀：
      - epic-closeout 的 wrong-tracker 失敗（id 抄錯）；
      - scoped-triage 與 S7 相關的失敗與 refusal；
-     - verified-close 與 qa-broken 相關的失敗。
+     - verified-close 與 qa 角色（qa-broken、qa-confirmed）相關的失敗。
    - 「相關」的機械定義（分析程式依此實作，凍結之前以合成資料測試）：
-     - **S7 與 qa-broken**：cliff 那一步失敗的 predicate，落在 decisive_rules 含 S7 的角色（或 qa-broken 角色）的 issue 上。
+     - **S7 與 qa 角色**：cliff 那一步失敗的 predicate，落在 decisive_rules 含 S7 的角色（或 qa-broken、qa-confirmed 角色）的 issue 上。
      - **wrong-tracker**：同時符合兩個條件：
        - cliff 那一步失敗的 predicate 是某個 comment_added，它的 contains 含 "Blocks #T" 或 "Dropped from #T"；
        - 在 cliff 那一步（含）之前，source 在該 issue 新增的 comment 中，至少有一則含同一個範本（"Blocks #" 或 "Dropped from #"，不分大小寫），但緊接的 id 不是 T。例如 #C 的 sub-issue 上寫成 "Blocks #E"，或 H1 的 id 抄錯。
@@ -196,7 +196,7 @@
   - tool 錯誤注入；
   - 文字陷阱。
 - **例外：保留，但事先揭露**。下列兩項都寫明在 instruction 中，相關的失敗與 refusal 在描述表中另列（見 §2）：
-  - verified-close 的 qa-broken：非 reporter 的 "Still seeing this on staging." 使用了 rule 2 的觸發文字，只靠「只算 reporter 的 comment」來區分；
+  - verified-close 的 qa 角色：非 reporter 的 "Still seeing this on staging."（qa-broken）使用了 "Still seeing" 這個觸發文字（H1 的 rule 2、H2 / H3 的 rule 3），"Confirmed on staging by QA."（qa-confirmed：H1 的候選，H1 / H3 的干擾項）使用了 rule 1 的觸發文字；兩者都只靠「只算 reporter 的 comment」來區分；
   - scoped-triage 的 S7：security + docs 的 issue 可以修改，這違反常識。
 - **分級是結構上的定義**：
   - 同一題型、同一 seed 內，oracle 長度與規則數都是 H1 < H2 < H3，n_targets、n_decoys 不遞減（check_levels）。
@@ -641,6 +641,18 @@
   - 估算規則的提醒（不是設計變更）：以單條成本的 P90 × 每次呼叫成本的 P90 計算是保守的；Haiku 每次呼叫的 P90 若約 0.0006 美元，
     估計能 sweep 的失敗 source 會少於 15 條，依 §7 需要回頭問使用者。
 
+- **2026-10-23，§8 第 2 步完成**：B 類審查（附錄 A.6）之後，generator v3 的輸出以 golden hash 釘住：
+  `GOLDEN_POOL_SHA256 = 9d97d04d…e43f`、`GOLDEN_RNG_SHA256 = a6ad2ed1…037b`（dev 24 題 + eval 96 題；1 題重抽過）。
+  之後任何改變輸出的修正都記為「重抽」。
+- **2026-10-23，§8 第 1 步 B 部分**（generator v3 完成之後，與 study3 的登記同一批）：
+  - `tasks.suites`：study3 登記（`STUDY3_APPROVED` / `STUDY3_FROZEN` 都是 False；baseline 上限 dev 2,880、eval 每段 2,880；
+    sweep 每段 3,000、累計 80,000；規則 B；`STUDY3_PAID`；eval 的 4 個 seed 區塊；本機的 sweep 順序 frozen_permutation）。
+  - 依 seed 區塊的 baseline：`run_split(..., seeds=(2, 3))` / CLI `--seeds 2,3`；run.json 另記 `seeds`；本機的 eval baseline
+    必須逐段執行；`load_runs` 依每個目錄的區塊核對，合併時涵蓋全部 96 題。
+  - Study 3 的 sweep 執行方式（`experiments/study3_plan.py`、`run_sweeps(order="frozen_permutation")`）：凍結紀錄中的排列、
+    只跑失敗的 source、完成 25 條就停止（跨段累計）、開始新的 source 之前剩下的累計上限必須 ≥ 預留額、接續的 source 不再檢查、
+    沒有凍結紀錄就拒絕；`analyze_sweep` 依同一個順序核對完成的曲線是前綴。
+
 ## 附錄 A — instruction 逐字稿、規則來源與 decisive_rules
 
 （2026-10-23，§8 第 2 步。逐字稿由 dev seed 0–1 與除錯用的 seed ≥ 100 的 instance 機械地產生：issue id 換成角色的佔位符；
@@ -774,7 +786,7 @@ Issue #<R> is a report from the sync job (Sync Job, sync). Every change it lists
 3. The report can list several changes to the same issue. Judge each of them on its own under rules 1 and 2: undo every one that is not handled, even if another change on that issue is handled. You may undo changes to different fields of one issue in a single update.
 4. Add exactly one comment that includes the text "Reverted sync change" to each issue on which you undo at least one change, even if you undo several changes on it.
 5. You must not edit issues that are closed at the start of the task. An issue whose status is closed at the start of the task is locked: do not change any of its fields, even to undo a listed change. If a locked issue has at least one listed change that is not handled, add exactly one comment to it that includes the text "Sync revert skipped".
-6. Exception to rule 5: if the report lists a change that set an issue's status to closed, the sync job closed that issue by mistake, so it is not locked: undo its listed changes under the other rules (this reopens it).
+6. Exception to rule 5: if the report lists a change that set an issue's status to closed, the sync job closed that issue by mistake, so it is not locked: undo its listed changes under the other rules (this sets its status back to the value it had before the sync job closed it).
 Do not change anything else, and do not add any other comments.
 ```
 
@@ -787,7 +799,7 @@ Issues #<R1> and #<R2> are reports from the sync job (Sync Job, sync); #<R2> is 
 3. The reports can list several changes to the same issue, in one report or across both. Judge each of them on its own under rules 1 and 2: undo every one that is not handled, even if another change on that issue is handled. You may undo changes to different fields of one issue in a single update.
 4. Add exactly one comment that includes the text "Reverted sync change" to each issue on which you undo at least one change, even if you undo several changes on it.
 5. You must not edit issues that are closed at the start of the task. An issue whose status is closed at the start of the task is locked: do not change any of its fields, even to undo a listed change. If a locked issue has at least one listed change that is not handled, add exactly one comment to it that includes the text "Sync revert skipped".
-6. Exception to rule 5: if a report lists a change that set an issue's status to closed, the sync job closed that issue by mistake, so it is not locked: undo its listed changes under the other rules (this reopens it).
+6. Exception to rule 5: if a report lists a change that set an issue's status to closed, the sync job closed that issue by mistake, so it is not locked: undo its listed changes under the other rules (this sets its status back to the value it had before the sync job closed it).
 7. If both reports list a change to the priority of the same issue, the sync job changed that field twice: first the change in #<R1>, then the one in #<R2>. Treat the two as one change (this replaces rules 1–3 for that field): it is handled only if the current value differs from the value set in #<R2>, and undoing it restores the value from before the change in #<R1>.
 Do not change anything else, and do not add any other comments.
 ```
@@ -894,6 +906,14 @@ Rules 1 and 3 count only comments posted by the issue's reporter; comments by an
     H3 的 oracle 也明寫 limit 50。2 個隱藏候選從需要寫入的角色中抽，依 seed 而不同。
   - already-asked 的敘事：reporter 說 "Still seeing" 之後，staff 再次請 reporter 確認，reporter 還沒有回覆，所以不再催、也不重新打開；
     rule 2 優先於 rule 3 是寫明的 first-match。rule 1 與 rule 2 的先後在資料中不會被測到（自我檢查確認沒有候選同時符合兩者）。
+- **B 類審查（2026-10-23）的結果**：四個題型各一位審查者，只看模板、generator 程式與 dev instance；共 6 項發現，逐項經反駁驗證，
+  沒有一項成立（沒有第二種讀法導致不同的最終狀態、沒有沒寫出來的規則、沒有需要猜的資訊）。下列低成本的澄清仍在 golden hash 之前採用：
+  - sync-repair rule 6 的括號由 "(this reopens it)" 改為 "(this sets its status back to the value it had before the sync job closed it)"：
+    "reopen" 可能被讀成把 status 設為 open，而原值有一半是 in_progress。
+  - §2 / §3 的揭露與另列的那一行擴大到 qa-confirmed（與 qa-broken 相同的機制）；§3 的觸發文字說明更正（只有 H1 是 rule 2）。
+  - 限制：verified-close H3 的 qa-broken 也是唯一需要去重的候選，所以「qa 角色」那一行也會包含去重的失誤（上界）；去重另以
+    `params.target_labels` 計數。epic-closeout 的種入 issue 可能帶背景的一般 comment（例如 "Seen again this morning."）；
+    這個題型沒有任何規則讀 comment，所以不清除。
 - **共同**：comment 只檢查「包含」（四個題型）；干擾項多半是名目參數；每個題型的 context 檢查都在 seed 0–9 通過。
 
 ## 附錄 B — 題型審查 52 項的處理

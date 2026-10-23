@@ -76,6 +76,7 @@ from tasks.suites import (
     check_paid_run,
     paid_phase,
     paid_spec,
+    segment_pool,
     study,
     suite_pool,
 )
@@ -255,13 +256,14 @@ def run_split(
     max_model_calls: int | None = None,
     call_log: bool = False,
     suite: str = "week1",
+    seeds: Sequence[int] | None = None,
 ) -> RunSummary:
     """``_run_split`` 加上付費 run 的檢查（``check_paid_registration``）。有付費規格的研究（Study 2 = decision 035、Study 3 =
     decision 036 §7）在 ``billing.paid_session(spec=..., phase=paid_phase(split))`` 內執行：該研究總帳的程序鎖、以總帳計算的累計
     上限、每次呼叫的預留與保險絲。"""
     config = baseline_agent_config() if agent_config is None else agent_config
     common = dict(run_dir=run_dir, rollouts=rollouts, clock=clock, agent_config=agent_config, dry_run=dry_run,
-                  max_model_calls=max_model_calls, call_log=call_log, suite=suite)
+                  max_model_calls=max_model_calls, call_log=call_log, suite=suite, seeds=seeds)
     spec = registered_paid_spec(client, config, suite, max_cost_usd) if suite in SUITES else None
     if spec is None:
         return _run_split(split, client, max_cost_usd=max_cost_usd, **common)
@@ -294,6 +296,7 @@ def _run_split(
     call_log: bool = False,
     suite: str = "week1",
     session: Any = None,
+    seeds: Sequence[int] | None = None,
 ) -> RunSummary:
     """在 ``suite_pool(suite, split)``（suite 預設為第一輪的 "week1" = ``week1_pool(split)``；"study2" 見 decision 034）上執行 baseline。
 
@@ -312,11 +315,18 @@ def _run_split(
       ``classify_rollout(trajectory, 0)``；安全指標取 ``trajectory.grade()``。未完成 → infrastructure → "aborted"，否則 "agent_error"。
     - harness 例外原樣往外拋（不寫 summary）。正常結束寫 ``run_dir/summary.json``（canonical_json + "\\n"）並回傳。
     - call_log：每次模型呼叫記到 ``run_dir/calls.jsonl``（decision 032；含中止與中斷的嘗試的呼叫與 seed）。
+    - seeds（decision 036 §6）：只跑登記的一個 eval seed 區塊（``segment_pool``）；run.json 另記 ``seeds``。有登記區塊的研究，
+      本機的 eval baseline 必須逐段執行（``check_limits``）。
     """
     if split not in ("dev", "eval"):
         raise ValueError("split must be 'dev' or 'eval'")
     if suite not in SUITES:
         raise ValueError(f"suite must be one of: {', '.join(SUITES)}")
+    if seeds is not None:
+        if split != "eval":
+            raise ValueError("seeds select a registered eval segment; dev runs are not split into segments")
+        seeds = tuple(seeds) if isinstance(seeds, (list, tuple)) else seeds
+        segment_pool(suite, seeds)  # 不是登記的區塊 → ValueError
     if type(rollouts) is not int or rollouts < 1:
         raise ValueError("rollouts must be an int >= 1")
     if not isinstance(dry_run, bool):
@@ -338,12 +348,13 @@ def _run_split(
                            rollouts=rollouts)
             billing.check_session(session, spec=spec, phase=paid_phase(split, sweep=False), max_cost_usd=max_cost_usd)
         elif study(suite).gated:  # 有開關的研究的本機推論：登記的呼叫上限（付費但沒有付費規格的，已由 registered_paid_spec 拒絕）
-            check_limits(suite, split=split, call_log=call_log, max_model_calls=max_model_calls, sweep=False)
+            check_limits(suite, split=split, call_log=call_log, max_model_calls=max_model_calls, sweep=False, seeds=seeds)
 
-    instances = suite_pool(suite, split)
+    instances = suite_pool(suite, split) if seeds is None else segment_pool(suite, seeds)
     trajectories_dir = run_dir / "trajectories"
     trajectories_dir.mkdir(parents=True, exist_ok=True)
-    description = {"format": SUMMARY_FORMAT, "split": split, "rollouts": rollouts, "config_id": config.config_id, "dry_run": dry_run}
+    description = {"format": SUMMARY_FORMAT, "split": split, "rollouts": rollouts, "config_id": config.config_id, "dry_run": dry_run,
+                   **({"seeds": list(seeds)} if seeds is not None else {})}
     write_atomic(run_dir / RUN_FILE, (canonical_json(description) + "\n").encode("utf-8"))
     log_path = run_dir / "manifest.jsonl"
     calls = CallLog(client, run_dir / CALL_LOG) if call_log else None
@@ -677,6 +688,8 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - CLI
     parser.add_argument("--suite", choices=SUITES, default="week1",
                         help="題目集合：week1（第一輪，預設）或 study2（decision 034；模型推論需要使用者確認與凍結）")
     parser.add_argument("--rollouts", type=int, default=1)
+    parser.add_argument("--seeds", default=None,
+                        help="只跑一個登記的 eval seed 區塊，例如 2,3（Study 3 的本機 eval baseline 必須逐段執行；decision 036 §6）")
     parser.add_argument("--run-name", default=None, help="runs/<run-name>；預設依 split 與模式命名")
     parser.add_argument("--provider", choices=("ollama", "anthropic"), default="ollama",
                         help="ollama（Core，decision 026）或 anthropic（Optional）")
@@ -691,6 +704,13 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - CLI
     parser.add_argument("--ollama-url", default=ollama_url_default(),
                         help="只接受 loopback；預設取 tools/with-gpu-lock 設定的通道 URL")
     args = parser.parse_args(argv)
+    seeds: tuple[int, ...] | None = None
+    if args.seeds is not None:
+        try:
+            seeds = tuple(int(part, 10) for part in args.seeds.split(","))
+            segment_pool(args.suite, seeds)
+        except ValueError as exc:
+            parser.error(f"--seeds: {exc}")
 
     if args.model is not None and args.provider != "anthropic":
         parser.error("--model is only for --provider anthropic")
@@ -713,7 +733,8 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - CLI
         try:
             check_model_run(args.suite, args.split)  # 有開關的研究：使用者確認、凍結之前不推論（decision 034 / 036）
             if study(args.suite).gated:
-                check_limits(args.suite, split=args.split, call_log=True, max_model_calls=args.max_model_calls, sweep=False)
+                check_limits(args.suite, split=args.split, call_log=True, max_model_calls=args.max_model_calls, sweep=False,
+                             seeds=seeds)
         except ValueError as exc:
             parser.error(str(exc))
         client = start_local_run(parser, config, url=args.ollama_url, formal=args.split == "eval",
@@ -751,6 +772,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - CLI
         summary = run_split(
             args.split, client, run_dir=Path("runs") / name, rollouts=args.rollouts, max_cost_usd=budget, dry_run=args.dry_run,
             agent_config=config, max_model_calls=args.max_model_calls, call_log=bool(args.confirm_local_run), suite=args.suite,
+            seeds=seeds,
         )
     except billing.BudgetFuse as exc:  # decision 035 §3：沒有 summary（中斷），總帳已記錄每次呼叫
         print(f"stopped by the billing fuse before a call: {exc}; runs/{name} has no summary (interrupted)", file=sys.stderr)

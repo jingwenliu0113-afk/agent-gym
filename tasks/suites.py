@@ -25,9 +25,10 @@ from typing import Any, Callable, Mapping, Sequence
 
 from tasks.generator import GENERATOR_VERSION as WEEK1_GENERATOR, GeneratedInstance, week1_pool
 from tasks.generator_v2 import GENERATOR_VERSION as STUDY2_GENERATOR, study2_pool
+from tasks.generator_v3 import GENERATOR_VERSION as STUDY3_GENERATOR, study3_pool
 
-SUITES: tuple[str, ...] = ("week1", "study2")
-_GENERATORS = {WEEK1_GENERATOR: "week1", STUDY2_GENERATOR: "study2"}
+SUITES: tuple[str, ...] = ("week1", "study2", "study3")
+_GENERATORS = {WEEK1_GENERATOR: "week1", STUDY2_GENERATOR: "study2", STUDY3_GENERATOR: "study3"}
 SOURCE_RULES = ("rollout0", "first_failure")  # 第一輪：rollout 0；規則 B：index 最小的失敗 rollout（decision 034）
 PAID_PHASES = ("dev", "baseline", "sweep")
 
@@ -36,6 +37,14 @@ STUDY2_FROZEN = True  # dev 驗證（2026-10-17）沒有缺陷修正、P90 26,63
 STUDY2_SWEEP_CAP: int | None = 70_000  # 正式 sweep 的累計呼叫上限（decision 034 §8；使用者選擇 source 規則 B，2026-10-17）
 STUDY2_SEGMENT_CAP = 3000  # 正式 sweep 每段的呼叫上限；段與段之間釋放 GPU lock（decision 034 §8）
 STUDY2_BASELINE_CAPS = {"dev": 2880, "eval": 4320}  # 每輪 dev / eval baseline 的呼叫上限（24 或 36 題 × R 3 × max_turns 20 × 2 次嘗試）
+
+# Study 3（decision 036，使用者 2026-10-23 核准）：§8 第 1–4 步完成之前不推論（STUDY3_APPROVED）；凍結紀錄 commit 之前不推論 eval。
+STUDY3_APPROVED = False
+STUDY3_FROZEN = False
+STUDY3_SWEEP_CAP: int | None = 80_000  # 本機 sweep 的累計呼叫上限（decision 036 §7）
+STUDY3_SEGMENT_CAP = 3000  # 本機 sweep 每段的呼叫上限；段與段之間釋放 GPU lock
+STUDY3_BASELINE_CAPS = {"dev": 2880, "eval": 2880}  # dev 一輪（24 題 × 3）與 eval 每個 seed 區塊（24 題 × 3）：× max_turns 20 × 2
+STUDY3_EVAL_SEGMENTS = ((2, 3), (4, 5), (6, 7), (8, 9))  # 本機 eval baseline 的 4 段（decision 036 §6）
 
 
 @dataclass(frozen=True)
@@ -92,7 +101,8 @@ class StudySpec:
 
     - 有開關（``approved_flag``）的研究必須登記 ``frozen_flag``、``baseline_caps``（每個 split 一次 baseline run 的呼叫上限）、
       ``segment_cap``（sweep 每段的呼叫上限）與 ``sweep_cap_flag``（累計上限）；
-    - 沒有開關的研究（只有第一輪）必須寫明 ``ungated_reason``。"""
+    - 沒有開關的研究（只有第一輪）必須寫明 ``ungated_reason``；
+    - ``eval_segments``：eval baseline 依 seed 區塊分段時登記的區塊（本機的 eval baseline 必須逐段執行；None = 不分段）。"""
 
     suite: str
     generator: str
@@ -106,10 +116,16 @@ class StudySpec:
     sweep_cap_flag: str | None = None
     paid: PaidSpec | None = None
     ungated_reason: str | None = None
+    eval_segments: tuple[tuple[int, ...], ...] | None = None
+    sweep_order: str = "pool"  # 本機正式 sweep 的執行順序（Study 3：凍結紀錄中的排列，decision 036 §6）
 
     def __post_init__(self) -> None:
         if self.source_rule not in SOURCE_RULES:
             raise ValueError(f"source_rule must be one of {SOURCE_RULES}")
+        if self.eval_segments is not None:
+            seeds = [seed for segment in self.eval_segments for seed in segment]
+            if not self.eval_segments or not all(segment for segment in self.eval_segments) or len(set(seeds)) != len(seeds):
+                raise ValueError(f"{self.suite}: eval_segments must be non-empty, disjoint seed blocks")
         if self.approved_flag is None:
             if self.frozen_flag is not None or not self.ungated_reason:
                 raise ValueError(f"{self.suite}: a study without an approval switch must say why (ungated_reason)")
@@ -137,6 +153,12 @@ STUDIES: dict[str, StudySpec] = {
         suite="study2", generator=STUDY2_GENERATOR, pool=study2_pool, decision="034", source_rule="first_failure",
         approved_flag="STUDY2_APPROVED", frozen_flag="STUDY2_FROZEN", baseline_caps=STUDY2_BASELINE_CAPS,
         segment_cap=STUDY2_SEGMENT_CAP, sweep_cap_flag="STUDY2_SWEEP_CAP", paid=STUDY2_PAID,
+    ),
+    "study3": StudySpec(
+        suite="study3", generator=STUDY3_GENERATOR, pool=study3_pool, decision="036", source_rule="first_failure",
+        approved_flag="STUDY3_APPROVED", frozen_flag="STUDY3_FROZEN", baseline_caps=STUDY3_BASELINE_CAPS,
+        segment_cap=STUDY3_SEGMENT_CAP, sweep_cap_flag="STUDY3_SWEEP_CAP", paid=STUDY3_PAID, eval_segments=STUDY3_EVAL_SEGMENTS,
+        sweep_order="frozen_permutation",
     ),
 }
 
@@ -193,16 +215,29 @@ def check_paid_run(spec: PaidSpec, *, model: Any, split: str, max_cost_usd: Any,
         raise ValueError(f"a paid {spec.name} baseline must use --rollouts {spec.rollouts} (decision {spec.decision})")
 
 
-def check_limits(suite: str, *, split: str, call_log: bool, max_model_calls: int | None, sweep: bool) -> None:
+def segment_pool(suite: str, seeds: Sequence[int]) -> tuple[GeneratedInstance, ...]:
+    """登記的 eval seed 區塊的 instance（eval pool 的順序）。不是登記的區塊 → ValueError。"""
+    spec = study(suite)
+    block = tuple(seeds) if isinstance(seeds, (list, tuple)) else None
+    if spec.eval_segments is None or block not in spec.eval_segments:
+        raise ValueError(f"seeds {seeds!r} are not a registered eval segment of {suite} "
+                         f"({'none' if spec.eval_segments is None else list(spec.eval_segments)})")
+    return tuple(i for i in suite_pool(suite, "eval") if i.task.params["seed"] in block)
+
+
+def check_limits(suite: str, *, split: str, call_log: bool, max_model_calls: int | None, sweep: bool,
+                 seeds: Sequence[int] | None = None) -> None:
     """有開關的研究的真正推論（本機）：必須記錄每次呼叫（calls.jsonl），呼叫上限必須是登記的值（baseline）或不超過每段上限
-    （sweep）。沒有開關的研究沒有登記的上限 → ValueError。run_split / run_sweeps 在 client 不是 oracle 假 client 時呼叫
-    （不只在 CLI；decision 034 驗證 B 第二輪）。"""
+    （sweep）；有登記 eval 區塊的研究，eval baseline 必須逐段執行（seeds 是登記的區塊）。沒有開關的研究沒有登記的上限
+    → ValueError。run_split / run_sweeps 在 client 不是 oracle 假 client 時呼叫（不只在 CLI；decision 034 驗證 B 第二輪）。"""
     spec = study(suite)
     if not spec.gated:
         raise ValueError(f"{suite} has no registered call limits")
     name = f"{suite} (decision {spec.decision} §8)"
     if not call_log:
         raise ValueError(f"{name} model runs must log every call (calls.jsonl; decision 032)")
+    if not sweep and split == "eval" and spec.eval_segments is not None:
+        segment_pool(suite, seeds if seeds is not None else ())  # 本機的 eval baseline 逐段執行（decision 036 §6）
     if sweep:
         if max_model_calls is None or max_model_calls > spec.segment_cap:
             raise ValueError(f"a {name} sweep segment may use at most {spec.segment_cap} model calls")

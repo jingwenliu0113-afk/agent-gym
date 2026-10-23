@@ -124,7 +124,8 @@ _RULE_5 = ("5. You must not edit issues that are closed at the start of the task
            "of the task is locked: do not change any of its fields, even to undo a listed change. If a locked issue has at "
            f"least one listed change that is not handled, add exactly one comment to it that includes the text \"{SKIPPED}\".")
 _RULE_6 = ("6. Exception to rule 5: if {a_report} lists a change that set an issue's status to closed, the sync job closed that "
-           "issue by mistake, so it is not locked: undo its listed changes under the other rules (this reopens it).")
+           "issue by mistake, so it is not locked: undo its listed changes under the other rules (this sets its status back to "
+           "the value it had before the sync job closed it).")
 _RULE_7 = ("7. If both reports list a change to the priority of the same issue, the sync job changed that field twice: first "
            "the change in #{R1}, then the one in #{R2}. Treat the two as one change (this replaces rules 1–3 for that field): it "
            "is handled only if the current value differs from the value set in #{R2}, and undoing it restores the value from "

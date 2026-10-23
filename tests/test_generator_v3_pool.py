@@ -40,3 +40,22 @@ def test_every_rule_has_a_source_tag_and_the_study2_failure_types_are_tagged() -
 def test_every_instance_fits_the_local_context(pool) -> None:
     failing = [i.task.task_id for i in pool if not ctx.check_context(i)["ok"]]
     assert failing == []  # 只列 task_id（decision 036 §4）
+
+
+def test_golden_hash_pins_every_dev_and_eval_task(pool) -> None:
+    """generator v3 的輸出在 B 類審查之後、第一次 dev 模型呼叫之前以 golden hash 釘住（decision 036 §8 第 2 步）。
+    之後任何改變輸出的修正都必須在 decision log 記為「重抽」。"""
+    import hashlib
+
+    from env.hashing import canonical_json
+
+    digest = hashlib.sha256("\n".join(canonical_json(i.task.to_dict()) for i in pool).encode("utf-8")).hexdigest()
+    assert digest == g3.GOLDEN_POOL_SHA256
+
+
+def test_rng_fingerprints_are_pinned() -> None:
+    import hashlib
+
+    keys = [(f, lv, s) for s in (*g3.DEV_SEEDS, *g3.EVAL_SEEDS) for lv in g3.LEVELS for f in g3.FAMILIES]
+    joined = "\n".join(g3.rng_fingerprint(f, lv, s) for f, lv, s in keys)
+    assert hashlib.sha256(joined.encode("utf-8")).hexdigest() == g3.GOLDEN_RNG_SHA256

@@ -50,7 +50,8 @@ from replay.localization import (
 from replay.stats import BootstrapResult, stratified_task_bootstrap
 from replay.checkpoint import make_checkpoint
 from replay.trajectory import Trajectory, TrajectoryError, load_strict_json
-from tasks.suites import paid_spec, suite_for_task_ids, suite_pool
+from experiments import study3_plan
+from tasks.suites import paid_spec, study, suite_for_task_ids, suite_pool
 
 # v2：decision 017 §5；v3：baseline_runs（019 §4）；v4：dry_run（021 §1）；v5：Gate 的 outcome（025 §4）
 SWEEP_ANALYSIS_FORMAT = "agent-gym/sweep-analysis/v5"
@@ -743,15 +744,18 @@ def _check_run_file(
 
 
 def allowed_orders(sources: Mapping[str, Trajectory | None]) -> tuple[str, ...]:
-    """sweep 可以採用的執行順序：有付費規格的研究的付費（Anthropic agent）source 是 pool 或該規格的 ``sweep_order``（Study 2 為
-    failed_first，decision 035 §4）；其他（第一輪、本機模型）只有 pool 順序。"""
+    """sweep 可以採用的執行順序：pool，加上研究登記的本機順序（Study 3 為 frozen_permutation），以及有付費規格的研究的付費
+    （Anthropic agent）source 的 ``sweep_order``（Study 2 為 failed_first，decision 035 §4）。"""
     try:
         suite = suite_for_task_ids(list(sources))
     except ValueError:
         return ("pool",)
     paid = any(source is not None and source.agent.policy == ANTHROPIC_POLICY for source in sources.values())
     spec = paid_spec(suite)
-    return ("pool", spec.sweep_order) if paid and spec is not None and spec.sweep_order in SWEEP_ORDERS else ("pool",)
+    orders = {"pool", study(suite).sweep_order}  # 本機登記的順序（Study 3：凍結紀錄中的排列，decision 036 §6）
+    if paid and spec is not None:
+        orders.add(spec.sweep_order)
+    return tuple(order for order in SWEEP_ORDERS if order in orders)
 
 
 def _str_list(value: Any, what: str) -> list[str]:
@@ -795,8 +799,13 @@ def _check_summary(
     if not isinstance(stopped, bool):
         raise ValueError(f"{directory}: summary.stopped_by_budget must be a bool")
     # 執行順序：pool 順序；Study 2 的付費 sweep 是失敗的 source 優先（decision 035 §4）。兩者都完全由 source 決定
-    orders = [[task_id for task_id in sweep_order(sources, listed, order) if task_id in set(to_run)]
-              for order in allowed_orders(sources)]
+    orders = []
+    for order in allowed_orders(sources):
+        expected = [task_id for task_id in sweep_order(sources, listed, order) if task_id in set(to_run)]
+        if order == "frozen_permutation":  # 最多 MAX_SOURCES 條，含先前目錄已完成者（decision 036 §6）
+            before = sum(1 for task_id in sweep_order(sources, listed, order) if task_id in set(skipped))
+            expected = expected[: max(0, study3_plan.MAX_SOURCES - before)]
+        orders.append(expected)
     if not any(done == (expected[: len(done)] if stopped else expected) for expected in orders):
         raise ValueError(f"{directory}: summary.completed must be every source to run (or, when stopped by budget, a prefix) "
                          f"in {' or '.join(allowed_orders(sources))} order")

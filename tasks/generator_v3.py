@@ -11,7 +11,8 @@ v1（``tasks/generator.py``）與 v2（``tasks/generator_v2.py``，Study 2）的
 - **確定性的重抽**（decision 036 §4）：builder 發現生成條件不成立（例如 H3 的截斷與隱藏位置）時拋出 ``Redraw``；本模組以
   ``/world#n``、``/plan#n``（n = 1, 2, …，最多 ``MAX_REDRAWS``）重新產生。重抽次數記在 ``params["redraws"]``，並包含在
   ``rng_fingerprint`` 中。eval 不得跳過或替換 seed。
-- 輸出在 golden hash commit 之前可以修改；之後任何改變輸出或指紋的修正都必須在 decision log 記為「重抽」。
+- 輸出以 golden hash 釘住（``GOLDEN_POOL_SHA256``、``GOLDEN_RNG_SHA256``；B 類審查之後、第一次 dev 模型呼叫之前）；之後任何
+  改變輸出或指紋的修正都必須在 decision log 記為「重抽」。
 
 自我檢查（``check_instance``，decision 036 §5 A；v2 的 1–8 加上 Study 3 的檢查）
 =================================================================================
@@ -513,3 +514,8 @@ def check_harder_than_study2(family_name: str, h1: GeneratedInstanceV3) -> None:
         raise GeneratorError(f"{family_name} H1 must have more rules than Study 2 L3 ({l3_rules})")
     if n < l3_oracle or (n == l3_oracle and family_name != "sync-repair"):
         raise GeneratorError(f"{family_name} H1 oracle {n} must be longer than Study 2 L3 ({l3_oracle})")
+
+
+# B 類審查之後、第一次 dev 模型呼叫之前釘住（decision 036 §8 第 2 步，2026-10-23）。dev 24 題 + eval 96 題（120 題中有 1 題重抽過）。
+GOLDEN_POOL_SHA256 = "9d97d04de7ae9740f99bd75e7d06da6f5f92f8edf4fd18b525a0719d1700e43f"
+GOLDEN_RNG_SHA256 = "a6ad2ed1185dd63825b86545c182ddc975164ff528b520c6977da2408341037b"

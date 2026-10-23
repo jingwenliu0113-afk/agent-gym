@@ -272,7 +272,10 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
   - 第 1 步 A 部分完成（`032b030`）：研究登記表 `tasks.suites.STUDIES`、各研究的付費規格與總帳（`STUDY3_PAID`：40 美元、dev ≤ 3、
     eval baseline ≤ 8）、Study 2 的付費入口關閉。B 部分（study3 的登記、依 seed 區塊的 baseline、Study 3 的 sweep 執行方式）
     在 generator v3 完成後與 study3 的登記一起做（decision 036「實作紀錄」）。
-  - 第 2 步：generator v3 的核心完成（`a54c972`，`tasks/generator_v3.py`）；四個題型（`tasks/gen3/`）實作中。
+  - 第 2 步完成：generator v3（核心與四個題型）、附錄 A、B 類審查（6 項發現，0 項成立；採用 1 項措辭澄清），golden hash 已釘住。
+  - 第 1 步 B 部分完成：study3 登記（開關仍關閉）、依 seed 區塊的 baseline、Study 3 的 sweep 執行方式。
+  - 第 3 步的工具已先完成：context 檢查、統計工具（置換檢定、sweep 成本與預留額、估算、偵測力）。剩下 dev 審查工具。
+  - 下一步：第 3 步的 dev 審查工具（兩個 agent、comment 稽核）；第 4 步分析與報告的一般化；完成後打開 STUDY3_APPROVED 跑 dev。
 
 ### Claude Haiku 5.5 的跨模型比較（已完成，2026-10-23）
 

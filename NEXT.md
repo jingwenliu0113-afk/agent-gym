@@ -3,6 +3,7 @@
 ## 目前位置
 
 **2026-10-19 暫時結案；2026-10-22 使用者授權以 Claude Haiku 5.5 做跨模型比較（decision 035），2026-10-23 完成：108 / 108 成功（天花板，不跑 sweep），花費 $0.117。** Core：Day 1、Week 1（含 #5：凍結的本機模型已跑完整的正式 eval baseline，2026-10-16）與 SPEC §6 全部完成；Gate `gradual`，不進 Advanced。Study 2 已完成（2026-10-17），使用者 2026-10-19 接受結果；不啟動 Study 3、不新增正式研究。結論的分類（已證實／未通過的 Gate 與檢定／探索性）見 README「結論的分類」。
+**2026-10-23 使用者要求以更難的題目做 Study 3**（本機模型與 Haiku 5.5 都跑，Haiku 硬上限 40 美元，先寫方案）：方案為 decision 036（提案），**待使用者核准**；核准前不做任何 Study 3 的模型推論。
 **2026-10-11 起 Core 的 LLM 改用自行部署的本機模型**（`qwen3.5:9b-q4_K_M`，台中 gpu-server 的 Ollama；decision 026）；付費 API 改為 Optional。
 **2026-10-15**：本 Project 在 GPU lock 內啟動自己的 Ollama server（與 incident-investigator 共用模型檔案、共用目錄只讀；decision 029），
 已在 gpu-server 實測：server 檢查、截斷自我測試、開發題測試（15 / 15 成功）全部通過，每次結束都確認 server 已停止、共用目錄沒有改變、
@@ -254,7 +255,15 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
   performance-sensitive 的數字是正式 LLM run 的 `latency_s`（SPEC §4 的 latency 指標），而正式 run 當時已因付費 API deferred；
   dry-run、測試、審查不產生正式結果，不受影響。電力模式期間若要跑正式 run，必須先恢復一般電力設定或延後（當時指向付費 run 的段落，該段已移除；之後的正式 run——第一輪 2026-10-16、Study 2 2026-10-17——推論都在 gpu-server，Mac 只做 client；結案後沒有待跑的正式 run）。
 
-## 下一步：無（Claude Haiku 5.5 的跨模型比較已完成，2026-10-23）
+## 下一步：等待使用者核准 Study 3 方案（decision 036）
+
+- 2026-10-23 使用者：「兩個都跑，Haiku 上限 40 美元，先寫方案」。方案 `docs/decisions/036-study3-proposal.md`：
+  generator v3（4 題型 × H1–H3）、eval seed 2–9（96 題）、只 sweep 失敗的 source（固定的隨機順序、每個 agent 最多 25 條）、
+  本機 sweep 累計 80,000 次、Haiku 合計 40 美元。設計經四個題型的審查（52 項，附錄 B）與方案的三輪審查（40 + 11 + 14 項）。
+- 核准之後依 036 §8 的順序實作（先寫測試）；核准時同步更新本檔與 README 中「不會有 Study 3」的敘述。
+- 核准之前：不做任何 Study 3 的模型推論（dev 也一樣）。
+
+### Claude Haiku 5.5 的跨模型比較（已完成，2026-10-23）
 
 - 結果：eval baseline 108 / 108 success、全部安全、沒有 tool 錯誤；完全天花板，依事先登記的規則不跑 sweep；總帳 $0.117。
   報告在 `docs/results/study2-haiku/` 與 README；結論的分類已更新（README「結論的分類」）；執行與結果的紀錄見 decision 035「執行紀錄」。
@@ -296,7 +305,7 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 ## Blocked / 需要使用者
 
 2026-10-19 結案時沒有待處理的事項；2026-10-22 使用者授權以 Claude Haiku 5.5 做跨模型比較，2026-10-23 完成（108 / 108，天花板，$0.117；
-見「下一步」與 C）。**目前沒有待處理的事項。** 不會有 Study 3。以下保留為歷史紀錄。
+見「下一步」與 C）。**2026-10-23 起待處理：Study 3 方案（decision 036）等待使用者核准。** 以下保留為歷史紀錄。
 
 ### A. Study 2（decision 034）：**已完成（2026-10-17）**
 

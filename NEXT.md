@@ -281,15 +281,15 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
     Study 3 總帳、正式分析只列舉 repo 的 runs/、Haiku 付費 sweep 的天花板改用 036 §6 的定義等，見 036「實作紀錄」）。
   - 凍結紀錄的工具完成（`experiments/study3_freeze.py`）：對抗式審查 9 項成立，已修正。紀錄要等兩個 agent 的 dev 之後才寫。
   - 第 4 步與凍結工具 commit：`773cd1a`。第 5 步開始：`STUDY3_APPROVED = True`（eval 仍等凍結紀錄）。
-  - **本機 dev blocked（2026-10-23 18:2x）**：GPU lock 被其他工作占用（wrapper exit 75，什麼都沒啟動、沒有建立目錄）；依
-    MACHINE_POLICY 不等待、不搶，稍後再試：
-    `tools/with-gpu-lock -- uv run python -m experiments.run_baseline --split dev --suite study3 --rollouts 3 --confirm-local-run --max-model-calls 2880 --run-name study3-dev-local-20261023`
   - **Haiku dev 完成（使用者執行，2026-10-23）**：`runs/study3-dev-haiku-20261023`，66 / 72 成功（H1 1.000、H2 1.000、H3 0.750），
     $0.161；6 個失敗逐一判定全部是 agent 錯誤（read-each 用完 turn ×3、只看第一頁、規則 2 與規則 7 的誤用），沒有題目缺陷、
     沒有疑似評分寬鬆；§7 估算 N_haiku = 29 ≥ 15，不需要問使用者（詳見 036「實作紀錄」）。
-  - 下一步（第 5 步）：本機 dev（GPU lock 內，24 題 × 3；lock 被占用時稍後重試）→
-    兩個 dev 的審查（每個不成功或不安全的 episode 逐一判定）→ §7 估算（任一 agent 能 sweep 的失敗 source < 15 → 回頭問使用者）
-    → 寫凍結紀錄（`uv run python -m experiments.study3_freeze --local-dev-run … --haiku-dev-run …`）→ `STUDY3_FROZEN = True`。
+  - **本機 dev 完成（2026-10-24 03:55–04:34，GPU lock 內）**：`runs/study3-dev-local-20261023`，H1 0.625、H2 0.375、H3 0.292；
+    13 個 agent_error 都是輸出截斷；28 個不成功的 episode 逐一判定全部是 agent 錯誤，沒有題目缺陷；6 項候選疑慮（不是缺陷）寫進
+    036「實作紀錄」與報告。§7 估算 N_local = 18、N_haiku = 29，都 ≥ 15，不需要問使用者。
+  - 下一步（第 5 步收尾）：在乾淨的工作區寫凍結紀錄（`uv run python -m experiments.study3_freeze --local-dev-run
+    runs/study3-dev-local-20261023 --haiku-dev-run runs/study3-dev-haiku-20261023`）→ `STUDY3_FROZEN = True` → 第 6 步 eval baseline：
+    本機 4 段（seeds 2–3、4–5、6–7、8–9，每段 GPU lock 內、上限 2,880 次）；Haiku 由使用者執行（eval baseline ≤ 8 美元）。
 
 ### Claude Haiku 5.5 的跨模型比較（已完成，2026-10-23）
 

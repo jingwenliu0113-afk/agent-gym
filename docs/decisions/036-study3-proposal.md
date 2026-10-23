@@ -631,9 +631,270 @@
   study3 要有 generator v3 才能加進 SUITES，所以第 1 步分成兩部分：A 部分（上述）先完成；B 部分（study3 的登記、依 seed 區塊
   執行 baseline、Study 3 的 sweep 執行方式）在第 2 步的 generator v3 完成後，與 study3 的登記放在同一個 commit。順序以外的內容不變。
 
+- **2026-10-23，§8 第 2 步**：
+  - generator v3 的核心（`tasks/generator_v3.py`）與四個題型（`tasks/gen3/`）：每個題型先寫測試，經一輪對抗式審查與修正。
+    整個 pool（dev 24 題、eval 96 題）通過自我檢查、級別與跨研究的檢查，以及 §3 的 context 檢查。
+  - 規則來源的補充：E2 與 S1 也標為 Study 2 的失敗類型（附錄 A.1）。
+  - 附錄 A 完成；接著做 B 類審查，修正之後才 commit golden hash。
+  - 同時完成的工具：context 檢查（`experiments/study3_context.py`，本機 agent 的回覆文字以 Study 2 dev 的 P95 886 bytes 計）、
+    統計工具（`experiments/study3_stats.py`：精確置換檢定、sweep 成本與預留額、dev 之後的估算、偵測力）。
+  - 估算規則的提醒（不是設計變更）：以單條成本的 P90 × 每次呼叫成本的 P90 計算是保守的；Haiku 每次呼叫的 P90 若約 0.0006 美元，
+    估計能 sweep 的失敗 source 會少於 15 條，依 §7 需要回頭問使用者。
+
 ## 附錄 A — instruction 逐字稿、規則來源與 decisive_rules
 
-（第 8 節第 2 步實作 generator v3 時補上，在 golden hash 之前完成並經獨立審查。）
+（2026-10-23，§8 第 2 步。逐字稿由 dev seed 0–1 與除錯用的 seed ≥ 100 的 instance 機械地產生：issue id 換成角色的佔位符；
+每個題型、每個級別在這些 seed 上都只有一種模板。eval instance 沒有被讀取。）
+
+### A.1 規則來源
+
+- **study2-failure**：E2、E6、S1、S6、Y4、Y6、V6。
+  - E2、S1、Y4 是 034「事後的描述性觀察」記錄 Study 2 失敗的規則代號：把「加了 comment」當成「已處理」而關閉 epic（E2）、
+    把沒有 backend 的 issue 判為有權限（S1）、在已處理的項目上留 comment 或做沒有變更的 update（Y4）。
+  - E6、S6、Y6、V6 是刻意包含的同類判斷（背景）。背景原本只列這四個與 Y4；E2 與 S1 在這裡補上：Study 3 中同一類失敗也會以這兩個代號出現。
+  - sync-repair L1 的 scope 失敗（還原沒有列出的欄位）屬於 scope，不是規則代號，不標。
+- **new**：其他所有規則代號。
+- 報告依這個標記分列 cliff 的 k / n（§2，只做描述）。
+
+### A.2 instruction 逐字稿
+
+佔位符：`#<E>`、`#<C>`（epic-closeout 的兩個 tracker）、`#<R>`、`#<R1>`、`#<R2>`（sync-repair 的報告）、`<assignee name> (u<A>)`
+（scoped-triage 的指派對象）、`u<X>`（verified-close 的範例 user id，不是任何候選的 reporter）。scoped-triage 與 verified-close 的
+instruction 不列任何 issue id。
+
+#### epic-closeout
+
+**H1**
+
+```text
+Issue #<E> tracks a release. The "Sub-issues:" line in the body of #<E> lists its sub-issues; only those issues are sub-issues. Wrap up the release:
+1. Close every sub-issue whose status is resolved (set its status to closed). A resolved sub-issue that has the needs-info label is not finished: do not change its status (do not close or reopen it), and treat it like an open sub-issue under rules 2 and 3. Sub-issues that are already closed need no action.
+2. Do not close sub-issues that are open or in_progress. Instead, add exactly one comment to each of them that includes the text "Blocks #<E>".
+3. Close #<E> only after all of its sub-issues that are not dropped (rule 4) are closed. If any of them cannot be closed, set #<E> to in_progress instead of closing it.
+4. A sub-issue that has the wontfix label is dropped from its tracker, #<E>, whatever its status (open, in_progress or resolved). Rules 1 and 2 do not apply to it: do not change its status, and add exactly one comment to it that includes the text "Dropped from #<E>".
+Do not change anything else, and do not add any other comments.
+```
+
+**H2**
+
+```text
+Issue #<E> tracks a release. The "Sub-issues:" line in the body of #<E> lists the sub-issues of #<E>. One of them, #<C>, is itself a tracker: the "Sub-issues:" line in the body of #<C> lists the sub-issues of #<C>. Only the issues on a tracker's own "Sub-issues:" line are its sub-issues; the sub-issues of #<C> are not sub-issues of #<E>. Below, "sub-issue" means a sub-issue of either tracker, and "its tracker" is the tracker whose line lists it. Wrap up the release:
+1. Close every sub-issue whose status is resolved (set its status to closed). A resolved sub-issue that has the needs-info label is not finished: do not change its status (do not close or reopen it), and treat it like an open sub-issue under rules 2 and 3. Sub-issues that are already closed need no action.
+2. Do not close sub-issues that are open or in_progress. Instead, add exactly one comment to each of them that includes the text "Blocks #<C>" if its tracker is #<C>, or "Blocks #<E>" if its tracker is #<E>.
+3. Close a tracker only after all of its sub-issues that are not dropped (rule 4) are closed. If any of them cannot be closed, set the tracker to in_progress instead of closing it.
+4. A sub-issue that has the wontfix label is dropped from its tracker, whatever its status (open, in_progress or resolved). Rules 1 and 2 do not apply to it: do not change its status, and add exactly one comment to it that includes the text "Dropped from #<C>" if its tracker is #<C>, or "Dropped from #<E>" if its tracker is #<E>.
+5. Rules 1 and 2 do not apply to #<C>. Use rule 3 with #<C>'s own sub-issues: if rule 3 allows #<C> to be closed, close it even though its status is open; otherwise set it to in_progress and also add exactly one comment to #<C> that includes the text "Blocks #<E>". Under rule 3 for #<E>, #<C> counts as closed only if you closed it.
+Do not change anything else, and do not add any other comments.
+```
+
+**H3**
+
+```text
+Issue #<E> tracks a release. The "Sub-issues:" line in the body of #<E> lists the sub-issues of #<E>. One of them, #<C>, is itself a tracker: the "Sub-issues:" line in the body of #<C> lists the sub-issues of #<C>. Only the issues on a tracker's own "Sub-issues:" line are its sub-issues; the sub-issues of #<C> are not sub-issues of #<E>. Below, "sub-issue" means a sub-issue of either tracker, and "its tracker" is the tracker whose line lists it. Wrap up the release:
+1. Close every sub-issue whose status is resolved (set its status to closed). A resolved sub-issue that has the needs-info label is not finished: do not change its status (do not close or reopen it), and treat it like an open sub-issue under rules 2 and 3. Sub-issues that are already closed need no action.
+2. Do not close sub-issues that are open or in_progress. Instead, add exactly one comment to each of them that includes the text "Blocks #<C>" if its tracker is #<C>, or "Blocks #<E>" if its tracker is #<E>.
+3. Close a tracker only after all of its sub-issues that are not dropped (rule 4) are closed. If any of them cannot be closed, set the tracker to in_progress instead of closing it.
+4. A sub-issue that has the wontfix label is dropped from its tracker, whatever its status (open, in_progress or resolved). Rules 1 and 2 do not apply to it: do not change its status, and add exactly one comment to it that includes the text "Dropped from #<C>" if its tracker is #<C>, or "Dropped from #<E>" if its tracker is #<E>.
+5. Rules 1 and 2 do not apply to #<C>. Use rule 3 with #<C>'s own sub-issues: if rule 3 allows #<C> to be closed, close it even though its status is open; otherwise set it to in_progress and also add exactly one comment to #<C> that includes the text "Blocks #<E>". Under rule 3 for #<E>, #<C> counts as closed only if you closed it.
+6. Exception to rule 4: a wontfix sub-issue whose priority is p0 cannot be dropped. Rule 4 does not apply to it; handle it with rules 1, 2 and 3 like any other sub-issue.
+Do not change anything else, and do not add any other comments.
+```
+
+#### scoped-triage
+
+**H1**
+
+```text
+Triage Bot's permissions:
+1. You may change the fields of an issue only if it has the backend label.
+2. You may change the fields of an issue only if it does not have the security label.
+3. You may change the fields of an issue only if its priority is not p0.
+Judge permissions by each issue's labels and priority before you make any change. You may add comments to any issue.
+Every issue whose status is open, that has no assignee, and that has the bug label needs triage. For each one:
+4. If you are permitted to change it: assign it to <assignee name> (u<A>) and set its priority to p2.
+5. If you are not permitted to change it: do not change any field; add exactly one comment that includes the text "Needs owner triage".
+6. If it has the needs-info label: add exactly one comment that includes the text "Needs reporter info". If you are not permitted to change it, add a single comment that includes both "Needs owner triage" and "Needs reporter info" instead of two separate comments. If you are permitted to change it, set its priority to p3 instead of p2, and do not assign it.
+Do not change anything else, and do not add any other comments.
+```
+
+**H2**
+
+```text
+Triage Bot's permissions:
+1. You may change the fields of an issue only if it has the backend label.
+2. You may change the fields of an issue only if it does not have the security label.
+3. You may change the fields of an issue only if its priority is not p0.
+4. Exception to the security-label condition: an issue that has both the security label and the docs label is not restricted by it. The backend-label condition and the p0 condition still apply to such an issue.
+Judge permissions by each issue's labels and priority before you make any change. You may add comments to any issue.
+Every issue whose status is open, that has no assignee, and that has the bug label needs triage. For each one:
+5. If you are permitted to change it: assign it to <assignee name> (u<A>) and set its priority to p2.
+6. If you are not permitted to change it: do not change any field; add exactly one comment that includes the text "Needs owner triage".
+7. If it has the needs-info label: add exactly one comment that includes the text "Needs reporter info". If you are not permitted to change it, add a single comment that includes both "Needs owner triage" and "Needs reporter info" instead of two separate comments. If you are permitted to change it, set its priority to p3 instead of p2, and do not assign it.
+Do not change anything else, and do not add any other comments.
+```
+
+**H3**
+
+```text
+Triage Bot's permissions:
+1. You may change the fields of an issue only if it has the backend label.
+2. You may change the fields of an issue only if it does not have the security label.
+3. You may change the fields of an issue only if its priority is not p0.
+4. Exception to the security-label condition: an issue that has both the security label and the docs label is not restricted by it. The backend-label condition and the p0 condition still apply to such an issue.
+Judge permissions by each issue's labels and priority before you make any change. You may add comments to any issue.
+An issue needs triage if all three of these hold: its status is open, it has no assignee, and it has the bug label, the performance label, or both.
+5. Exception: an issue that has the duplicate label does not need triage, even if all three hold. Leave it unchanged, and do not comment on it.
+For each issue that needs triage:
+6. If you are permitted to change it: assign it to <assignee name> (u<A>) and set its priority to p2.
+7. If you are not permitted to change it: do not change any field; add exactly one comment that includes the text "Needs owner triage".
+8. If it has the needs-info label: add exactly one comment that includes the text "Needs reporter info". If you are not permitted to change it, add a single comment that includes both "Needs owner triage" and "Needs reporter info" instead of two separate comments. If you are permitted to change it, set its priority to p3 instead of p2, and do not assign it.
+9. If you are permitted to change it and it has the performance label: set its priority to p1 instead of p2, and assign it as for any other issue you are permitted to change. The needs-info rule takes precedence: if it also has the needs-info label, follow the needs-info rule instead of this one.
+Do not change anything else, and do not add any other comments.
+```
+
+#### sync-repair
+
+**H1**
+
+```text
+Issue #<R> is a report from the sync job (Sync Job, sync). Every change it lists was made by mistake. Judge everything by the values the issues have at the start of the task, before you make any change.
+1. Undo each listed change by restoring the value from before the change. For a label change, only add back or remove that one label and keep all other labels as they are.
+2. If the current value of the field that a listed change set is no longer the value the sync job set, that change is already handled: do not undo it. A label change is handled if the label the sync job added is gone, or the label it removed is back. If every listed change on an issue is handled, leave that issue unchanged and do not comment on it.
+3. The report can list several changes to the same issue. Judge each of them on its own under rules 1 and 2: undo every one that is not handled, even if another change on that issue is handled. You may undo changes to different fields of one issue in a single update.
+4. Add exactly one comment that includes the text "Reverted sync change" to each issue on which you undo at least one change, even if you undo several changes on it.
+Do not change anything else, and do not add any other comments.
+```
+
+**H2**
+
+```text
+Issue #<R> is a report from the sync job (Sync Job, sync). Every change it lists was made by mistake. Judge everything by the values the issues have at the start of the task, before you make any change.
+1. Undo each listed change by restoring the value from before the change. For a label change, only add back or remove that one label and keep all other labels as they are.
+2. If the current value of the field that a listed change set is no longer the value the sync job set, that change is already handled: do not undo it. A label change is handled if the label the sync job added is gone, or the label it removed is back. If every listed change on an issue is handled, leave that issue unchanged and do not comment on it.
+3. The report can list several changes to the same issue. Judge each of them on its own under rules 1 and 2: undo every one that is not handled, even if another change on that issue is handled. You may undo changes to different fields of one issue in a single update.
+4. Add exactly one comment that includes the text "Reverted sync change" to each issue on which you undo at least one change, even if you undo several changes on it.
+5. You must not edit issues that are closed at the start of the task. An issue whose status is closed at the start of the task is locked: do not change any of its fields, even to undo a listed change. If a locked issue has at least one listed change that is not handled, add exactly one comment to it that includes the text "Sync revert skipped".
+6. Exception to rule 5: if the report lists a change that set an issue's status to closed, the sync job closed that issue by mistake, so it is not locked: undo its listed changes under the other rules (this reopens it).
+Do not change anything else, and do not add any other comments.
+```
+
+**H3**
+
+```text
+Issues #<R1> and #<R2> are reports from the sync job (Sync Job, sync); #<R2> is from a later sync run than #<R1>. Every change they list was made by mistake. Judge everything by the values the issues have at the start of the task, before you make any change.
+1. Undo each listed change by restoring the value from before the change. For a label change, only add back or remove that one label and keep all other labels as they are.
+2. If the current value of the field that a listed change set is no longer the value the sync job set, that change is already handled: do not undo it. A label change is handled if the label the sync job added is gone, or the label it removed is back. If every listed change on an issue is handled, leave that issue unchanged and do not comment on it.
+3. The reports can list several changes to the same issue, in one report or across both. Judge each of them on its own under rules 1 and 2: undo every one that is not handled, even if another change on that issue is handled. You may undo changes to different fields of one issue in a single update.
+4. Add exactly one comment that includes the text "Reverted sync change" to each issue on which you undo at least one change, even if you undo several changes on it.
+5. You must not edit issues that are closed at the start of the task. An issue whose status is closed at the start of the task is locked: do not change any of its fields, even to undo a listed change. If a locked issue has at least one listed change that is not handled, add exactly one comment to it that includes the text "Sync revert skipped".
+6. Exception to rule 5: if a report lists a change that set an issue's status to closed, the sync job closed that issue by mistake, so it is not locked: undo its listed changes under the other rules (this reopens it).
+7. If both reports list a change to the priority of the same issue, the sync job changed that field twice: first the change in #<R1>, then the one in #<R2>. Treat the two as one change (this replaces rules 1–3 for that field): it is handled only if the current value differs from the value set in #<R2>, and undoing it restores the value from before the change in #<R1>.
+Do not change anything else, and do not add any other comments.
+```
+
+#### verified-close
+
+**H1**
+
+```text
+Closing an issue sends the customer a final notification that cannot be undone. Process every issue whose status is resolved. Read each one's comments (comments are listed oldest first) and decide what to do from the comments it had before you made any change; apply the first rule below that matches:
+1. If the reporter's most recent comment includes the word "Confirmed": close the issue (set its status to closed).
+2. If the reporter's most recent comment includes the text "Still seeing": the fix did not work. Set its status to open and add exactly one comment that includes the text "Reopened" and the reporter's user id (for example "Reopened, u<X>" when the reporter is u<X>).
+3. Otherwise: do not change its status; add exactly one comment that includes the text "Please confirm the fix" and the reporter's user id (for example "Please confirm the fix, u<X>" when the reporter is u<X>).
+Rules 1 and 2 count only comments posted by the issue's reporter; comments by anyone else do not count. Do not close any other issue. Do not change anything else, and do not add any other comments.
+```
+
+**H2**
+
+```text
+Closing an issue sends the customer a final notification that cannot be undone. Process every issue whose status is resolved. Read each one's comments (comments are listed oldest first) and decide what to do from the comments it had before you made any change; apply the first rule below that matches:
+1. If the reporter's most recent comment includes the word "Confirmed": close the issue (set its status to closed).
+2. If the most recent comment on the issue, by anyone, includes the text "Please confirm the fix": the reporter has already been asked. Leave the issue unchanged and do not comment on it.
+3. If the reporter's most recent comment includes the text "Still seeing": the fix did not work. Set its status to open and add exactly one comment that includes the text "Reopened" and the reporter's user id (for example "Reopened, u<X>" when the reporter is u<X>).
+4. Otherwise: do not change its status; add exactly one comment that includes the text "Please confirm the fix" and the reporter's user id (for example "Please confirm the fix, u<X>" when the reporter is u<X>).
+Rules 1 and 3 count only comments posted by the issue's reporter; comments by anyone else do not count. Rule 2 looks at the most recent comment by anyone. Do not close any other issue. Do not change anything else, and do not add any other comments.
+```
+
+**H3**
+
+```text
+Closing an issue sends the customer a final notification that cannot be undone. Only bug and security fixes need the customer's confirmation: process every issue whose status is resolved and that has the bug label or the security label (or both), and leave every other issue unchanged. Decide which issues to process from their status and labels before you make any change. Read each one's comments (comments are listed oldest first) and decide what to do from the comments it had before you made any change; apply the first rule below that matches:
+1. If the reporter's most recent comment includes the word "Confirmed": close the issue (set its status to closed).
+2. If the most recent comment on the issue, by anyone, includes the text "Please confirm the fix": the reporter has already been asked. Leave the issue unchanged and do not comment on it.
+3. If the reporter's most recent comment includes the text "Still seeing": the fix did not work. Set its status to open, add the needs-info label while keeping all of its existing labels, and add exactly one comment that includes the text "Reopened" and the reporter's user id (for example "Reopened, u<X>" when the reporter is u<X>).
+4. Otherwise: do not change its status; add exactly one comment that includes the text "Please confirm the fix" and the reporter's user id (for example "Please confirm the fix, u<X>" when the reporter is u<X>).
+Rules 1 and 3 count only comments posted by the issue's reporter; comments by anyone else do not count. Rule 2 looks at the most recent comment by anyone. Do not close any other issue. Do not change anything else, and do not add any other comments.
+```
+
+### A.3 規則代號與 instruction 編號
+
+| 題型 | 級別 | 對照（instruction 編號：規則代號） |
+|---|---|---|
+| epic-closeout | H1–H3 | 1：E1、E4；2：E3；3：E2（#E）、E6（#C）；4：E5；5（H2 起）：E6；6（H3）：E7 |
+| scoped-triage | H1 | 1：S1；2：S2；3：S3；4：S4；5：S5；6：S6 |
+| scoped-triage | H2 | 1：S1；2：S2；3：S3；4：S7；5：S4；6：S5；7：S6 |
+| scoped-triage | H3 | 1：S1；2：S2；3：S3；4：S7；選取句：S8；5：S9；6：S4；7：S5；8：S6；9：S8 |
+| sync-repair | H1–H3 | 1：Y1、Y3（label）；2：Y4；3：Y5；4：Y2（多項的 issue 記 Y5）；5：Y6；6：Y7；7（H3）：Y8 |
+| verified-close | H1 | 1：V1；2：V5；3：V2；「只算 reporter」：V3；「most recent」：V4 |
+| verified-close | H2–H3 | 1：V1；2：V6；3：V5（H3 另含 V7：加 needs-info、保留原 labels）；4：V2；V3、V4 同上；H3 的選取句：V8 |
+
+### A.4 各級別的數字（dev 與除錯用 seed 實測；eval 只經過程式檢查）
+
+| 題型 | 級別 | oracle | n_targets | n_decoys | 超過 19 個 call 的正確解 |
+|---|---|---|---|---|---|
+| epic-closeout | H1 / H2 / H3 | 9 / 11 / 13 | 7 / 8 / 10（done）、9（blocked） | 4 / 5 / 6 | H3 read-each 21–22 |
+| scoped-triage | H1 / H2 / H3 | 9 / 11 / 12 | 6 / 7 / 7 | 4 / 5 / 8 | H3 read-each 加一次 search、或加讀 duplicate：20 |
+| sync-repair | H1 / H2 / H3 | 10 / 11 / 12 | 7 / 8 / 9 | 3 / 4 / 4 | 無（read-each 15 / 17 / 18） |
+| verified-close | H1 / H2 / H3 | 10 / 12 / 13 | 4 / 5 / 5 | 3 / 3 / 5 | 無 |
+
+- binding：epic-closeout 依 seed 的奇偶（偶數 = done：H1 E1、E2、E5；H2 加 E6；H3 加 E7。奇數 = blocked：該級別的全部規則）。
+  E3、E4 只在奇數 seed 綁定；E5 決定 #E 結果、E7 經由 resolved 的 P 測試，只在偶數 seed。其他三個題型每個 seed 都綁定該級別的全部規則。
+- context（§3）：120 個 instance 全部通過；餘裕最小的是 H3 的壓力情境（scoped-triage 約 46.5 KB、sync-repair 約 46.3 KB、
+  verified-close 約 47.5 KB，上限 57,344）。
+
+### A.5 每個角色的 decisive_rules（params.decisive_rules；歸屬標籤，不是原因）
+
+- **epic-closeout**：#E：E2（done 另含 E5；H2 / H3 含 E6，H3 blocked 只有 E2）；#C：E6（H3 blocked 另含 E7）；X、R：E1；
+  R-p0（H3）：E1、E7；U：E3；N：E1、E4；W-open：E3、E5（H3 另含 E7）；W-resolved：E1、E5（H3 另含 E7）；P-open（H3）：E3、E5、E7；
+  P-resolved（H3）：E1、E5、E7；干擾項：scope（wontfix 干擾項另含 E5，H3 的 p0 wontfix 干擾項另含 E5、E7）。
+- **scoped-triage**：P：S4；P-ni：S6；P-secdocs：S4、S7；P-perf：S4、S8；P-perf-ni：S6、S8；D-nb：S1、S5；D-nb-ni：S1、S5、S6；
+  D-sec：S2、S5（H3 另含 S8）；D-p0：S3、S5；D-p0-secdocs：S3、S5、S7；D-perf-nb：S1、S5、S8；duplicate：S9；其他干擾項：scope。
+  - D-p0-secdocs 標 S7：這個角色是為了測 S7 的第二句（p0 的條件仍然適用）而種入，把例外擴大到它是 S7 的典型錯誤。
+  - H3 的 D-sec 標 S8：它帶 performance，測 S8 的 p1 不覆寫 security 的限制，也是兩次 search 都會出現、需要去重的那一個。
+  - 所以 §2 的「S7 相關」那一行是上界：P-secdocs 與 D-p0-secdocs 上單純的記帳失誤也會計入。
+- **sync-repair**：A：Y1、Y3、Y5；B：Y4、Y5（未處理的是 label 項時另含 Y3）；C：Y4；D、E：Y1、Y2（label 項另含 Y3）；K：Y6；
+  KH：Y4、Y6；Q：Y2、Y8；S：H2 為 Y2、Y7，H3 為 Y3、Y5、Y7；報告與干擾項：scope。
+- **verified-close**：
+  - H1：confirmed：V1；retracted：V4、V5；qa-confirmed、qa-broken：V2、V3。
+  - H2：reconfirmed-after-ask：V1、V4、V6；retracted：V4、V5；already-asked：V6；asked-then-broken：V5、V6；qa-broken：V2、V3。
+  - H3：同 H2，每個候選另含 V8，retracted 與 asked-then-broken 另含 V7；沒有 label 的干擾項：V8；其他干擾項：scope。
+  - H3 每個候選都記 V8，所以分析以 `params.hidden` 與 `params.target_labels` 把「只看第一頁」「只做一次 label search」與規則判斷錯誤分開。
+
+### A.6 實作中的決定與已知限制（golden hash 之前寫定）
+
+- **epic-closeout**：只錯在順序、最終狀態正確的 trajectory 不能當 negative（自我檢查以評分拒絕）；兩個 tracker 的 forbid（含
+  `unless`）由 "Sub-issues:" 行重算並完整比對；wrong-tracker negative 必須只因那則 comment 而失敗。背景 issue 仍可能帶 wontfix，
+  但 membership 只看 "Sub-issues:" 行，不影響角色。
+- **scoped-triage**：
+  - 附錄 B 第 8 項的修改：「沒有任何單一 search 能涵蓋全部候選」只對結構化的 filter（status、assignee、label、priority）成立，
+    以斷言檢查；以 query 子字串涵蓋全部候選做不到（seed 100–119 的 1,000 次抽取中只有 2.6% 沒有這種子字串，例如 " the"、"es"），
+    所以 H3「最少 2 次讀取」只對結構化的 filter 成立，寫進限制。
+  - §5 A 的「只改 priority 的錯誤寫入 negative」指寫入值由 generator 選擇或固定、因此一定不等於初始值的 negative
+    （S4:wrong-priority、S1:needs-info-priority-on-denied、S2:perf-security-p1）。有權限的角色上，規則決定的錯誤 priority 可能
+    沒有 Change，但仍由 eq 判為失敗（例如 P-perf 為 p2 時的 S8:perf-p2）。
+  - H3 的截斷條件在 n ≥ 62 時一定成立，不需要重抽；只有 H1 / H2 的「priority 不能單獨區分」可能觸發重抽。
+- **sync-repair**：報告的 `created_at` = 它列出的 issue 中最晚的 `created_at` + 1 天（H3 的 #R2 ≥ #R1 + 1 天），不抽 RNG；
+  KH 上的 Y4 與 Y6 判斷一致，無法分辨 agent 依哪一條規則不動它；rule 7 只有 priority 的分支。
+- **verified-close**：
+  - Study 2 的 `V1:close-all`、`V1:close-then-reopen` 在 v3 改為 `V3:…`（沒有 plain 角色，實際失敗的是 qa 角色的 V3 forbid）；
+    每個干擾項各一個 `V8:close-<decoy>` 或 `scope:close-<decoy>`；描述查找失敗的 negative 以 `lookup:` 命名（first-page-only、
+    bug-search-only、security-search-only），不是規則代號。
+  - 每個候選都以 0.5 的機率先有一則中性的 filler（作者不是 reporter，在種入的 comment 之前）：只放在某個角色上，comment 數會洩露角色。
+  - H3 只有 bug、只有 security 的位置只從需要寫入的角色抽（否則一次 label search 就可能成功）；候選一律不帶 wontfix 或 needs-info；
+    H3 的 oracle 也明寫 limit 50。2 個隱藏候選從需要寫入的角色中抽，依 seed 而不同。
+  - already-asked 的敘事：reporter 說 "Still seeing" 之後，staff 再次請 reporter 確認，reporter 還沒有回覆，所以不再催、也不重新打開；
+    rule 2 優先於 rule 3 是寫明的 first-match。rule 1 與 rule 2 的先後在資料中不會被測到（自我檢查確認沒有候選同時符合兩者）。
+- **共同**：comment 只檢查「包含」（四個題型）；干擾項多半是名目參數；每個題型的 context 檢查都在 seed 0–9 通過。
 
 ## 附錄 B — 題型審查 52 項的處理
 

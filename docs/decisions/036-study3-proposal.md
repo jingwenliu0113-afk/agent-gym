@@ -616,6 +616,21 @@
 - **verified-close 把 V7 移到 H1、把 qa-confirmed 換成 plain-broken**：會讓 H1 比「L3 加一個機制」難得多。維持原設計，限制寫明。
 - **scoped-triage 的 H3 世界擴充到約 110 個 issue**：寬搜尋最多只回 50 筆，世界大小不影響 context。真實感的限制改為照實寫明。
 
+## 實作紀錄
+
+- **2026-10-23，§8 第 1 步的 A 部分**（研究登記表與付費機制，不含題目）：
+  - `tasks.suites.STUDIES`：每個 suite 的開關、呼叫上限、source 規則與付費規格；run 工具（run_baseline、run_sweep、
+    analyze_sweep 的 allowed_orders）不再寫死 `suite == "study2"`。沒有登記的 suite 一律拒絕；有開關的研究必須登記全部上限，
+    否則無法建立（`StudySpec`）。Study 2 的分析與報告模組（study2_analysis、study2_dev、study2_freeze、study2_report）本來就
+    只接受 study2，留到 §8 第 4 步一般化。
+  - 付費：`PaidSpec`；`experiments.billing` 依規格使用各自的總帳、總預算與 phase 上限（新增 dev phase）；總帳重設的核對只計入
+    同一個研究的 manifest 列（generator_version）。`STUDY3_PAID`：`~/.agent-gym/study3-haiku-billing.jsonl`、40 美元、
+    dev ≤ 3、eval baseline ≤ 8、只限 Haiku、R = 3。
+  - Study 2 的付費入口關閉（`STUDY2_PAID_CLOSED = True`）；機制的測試在測試檔內重新打開後照舊執行。
+- **實作順序的說明（不是設計變更）**：§8 第 1 步規定「把 study3 加進 SUITES 的同一個 commit 必須同時包含開關、上限與規則 B」。
+  study3 要有 generator v3 才能加進 SUITES，所以第 1 步分成兩部分：A 部分（上述）先完成；B 部分（study3 的登記、依 seed 區塊
+  執行 baseline、Study 3 的 sweep 執行方式）在第 2 步的 generator v3 完成後，與 study3 的登記放在同一個 commit。順序以外的內容不變。
+
 ## 附錄 A — instruction 逐字稿、規則來源與 decisive_rules
 
 （第 8 節第 2 步實作 generator v3 時補上，在 golden hash 之前完成並經獨立審查。）

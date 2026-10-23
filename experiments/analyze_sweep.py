@@ -50,7 +50,7 @@ from replay.localization import (
 from replay.stats import BootstrapResult, stratified_task_bootstrap
 from replay.checkpoint import make_checkpoint
 from replay.trajectory import Trajectory, TrajectoryError, load_strict_json
-from tasks.suites import suite_for_task_ids, suite_pool
+from tasks.suites import paid_spec, suite_for_task_ids, suite_pool
 
 # v2：decision 017 §5；v3：baseline_runs（019 §4）；v4：dry_run（021 §1）；v5：Gate 的 outcome（025 §4）
 SWEEP_ANALYSIS_FORMAT = "agent-gym/sweep-analysis/v5"
@@ -743,14 +743,15 @@ def _check_run_file(
 
 
 def allowed_orders(sources: Mapping[str, Trajectory | None]) -> tuple[str, ...]:
-    """sweep 可以採用的執行順序：Study 2 的付費（Anthropic agent）source 是 pool 或 failed_first（decision 035 §4）；
-    其他（第一輪、本機模型的 Study 2）只有 pool 順序。"""
+    """sweep 可以採用的執行順序：有付費規格的研究的付費（Anthropic agent）source 是 pool 或該規格的 ``sweep_order``（Study 2 為
+    failed_first，decision 035 §4）；其他（第一輪、本機模型）只有 pool 順序。"""
     try:
         suite = suite_for_task_ids(list(sources))
     except ValueError:
         return ("pool",)
     paid = any(source is not None and source.agent.policy == ANTHROPIC_POLICY for source in sources.values())
-    return SWEEP_ORDERS if suite == "study2" and paid else ("pool",)
+    spec = paid_spec(suite)
+    return ("pool", spec.sweep_order) if paid and spec is not None and spec.sweep_order in SWEEP_ORDERS else ("pool",)
 
 
 def _str_list(value: Any, what: str) -> list[str]:

@@ -8,9 +8,10 @@
     tools/with-gpu-lock -- uv run python -m experiments.run_baseline --split eval [--suite study2] --rollouts 3 \\
         --confirm-local-run --max-model-calls N --run-name <name>
         本機模型的正式 run（需要 GPU lock；Study 2 的 N 必須是 dev 2880 / eval 4320）。
-    uv run --extra llm python -m experiments.run_baseline --split eval --suite study2 --provider anthropic \\
-        --model claude-haiku-5-5 --rollouts 3 --max-cost-usd 15 --confirm-paid-run --run-name <name>
-        decision 035：Claude Haiku 5.5 跑 Study 2 的 eval（付費；只限 eval、上限 15 美元、R = 3）。
+    uv run --extra llm python -m experiments.run_baseline --split eval --suite <suite> --provider anthropic \\
+        --model claude-haiku-5-5 --rollouts 3 --max-cost-usd X --confirm-paid-run --run-name <name>
+        有付費規格的研究（tasks.suites.STUDIES[...].paid）：Claude Haiku 5.5 的付費 run。split、上限與 R 由登記的規格檢查，
+        累計上限由該研究的總帳計算。Study 2（decision 035）已結案、付費入口關閉；Study 3 見 decision 036 §7。
     uv run python -m experiments.cost_estimate
         印出付費 run 的成本估算（不連網；另一個入口）。
     uv run --extra llm python -m experiments.run_baseline --split dev --provider anthropic --max-cost-usd 5 --confirm-paid-run
@@ -67,7 +68,17 @@ from replay.runner import Clock, run_episode
 from replay.trajectory import load_strict_json
 from tasks.generator import GeneratedInstance
 from experiments import billing
-from tasks.suites import SUITES, check_model_run, check_study2_limits, check_study2_paid_run, suite_pool
+from tasks.suites import (
+    SUITES,
+    PaidSpec,
+    check_limits,
+    check_model_run,
+    check_paid_run,
+    paid_phase,
+    paid_spec,
+    study,
+    suite_pool,
+)
 
 SUMMARY_FORMAT = "agent-gym/baseline-run/v2"  # v2：run.json（decision 021 §1）；run.json 與 summary.json 共用
 RUN_FILE = "run.json"
@@ -81,7 +92,7 @@ class Ledger:
     cost_usd: float = 0.0
     calls: int = 0
     unknown_cost_calls: int = 0  # PolicyStep.cost_usd 為 None 的 call 數
-    session: Any = field(default=None, compare=False, repr=False)  # 付費 Study 2 的 billing.PaidSession（decision 035）
+    session: Any = field(default=None, compare=False, repr=False)  # 付費研究的 billing.PaidSession（decision 035 / 036 §7）
 
 
 class CostMeter:
@@ -99,7 +110,7 @@ class CostMeter:
         return self._inner.agent_config
 
     def next_message(self, messages: list[dict[str, Any]], tools: tuple[dict[str, Any], ...]) -> PolicyStep:
-        session = self._ledger.session  # 付費 Study 2：呼叫之前預留、檢查保險絲，之後結算或作廢（decision 035 §3）
+        session = self._ledger.session  # 付費研究：呼叫之前預留、檢查保險絲，之後結算或作廢（decision 035 §3）
         rid = None
         if session is not None:
             mc = self._inner.agent_config.model_config
@@ -212,14 +223,23 @@ class RunSummary:
 
 
 def check_paid_registration(client: Any, config: AgentConfig, suite: str, max_cost_usd: Any) -> bool:
-    """真正呼叫 Anthropic API 的 run（client 不是 oracle 假 client）：decision 035 的 Haiku 5.5 只登記給 Study 2，不能跑第一輪（week1）。
-    回傳是否為付費 run。違反 → ValueError。第一輪的付費 CLI 另外只接受 decision 009 的模型；成本上限由 CLI 要求（decision 012），
-    Study 2 的付費 run 另由 ``check_study2_paid_run`` 要求。"""
+    """真正呼叫 Anthropic API 的 run（client 不是 oracle 假 client）：Haiku 5.5 只登記給有付費規格的研究（decision 035 / 036），
+    不能跑第一輪（week1）。回傳是否為付費 run。違反 → ValueError。第一輪的付費 CLI 另外只接受 decision 009 的模型；成本上限由
+    CLI 要求（decision 012），有付費規格的研究另由 ``check_paid_run`` 要求。"""
     if is_oracle_fake(client) or config.policy != ANTHROPIC_POLICY:
         return False
-    if suite == "week1" and config.model_config.get("model") == HAIKU_MODEL:
-        raise ValueError("Claude Haiku 5.5 is registered only for the Study 2 eval (decision 035)")
+    if study(suite).gated and paid_spec(suite) is None:  # 有開關、沒有付費規格：任何付費 run 都不能以本機的呼叫上限代替總帳
+        raise ValueError(f"no paid runs are registered for {suite} (decision 036 §7)")
+    if paid_spec(suite) is None and config.model_config.get("model") == HAIKU_MODEL:
+        raise ValueError("Claude Haiku 5.5 is registered only for studies with a paid spec (decision 035 / 036)")
     return True
+
+
+def registered_paid_spec(client: Any, config: AgentConfig, suite: str, max_cost_usd: Any) -> PaidSpec | None:
+    """付費 run（``check_paid_registration``）而且 suite 有付費規格 → 該規格；否則 None。"""
+    if not check_paid_registration(client, config, suite, max_cost_usd):
+        return None
+    return paid_spec(suite)
 
 
 def run_split(
@@ -236,26 +256,28 @@ def run_split(
     call_log: bool = False,
     suite: str = "week1",
 ) -> RunSummary:
-    """``_run_split`` 加上付費 run 的檢查（``check_paid_registration``）。Study 2 的付費 run（decision 035）在
-    ``billing.paid_session(phase="baseline")`` 內執行：程序鎖、以總帳計算的累計上限、每次呼叫的預留與保險絲。"""
+    """``_run_split`` 加上付費 run 的檢查（``check_paid_registration``）。有付費規格的研究（Study 2 = decision 035、Study 3 =
+    decision 036 §7）在 ``billing.paid_session(spec=..., phase=paid_phase(split))`` 內執行：該研究總帳的程序鎖、以總帳計算的累計
+    上限、每次呼叫的預留與保險絲。"""
     config = baseline_agent_config() if agent_config is None else agent_config
     common = dict(run_dir=run_dir, rollouts=rollouts, clock=clock, agent_config=agent_config, dry_run=dry_run,
                   max_model_calls=max_model_calls, call_log=call_log, suite=suite)
-    if not (check_paid_registration(client, config, suite, max_cost_usd) and suite == "study2"):
+    spec = registered_paid_spec(client, config, suite, max_cost_usd) if suite in SUITES else None
+    if spec is None:
         return _run_split(split, client, max_cost_usd=max_cost_usd, **common)
-    check_study2_paid_agent(config)
-    check_study2_paid_run(model=config.model_config.get("model"), split=split, max_cost_usd=max_cost_usd, sweep=False,
-                          rollouts=rollouts)
+    check_paid_agent(config, spec)
+    check_paid_run(spec, model=config.model_config.get("model"), split=split, max_cost_usd=max_cost_usd, sweep=False,
+                   rollouts=rollouts)
     billing.check_run_dir(run_dir)
-    with billing.paid_session(phase="baseline", requested=max_cost_usd, run=Path(run_dir).name,
+    with billing.paid_session(spec=spec, phase=paid_phase(split, sweep=False), requested=max_cost_usd, run=Path(run_dir).name,
                               config_id=config.config_id) as session:
         return _run_split(split, client, max_cost_usd=session.cap, session=session, **common)
 
 
-def check_study2_paid_agent(config: AgentConfig) -> None:
-    """Study 2 的付費 run 只接受凍結的 Haiku agent（decision 035 §2：config_id 等於 ``haiku_agent_config()``）。"""
-    if config.config_id != haiku_agent_config().config_id:
-        raise ValueError("a paid Study 2 run uses exactly the frozen Haiku agent of decision 035 §2 (haiku_agent_config())")
+def check_paid_agent(config: AgentConfig, spec: PaidSpec) -> None:
+    """付費研究只接受凍結的 Haiku agent（decision 035 §2：config_id 等於 ``haiku_agent_config()``）。"""
+    if spec.model != HAIKU_MODEL or config.config_id != haiku_agent_config().config_id:
+        raise ValueError(f"a paid {spec.name} run uses exactly the frozen Haiku agent of decision 035 §2 (haiku_agent_config())")
 
 
 def _run_split(
@@ -305,17 +327,18 @@ def _run_split(
     if run_dir.exists() and (not run_dir.is_dir() or any(run_dir.iterdir())):
         raise ValueError(f"{run_dir} already exists and is not an empty directory")
     make_policy(client, config)  # 設定與 client 的檢查在任何呼叫之前完成
-    if session is not None and not (not is_oracle_fake(client) and config.policy == ANTHROPIC_POLICY and suite == "study2"):
-        raise ValueError("a billing session is only for paid Study 2 runs (decision 035)")
-    if not is_oracle_fake(client):  # 真正的模型推論：Study 2 的開關（decision 034；以 client 型別判定，不看 dry_run 標籤）
+    spec = registered_paid_spec(client, config, suite, max_cost_usd)
+    if session is not None and spec is None:
+        raise ValueError("a billing session is only for paid runs of a study with a paid spec (decision 035 / 036)")
+    if not is_oracle_fake(client):  # 真正的模型推論：研究的開關（以 client 型別判定，不看 dry_run 標籤）
         check_model_run(suite, split)
-        if check_paid_registration(client, config, suite, max_cost_usd) and suite == "study2":  # 付費（decision 035）
-            check_study2_paid_agent(config)
-            check_study2_paid_run(model=config.model_config.get("model"), split=split, max_cost_usd=max_cost_usd, sweep=False,
-                                  rollouts=rollouts)
-            billing.check_session(session, phase="baseline", max_cost_usd=max_cost_usd)
-        elif suite == "study2":
-            check_study2_limits(split=split, call_log=call_log, max_model_calls=max_model_calls, sweep=False)
+        if spec is not None:  # 付費（decision 035 / 036 §7）
+            check_paid_agent(config, spec)
+            check_paid_run(spec, model=config.model_config.get("model"), split=split, max_cost_usd=max_cost_usd, sweep=False,
+                           rollouts=rollouts)
+            billing.check_session(session, spec=spec, phase=paid_phase(split, sweep=False), max_cost_usd=max_cost_usd)
+        elif study(suite).gated:  # 有開關的研究的本機推論：登記的呼叫上限（付費但沒有付費規格的，已由 registered_paid_spec 拒絕）
+            check_limits(suite, split=split, call_log=call_log, max_model_calls=max_model_calls, sweep=False)
 
     instances = suite_pool(suite, split)
     trajectories_dir = run_dir / "trajectories"
@@ -334,7 +357,7 @@ def _run_split(
             ):  # 計費的呼叫數，或 calls.jsonl 記錄的呼叫數（含失敗的呼叫；decision 034 §8）
                 stopped = True
                 break
-            # 付費 Study 2 的保險絲（billing.BudgetFuse，decision 035 §3）不在這裡處理：在 episode 中途停止時，被打斷的嘗試沒有
+            # 付費研究的保險絲（billing.BudgetFuse，decision 035 §3）不在這裡處理：在 episode 中途停止時，被打斷的嘗試沒有
             # manifest 列，所以不寫 summary（與中斷相同；load_runs 由 manifest 重建，資料標示為不完整）
             results.append(_run_one(instance, rollout_index, client, config, ledger, trajectories_dir, log_path, clock, calls))
         if stopped:
@@ -688,9 +711,9 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - CLI
         if args.split == "eval" and args.rollouts != REGISTERED_EVAL_ROLLOUTS:
             parser.error(f"a formal eval baseline must use --rollouts {REGISTERED_EVAL_ROLLOUTS} (decision 025 §2)")
         try:
-            check_model_run(args.suite, args.split)  # Study 2：使用者確認、凍結之前不推論（decision 034）
-            if args.suite == "study2":
-                check_study2_limits(split=args.split, call_log=True, max_model_calls=args.max_model_calls, sweep=False)
+            check_model_run(args.suite, args.split)  # 有開關的研究：使用者確認、凍結之前不推論（decision 034 / 036）
+            if study(args.suite).gated:
+                check_limits(args.suite, split=args.split, call_log=True, max_model_calls=args.max_model_calls, sweep=False)
         except ValueError as exc:
             parser.error(str(exc))
         client = start_local_run(parser, config, url=args.ollama_url, formal=args.split == "eval",
@@ -702,18 +725,22 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - CLI
             parser.error("--confirm-paid-run is only for --provider anthropic (Optional, decision 026 §4)")
         if args.max_cost_usd is None:
             parser.error("--confirm-paid-run requires --max-cost-usd")
-        if args.suite == "study2":  # decision 035：只限 Haiku、只限 eval、R = 3；上限由總帳計算（run_split 在程序鎖內再檢查一次）
+        spec = paid_spec(args.suite)
+        if spec is not None:  # decision 035 / 036 §7：只限凍結的 Haiku、登記的 split、R；上限由總帳計算（run_split 在程序鎖內再檢查一次）
+            phase = paid_phase(args.split, sweep=False)
             try:
                 check_model_run(args.suite, args.split)
-                check_study2_paid_agent(config)
-                check_study2_paid_run(model=config.model_config["model"], split=args.split, max_cost_usd=args.max_cost_usd,
-                                      sweep=False, rollouts=args.rollouts)
-                spent, cap = billing.check_budget(phase="baseline", requested=args.max_cost_usd, config_id=config.config_id)
+                check_paid_agent(config, spec)
+                check_paid_run(spec, model=config.model_config["model"], split=args.split, max_cost_usd=args.max_cost_usd,
+                               sweep=False, rollouts=args.rollouts)
+                spent, cap = billing.check_budget(spec=spec, phase=phase, requested=args.max_cost_usd, config_id=config.config_id)
                 billing.check_run_dir(Path("runs") / (args.run_name or f"baseline-{args.split}"))
             except ValueError as exc:
                 parser.error(str(exc))
-            print(f"paid Study 2 budget ({billing.DEFAULT_JOURNAL}): spent ${spent.total:.4f} (eval baseline "
-                  f"${spent.baseline:.4f}); this run may spend ${cap:.4f}", file=sys.stderr)
+            print(f"paid {spec.name} budget ({billing.journal_path(spec)}): spent ${spent.total:.4f} (dev ${spent.dev:.4f}, "
+                  f"eval baseline ${spent.baseline:.4f}); this {phase} run may spend ${cap:.4f}", file=sys.stderr)
+        elif study(args.suite).gated:
+            parser.error(f"no paid runs are registered for {args.suite}")
         elif config.model_config["model"] != BASELINE_MODEL_CONFIG["model"]:
             parser.error("paid week1 runs are registered only for the decision 009 model (decision 025 §1)")
         if args.split == "eval" and args.rollouts != REGISTERED_EVAL_ROLLOUTS:

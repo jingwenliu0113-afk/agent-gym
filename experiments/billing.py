@@ -1,7 +1,9 @@
-"""付費 Study 2（decision 035：Claude Haiku 5.5）的總帳、累計上限、每次呼叫的保險絲與程序鎖。不連網、不讀取任何 credential。
+"""付費研究（Claude Haiku 5.5：Study 2 = decision 035，Study 3 = decision 036 §7）的總帳、累計上限、每次呼叫的保險絲與程序鎖。
+不連網、不讀取任何 credential。每個研究的金額與總帳由 ``tasks.suites.PaidSpec`` 決定（``spec``）。
 
-**總帳** ``~/.agent-gym/study2-haiku-billing.jsonl``（``DEFAULT_JOURNAL``；在任何 checkout 之外，同一台機器的所有 checkout 與 worktree
-共用，不會被 ``git clean`` 刪除）。每行一個 JSON 物件（ASCII），寫入後 flush + fsync::
+**總帳**：每個研究一份，在任何 checkout 之外（同一台機器的所有 checkout 與 worktree 共用，不會被 ``git clean`` 刪除）：
+Study 2 為 ``~/.agent-gym/study2-haiku-billing.jsonl``（``DEFAULT_JOURNAL``），Study 3 為
+``~/.agent-gym/study3-haiku-billing.jsonl``（``STUDY3_JOURNAL``）。每行一個 JSON 物件（ASCII），寫入後 flush + fsync::
 
     {"format": "agent-gym/billing/v2", "kind": "reserve", "id", "utc_time", "phase", "run", "bound_usd"}   # 呼叫之前
     {"format": "agent-gym/billing/v2", "kind": "settle",  "id", "utc_time", "cost_usd": <數或 null>}      # 已計費
@@ -10,15 +12,16 @@
 已花費 = 已結算的成本 + 沒有結算也沒有作廢的預留（以其上限計：程序在呼叫途中被中斷時保守地計入）。結算為 null（無法計價）→ unknown。
 
 **上限**（``paid_session``，在程序鎖內計算）：
-- 一般停止：baseline 全部合計 ≤ ``STUDY2_PAID_BASELINE_USD``；全部合計 ≤ ``STUDY2_PAID_TOTAL_USD`` − ``SAFETY_MARGIN_USD``；
-  在每個 episode / rerun 開始前檢查（``budget_reached``）。
-- 保險絲（``PaidSession.reserve``）：每次呼叫前，開始時的已花費 + 這次 session 已結算 + 這次呼叫的上限 > 總預算，或這次 session 已有
-  無法計價的呼叫 → ``BudgetFuse``。
+- 一般停止：每個 phase（dev / baseline / sweep）全部合計 ≤ 該 phase 的上限（``spec.phase_caps``，有列出時）；全部合計 ≤
+  ``spec.total_usd`` − ``SAFETY_MARGIN_USD``；在每個 episode / rerun 開始前檢查（``budget_reached``）。
+- 保險絲（``PaidSession.reserve``）：每次呼叫前，開始時的已花費 + 這次 session 已結算 + 這次呼叫的上限 > 總預算（``total``），或這次
+  session 已有無法計價的呼叫 → ``BudgetFuse``。
   呼叫的上限 = 1.1 ×（prompt 估計 × 最貴的 input 費率 + max_tokens × 最貴的 output 費率），prompt 以每 ``CHARS_PER_TOKEN_BOUND`` 個
   字元一個 token 從 request 估計（偏高）。所以合計不會超過總預算。
-- 帳上有無法計價的呼叫、或 ``runs/`` 中 Haiku 目錄的 manifest 合計大於總帳（總帳被重設或換了檔案）→ 拒絕開始。
+- 帳上有無法計價的呼叫、或 ``runs/`` 中這個 agent、這個研究（manifest 的 generator_version）的 manifest 合計大於總帳（總帳被
+  重設或換了檔案）→ 拒絕開始。
 
-**程序鎖**：同一份總帳同時只能有一個付費程序（``fcntl.flock``，非阻塞；拿不到就拒絕，不等待）。
+**程序鎖**：同一份總帳同時只能有一個付費程序（``fcntl.flock``，非阻塞；拿不到就拒絕，不等待）。不同研究的總帳各有自己的鎖。
 """
 
 from __future__ import annotations
@@ -34,15 +37,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterator, NamedTuple
 
-from tasks.suites import STUDY2_PAID_BASELINE_USD, STUDY2_PAID_TOTAL_USD
+from tasks.suites import PAID_PHASES, PaidSpec
 
 JOURNAL_FORMAT = "agent-gym/billing/v2"
-DEFAULT_JOURNAL = Path.home() / ".agent-gym" / "study2-haiku-billing.jsonl"
+DEFAULT_JOURNAL = Path.home() / ".agent-gym" / "study2-haiku-billing.jsonl"  # Study 2（decision 035）
+STUDY3_JOURNAL = Path.home() / ".agent-gym" / "study3-haiku-billing.jsonl"  # Study 3（decision 036 §7）
 RUNS_ROOT = Path(__file__).resolve().parents[1] / "runs"  # 核對總帳沒有被重設：這裡的 Haiku 目錄的 manifest 合計
 SAFETY_MARGIN_USD = 1.0
 PRICE_MULTIPLIER_BOUND = 1.1  # US-only 推論（decision 035 §3）
 CHARS_PER_TOKEN_BOUND = 2.0  # 估計 prompt 的 token 數時每個 token 的字元數（偏小 → token 數偏高）
-PHASES = ("baseline", "sweep")
+PHASES = PAID_PHASES  # dev（Study 3 的 dev baseline）、baseline（eval baseline）、sweep
 
 
 class BudgetFuse(BaseException):
@@ -60,6 +64,7 @@ class Spent(NamedTuple):
     baseline: float
     sweep: float
     unknown: int  # 無法計價的已計費呼叫數
+    dev: float = 0.0
 
 
 def _write(path: Path, line: dict[str, Any]) -> None:
@@ -119,12 +124,18 @@ def journal_spent(path: str | Path) -> Spent:
             unknown += 1
         else:
             sums[phase].append(cost)
-    baseline, sweep = math.fsum(sums["baseline"]), math.fsum(sums["sweep"])
-    return Spent(baseline + sweep, baseline, sweep, unknown)
+    dev, baseline, sweep = (math.fsum(sums[phase]) for phase in ("dev", "baseline", "sweep"))
+    return Spent(math.fsum((dev, baseline, sweep)), baseline, sweep, unknown, dev)
 
 
-def manifest_floor(config_id: str, root: str | Path | None = None) -> float:
-    """root（預設 ``RUNS_ROOT``）下（遞迴）每個 run.json 的 config_id 等於 config_id、不是 dry-run 的目錄的 manifest cost_usd 合計。"""
+def journal_path(spec: PaidSpec) -> Path:
+    """研究的總帳路徑（``spec.journal`` 指名的本模組屬性，使用時才讀取）。"""
+    return Path(globals()[spec.journal])
+
+
+def manifest_floor(config_id: str, root: str | Path | None = None, *, generator: str | None = None) -> float:
+    """root（預設 ``RUNS_ROOT``）下（遞迴）每個 run.json 的 config_id 等於 config_id、不是 dry-run 的目錄的 manifest cost_usd 合計；
+    generator 不是 None 時只計入 generator_version 等於它的列（同一個 agent 在不同研究的花費不混在一起）。"""
     from replay.aborts import read_manifest  # 延遲 import
 
     root = Path(RUNS_ROOT if root is None else root)
@@ -137,7 +148,8 @@ def manifest_floor(config_id: str, root: str | Path | None = None) -> float:
         except (OSError, ValueError):
             continue
         if isinstance(run, dict) and run.get("config_id") == config_id and run.get("dry_run") is False:
-            total += [row.cost_usd for row in read_manifest(run_file.parent / "manifest.jsonl")]
+            total += [row.cost_usd for row in read_manifest(run_file.parent / "manifest.jsonl")
+                      if generator is None or row.generator_version == generator]
     return math.fsum(total)
 
 
@@ -159,6 +171,7 @@ class PaidSession:
     run: str
     spent_before: float
     cap: float
+    total: float  # 保險絲的總預算（spec.total_usd）
     active: bool = False
     used: bool = False  # 一個 session 只給一次 _run_split / _run_sweeps
     settled: float = 0.0
@@ -173,9 +186,9 @@ class PaidSession:
         if self.unknown:
             raise BudgetFuse("a billed call of this run has an unknown cost; no further calls (decision 014 / 035 §3)")
         bound = call_bound(request_chars, max_tokens, prices)
-        if self.spent_before + self.settled + bound > STUDY2_PAID_TOTAL_USD:
+        if self.spent_before + self.settled + bound > self.total:
             raise BudgetFuse(f"the next call may cost up to ${bound:.4f}; spent ${self.spent_before + self.settled:.4f} of "
-                             f"${STUDY2_PAID_TOTAL_USD:g} (decision 035 §3)")
+                             f"${self.total:g}")
         rid = uuid.uuid4().hex
         _write(self.path, {"kind": "reserve", "id": rid, "utc_time": _now(), "phase": self.phase, "run": self.run,
                            "bound_usd": bound})
@@ -207,45 +220,49 @@ def maybe_billed(exc: BaseException) -> bool:
     return type(exc).__module__.startswith("anthropic") and not isinstance(getattr(exc, "status_code", None), int)
 
 
-def check_session(session: Any, *, phase: str, max_cost_usd: Any) -> None:
-    """_run_split / _run_sweeps 的付費 Study 2 入口：session 必須是 ``paid_session`` 發出、仍 active、這個 phase、沒用過，
-    總帳是 ``DEFAULT_JOURNAL``，max_cost_usd 不超過它的上限；通過後標記為已使用。否則 ValueError。"""
+def check_session(session: Any, *, spec: PaidSpec, phase: str, max_cost_usd: Any) -> None:
+    """_run_split / _run_sweeps 的付費入口：session 必須是 ``paid_session`` 發出、仍 active、這個 phase、沒用過，總帳是這個研究的
+    總帳、總預算是這個研究的總預算，max_cost_usd 不超過它的上限；通過後標記為已使用。否則 ValueError。"""
     ok = (isinstance(session, PaidSession) and session._issued is _ISSUED and session.active and not session.used
-          and session.phase == phase and session.path == Path(DEFAULT_JOURNAL)
+          and session.phase == phase and session.path == journal_path(spec) and session.total == spec.total_usd
           and isinstance(max_cost_usd, (int, float)) and not isinstance(max_cost_usd, bool) and max_cost_usd <= session.cap)
     if not ok:
-        raise ValueError("a paid Study 2 run runs inside its own billing.paid_session (decision 035 §3)")
+        raise ValueError(f"a paid {spec.name} run runs inside its own billing.paid_session (decision {spec.decision})")
     session.used = True
 
 
-def paid_cap(spent: Spent, *, phase: str, requested: float) -> float:
-    """一般停止的上限 = min(requested, 總預算 − 安全邊際 − 已花, [baseline] 15 − baseline 已花)。用完或有 unknown → ValueError。"""
+def paid_cap(spent: Spent, *, spec: PaidSpec, phase: str, requested: float) -> float:
+    """一般停止的上限 = min(requested, 總預算 − 安全邊際 − 已花, [phase 有上限時] 該上限 − 該 phase 已花)。
+    用完或有 unknown → ValueError。"""
     if phase not in PHASES:
         raise ValueError(f"phase must be one of: {', '.join(PHASES)}")
     if spent.unknown:
         raise ValueError(f"the billing journal has {spent.unknown} billed call(s) of unknown cost; the budget cannot be checked "
                          "(decision 014)")
-    limits = [requested, STUDY2_PAID_TOTAL_USD - SAFETY_MARGIN_USD - spent.total]
-    if phase == "baseline":
-        limits.append(STUDY2_PAID_BASELINE_USD - spent.baseline)
+    by_phase = {"dev": spent.dev, "baseline": spent.baseline, "sweep": spent.sweep}
+    limits = [requested, spec.total_usd - SAFETY_MARGIN_USD - spent.total]
+    if phase in spec.phase_caps:
+        limits.append(spec.phase_caps[phase] - by_phase[phase])
     cap = min(limits)
     if cap <= 0:
+        caps = ", ".join(f"{name} ${by_phase[name]:.4f}" + (f" of ${spec.phase_caps[name]:g}" if name in spec.phase_caps else "")
+                         for name in PHASES)
         raise ValueError(
-            f"the paid Study 2 budget is spent: ${spent.total:.4f} of ${STUDY2_PAID_TOTAL_USD:g} in total "
-            f"(eval baseline ${spent.baseline:.4f} of ${STUDY2_PAID_BASELINE_USD:g}, sweep ${spent.sweep:.4f}; "
-            f"safety margin ${SAFETY_MARGIN_USD:g}); decision 035 §3"
+            f"the paid {spec.name} budget is spent: ${spent.total:.4f} of ${spec.total_usd:g} in total ({caps}; "
+            f"safety margin ${SAFETY_MARGIN_USD:g}; this {phase} run); decision {spec.decision}"
         )
     return cap
 
 
-def check_budget(*, phase: str, requested: float, config_id: str) -> tuple[Spent, float]:
-    """CLI 的事前檢查（不取鎖）：(總帳合計, 這一次的上限)。總帳被重設（manifest 合計大於總帳）→ ValueError。"""
-    spent = journal_spent(DEFAULT_JOURNAL)
-    floor = manifest_floor(config_id)
+def check_budget(*, spec: PaidSpec, phase: str, requested: float, config_id: str) -> tuple[Spent, float]:
+    """CLI 的事前檢查（不取鎖）：(總帳合計, 這一次的上限)。總帳被重設（這個研究的 manifest 合計大於總帳）→ ValueError。"""
+    path = journal_path(spec)
+    spent = journal_spent(path)
+    floor = manifest_floor(config_id, generator=spec.generator)
     if floor > spent.total + 1e-9:
-        raise ValueError(f"the runs/ manifests of this agent record ${floor:.4f} but the billing journal {DEFAULT_JOURNAL} only "
-                         f"${spent.total:.4f}: the journal was reset or replaced; stop and check (decision 035 §3)")
-    return spent, paid_cap(spent, phase=phase, requested=requested)
+        raise ValueError(f"the runs/ manifests of this agent in {spec.name} record ${floor:.4f} but the billing journal {path} "
+                         f"only ${spent.total:.4f}: the journal was reset or replaced; stop and check (decision {spec.decision})")
+    return spent, paid_cap(spent, spec=spec, phase=phase, requested=requested)
 
 
 @contextlib.contextmanager
@@ -258,21 +275,21 @@ def paid_lock(path: str | Path) -> Iterator[None]:
         try:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            raise ValueError(f"another paid Study 2 process holds {lock_path}; run one at a time (decision 035 §3)") from None
+            raise ValueError(f"another paid process holds {lock_path}; run one at a time (decision 035 §3)") from None
         yield
     finally:
         handle.close()  # 關閉即釋放
 
 
 @contextlib.contextmanager
-def paid_session(*, phase: str, requested: float, run: str, config_id: str) -> Iterator[PaidSession]:
-    """取得程序鎖，在鎖內以 ``check_budget`` 計算上限，回傳 active 的 PaidSession；離開時釋放鎖、session 失效。
-    總帳一律是 ``DEFAULT_JOURNAL``（呼叫端不能指定）。"""
-    path = DEFAULT_JOURNAL
+def paid_session(*, spec: PaidSpec, phase: str, requested: float, run: str, config_id: str) -> Iterator[PaidSession]:
+    """取得這個研究的總帳的程序鎖，在鎖內以 ``check_budget`` 計算上限，回傳 active 的 PaidSession；離開時釋放鎖、session 失效。
+    總帳一律是 ``journal_path(spec)``（呼叫端不能指定路徑）。"""
+    path = journal_path(spec)
     with paid_lock(path):
-        spent, cap = check_budget(phase=phase, requested=requested, config_id=config_id)
-        session = PaidSession(path=Path(path), phase=phase, run=run, spent_before=spent.total, cap=cap, active=True,
-                              _issued=_ISSUED)
+        spent, cap = check_budget(spec=spec, phase=phase, requested=requested, config_id=config_id)
+        session = PaidSession(path=path, phase=phase, run=run, spent_before=spent.total, cap=cap, total=spec.total_usd,
+                              active=True, _issued=_ISSUED)
         try:
             yield session
         finally:
@@ -280,8 +297,8 @@ def paid_session(*, phase: str, requested: float, run: str, config_id: str) -> I
 
 
 def check_run_dir(run_dir: str | Path) -> None:
-    """付費 Study 2 的 run 目錄必須是 ``RUNS_ROOT`` 的直接子目錄（總帳的核對看得到它；decision 035 §3）。否則 ValueError。"""
+    """付費 run 的目錄必須是 ``RUNS_ROOT`` 的直接子目錄（總帳的核對看得到它；decision 035 §3）。否則 ValueError。"""
     resolved = Path(run_dir).resolve()
     if resolved.parent != Path(RUNS_ROOT).resolve():
-        raise ValueError(f"a paid Study 2 run directory must be directly under {RUNS_ROOT} (run from the repository root, "
+        raise ValueError(f"a paid run directory must be directly under {RUNS_ROOT} (run from the repository root, "
                          "--run-name without '/'; decision 035 §3)")

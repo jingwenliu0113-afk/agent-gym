@@ -62,6 +62,15 @@ def journal_at(directory: Path, runs: Path | None = None):
         yield directory / "billing.jsonl"
 
 
+@pytest.fixture(scope="module", autouse=True)
+def reopen_paid_study2():
+    """decision 035 已結案、Study 2 的付費入口預設關閉（decision 036 §7；見 tests/test_study_registry.py）。本檔測試的是同一套
+    付費機制（Study 3 共用），所以在本檔中重新打開。"""
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(suites, "STUDY2_PAID_CLOSED", False)
+        yield
+
+
 @pytest.fixture
 def journal(tmp_path: Path):
     """總帳在 tmp_path/journal；付費 run 的 runs/ 是 tmp_path/runs（CLI 測試的工作目錄是 tmp_path）。"""
@@ -161,7 +170,7 @@ def test_the_journal_is_outside_every_checkout() -> None:
 
 
 def test_reservations_count_until_settled_or_voided(journal: Path) -> None:
-    session = billing.PaidSession(path=journal, phase="baseline", run="r", spent_before=0.0, cap=15.0, active=True)
+    session = billing.PaidSession(path=journal, phase="baseline", run="r", spent_before=0.0, cap=15.0, total=70.0, active=True)
     prices = PRICING[HAIKU_MODEL]
     a = session.reserve(request_chars=2000, max_tokens=16000, prices=prices)
     bound = billing.call_bound(2000, 16000, prices)
@@ -196,7 +205,7 @@ def test_the_fuse_stops_before_a_call_that_could_cross_the_total(journal: Path) 
     prices = PRICING[HAIKU_MODEL]
     bound = billing.call_bound(400_000, 16000, prices)
     assert bound > 0.25  # 長 prompt、最大輸出、1.1 倍：一次呼叫的最壞成本
-    session = billing.PaidSession(path=journal, phase="sweep", run="r", spent_before=69.9, cap=0.1, active=True)
+    session = billing.PaidSession(path=journal, phase="sweep", run="r", spent_before=69.9, cap=0.1, total=70.0, active=True)
     with pytest.raises(billing.BudgetFuse):
         session.reserve(request_chars=400_000, max_tokens=16000, prices=prices)
     assert not journal.exists()  # 沒有預留
@@ -205,31 +214,31 @@ def test_the_fuse_stops_before_a_call_that_could_cross_the_total(journal: Path) 
 
 def test_paid_caps_are_cumulative(journal: Path) -> None:
     cid = haiku_agent_config().config_id
-    assert billing.check_budget(phase="baseline", requested=15.0, config_id=cid)[1] == pytest.approx(15.0)
-    assert billing.check_budget(phase="sweep", requested=70.0, config_id=cid)[1] == pytest.approx(70.0 - billing.SAFETY_MARGIN_USD)
+    assert billing.check_budget(spec=suites.STUDY2_PAID, phase="baseline", requested=15.0, config_id=cid)[1] == pytest.approx(15.0)
+    assert billing.check_budget(spec=suites.STUDY2_PAID, phase="sweep", requested=70.0, config_id=cid)[1] == pytest.approx(70.0 - billing.SAFETY_MARGIN_USD)
     _spend(journal, [("baseline", 10.0)])
-    assert billing.check_budget(phase="baseline", requested=15.0, config_id=cid)[1] == pytest.approx(5.0)
-    assert billing.check_budget(phase="sweep", requested=70.0, config_id=cid)[1] == pytest.approx(60.0 - billing.SAFETY_MARGIN_USD)
+    assert billing.check_budget(spec=suites.STUDY2_PAID, phase="baseline", requested=15.0, config_id=cid)[1] == pytest.approx(5.0)
+    assert billing.check_budget(spec=suites.STUDY2_PAID, phase="sweep", requested=70.0, config_id=cid)[1] == pytest.approx(60.0 - billing.SAFETY_MARGIN_USD)
     _spend(journal, [("baseline", 5.0)])
     with pytest.raises(ValueError, match="baseline"):
-        billing.check_budget(phase="baseline", requested=15.0, config_id=cid)
+        billing.check_budget(spec=suites.STUDY2_PAID, phase="baseline", requested=15.0, config_id=cid)
     _spend(journal, [("sweep", 54.1)])
     with pytest.raises(ValueError, match="70"):
-        billing.check_budget(phase="sweep", requested=70.0, config_id=cid)
+        billing.check_budget(spec=suites.STUDY2_PAID, phase="sweep", requested=70.0, config_id=cid)
 
 
 def test_unknown_costs_and_a_reset_journal_are_refused(journal: Path, tmp_path: Path) -> None:
     cid = haiku_agent_config().config_id
     _spend(journal, [("sweep", None)])
     with pytest.raises(ValueError, match="unknown"):
-        billing.check_budget(phase="sweep", requested=70.0, config_id=cid)
+        billing.check_budget(spec=suites.STUDY2_PAID, phase="sweep", requested=70.0, config_id=cid)
     journal.unlink()  # 總帳被刪除或換了檔案，但 runs/ 中有這個 agent 的花費
     _paid_baseline_dir = billing.RUNS_ROOT / "h"
     _paid_baseline_dir.mkdir(parents=True)
     (_paid_baseline_dir / "run.json").write_text(json.dumps({"config_id": cid, "dry_run": False}), encoding="utf-8")
     shutil.copy(_haiku_manifest(tmp_path), _paid_baseline_dir / "manifest.jsonl")
     with pytest.raises(ValueError, match="reset"):
-        billing.check_budget(phase="baseline", requested=15.0, config_id=cid)
+        billing.check_budget(spec=suites.STUDY2_PAID, phase="baseline", requested=15.0, config_id=cid)
 
 
 def _haiku_manifest(tmp_path: Path) -> Path:
@@ -255,8 +264,8 @@ def test_only_one_paid_process_at_a_time(journal: Path) -> None:
 def test_paid_study2_limits() -> None:
     assert suites.STUDY2_PAID_MODEL == HAIKU_MODEL
     assert suites.STUDY2_PAID_TOTAL_USD == 70.0 and suites.STUDY2_PAID_BASELINE_USD == 15.0
-    suites.check_study2_paid_run(model=HAIKU_MODEL, split="eval", max_cost_usd=15.0, sweep=False, rollouts=3)
-    suites.check_study2_paid_run(model=HAIKU_MODEL, split="eval", max_cost_usd=70.0, sweep=True)
+    suites.check_paid_run(suites.STUDY2_PAID, model=HAIKU_MODEL, split="eval", max_cost_usd=15.0, sweep=False, rollouts=3)
+    suites.check_paid_run(suites.STUDY2_PAID, model=HAIKU_MODEL, split="eval", max_cost_usd=70.0, sweep=True)
     bad = [
         dict(model="claude-opus-5-5", split="eval", max_cost_usd=15.0, sweep=False, rollouts=3),
         dict(model=HAIKU_MODEL, split="dev", max_cost_usd=1.0, sweep=False, rollouts=3),  # 不跑 dev（使用者決定）
@@ -268,7 +277,7 @@ def test_paid_study2_limits() -> None:
     ]
     for kwargs in bad:
         with pytest.raises(ValueError):
-            suites.check_study2_paid_run(**kwargs)
+            suites.check_paid_run(suites.STUDY2_PAID, **kwargs)
 
 
 def test_run_split_checks_paid_runs_before_any_call(journal: Path, tmp_path: Path) -> None:
@@ -597,7 +606,7 @@ def test_each_agent_report_goes_only_to_its_own_directory(haiku_runs: tuple[Path
 
 
 def test_an_unknown_cost_stops_the_next_call(journal: Path) -> None:
-    session = billing.PaidSession(path=journal, phase="sweep", run="r", spent_before=0.0, cap=69.0, active=True)
+    session = billing.PaidSession(path=journal, phase="sweep", run="r", spent_before=0.0, cap=69.0, total=70.0, active=True)
     prices = PRICING[HAIKU_MODEL]
     rid = session.reserve(request_chars=1000, max_tokens=1000, prices=prices)
     bound = billing.call_bound(1000, 1000, prices)
@@ -608,17 +617,17 @@ def test_an_unknown_cost_stops_the_next_call(journal: Path) -> None:
 
 
 def test_sessions_are_single_use_and_issued_by_paid_session(journal: Path) -> None:
-    hand_made = billing.PaidSession(path=journal, phase="baseline", run="r", spent_before=0.0, cap=15.0, active=True)
+    hand_made = billing.PaidSession(path=journal, phase="baseline", run="r", spent_before=0.0, cap=15.0, total=70.0, active=True)
     with pytest.raises(ValueError):
-        billing.check_session(hand_made, phase="baseline", max_cost_usd=1.0)
-    with billing.paid_session(phase="baseline", requested=15.0, run="r", config_id=haiku_agent_config().config_id) as session:
+        billing.check_session(hand_made, spec=suites.STUDY2_PAID, phase="baseline", max_cost_usd=1.0)
+    with billing.paid_session(spec=suites.STUDY2_PAID, phase="baseline", requested=15.0, run="r", config_id=haiku_agent_config().config_id) as session:
         with pytest.raises(ValueError):
-            billing.check_session(session, phase="sweep", max_cost_usd=1.0)
+            billing.check_session(session, spec=suites.STUDY2_PAID, phase="sweep", max_cost_usd=1.0)
         with pytest.raises(ValueError):
-            billing.check_session(session, phase="baseline", max_cost_usd=15.5)
-        billing.check_session(session, phase="baseline", max_cost_usd=15.0)
+            billing.check_session(session, spec=suites.STUDY2_PAID, phase="baseline", max_cost_usd=15.5)
+        billing.check_session(session, spec=suites.STUDY2_PAID, phase="baseline", max_cost_usd=15.0)
         with pytest.raises(ValueError):  # 已用過
-            billing.check_session(session, phase="baseline", max_cost_usd=15.0)
+            billing.check_session(session, spec=suites.STUDY2_PAID, phase="baseline", max_cost_usd=15.0)
     assert not session.active
 
 
@@ -685,7 +694,7 @@ def test_a_timeout_is_counted_at_its_bound(journal: Path) -> None:
 
     from experiments.run_baseline import CostMeter, Ledger, make_policy
 
-    with billing.paid_session(phase="baseline", requested=15.0, run="t", config_id=haiku_agent_config().config_id) as session:
+    with billing.paid_session(spec=suites.STUDY2_PAID, phase="baseline", requested=15.0, run="t", config_id=haiku_agent_config().config_id) as session:
         for error, expect_bound in ((timeout(), True), (overloaded(), False)):
             before = billing.journal_spent(journal).baseline
             meter = CostMeter(make_policy(Flaky(error), haiku_agent_config()), Ledger(session=session))

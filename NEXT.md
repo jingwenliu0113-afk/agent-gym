@@ -284,7 +284,10 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
   - **本機 dev blocked（2026-10-23 18:2x）**：GPU lock 被其他工作占用（wrapper exit 75，什麼都沒啟動、沒有建立目錄）；依
     MACHINE_POLICY 不等待、不搶，稍後再試：
     `tools/with-gpu-lock -- uv run python -m experiments.run_baseline --split dev --suite study3 --rollouts 3 --confirm-local-run --max-model-calls 2880 --run-name study3-dev-local-20261023`
-  - 下一步（第 5 步）：本機 dev（GPU lock 內，24 題 × 3）；Haiku dev 由使用者在自己的終端機執行（指令見「Blocked / 需要使用者」）→
+  - **Haiku dev 完成（使用者執行，2026-10-23）**：`runs/study3-dev-haiku-20261023`，66 / 72 成功（H1 1.000、H2 1.000、H3 0.750），
+    $0.161；6 個失敗逐一判定全部是 agent 錯誤（read-each 用完 turn ×3、只看第一頁、規則 2 與規則 7 的誤用），沒有題目缺陷、
+    沒有疑似評分寬鬆；§7 估算 N_haiku = 29 ≥ 15，不需要問使用者（詳見 036「實作紀錄」）。
+  - 下一步（第 5 步）：本機 dev（GPU lock 內，24 題 × 3；lock 被占用時稍後重試）→
     兩個 dev 的審查（每個不成功或不安全的 episode 逐一判定）→ §7 估算（任一 agent 能 sweep 的失敗 source < 15 → 回頭問使用者）
     → 寫凍結紀錄（`uv run python -m experiments.study3_freeze --local-dev-run … --haiku-dev-run …`）→ `STUDY3_FROZEN = True`。
 
@@ -330,9 +333,9 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 ## Blocked / 需要使用者
 
 2026-10-19 結案時沒有待處理的事項；2026-10-22 使用者授權以 Claude Haiku 5.5 做跨模型比較，2026-10-23 完成（108 / 108，天花板，$0.117；
-見「下一步」與 C）。**2026-10-23 使用者核准 Study 3（decision 036），實作中。** 以下 S3 是目前唯一需要使用者的事項；其餘保留為歷史紀錄。
+見「下一步」與 C）。**2026-10-23 使用者核准 Study 3（decision 036），實作中。** S3（Haiku dev）已完成；目前沒有需要使用者的事項（本機 dev 只等 GPU lock）。以下保留為歷史紀錄。
 
-### S3. Study 3 的 Haiku dev（decision 036 §5 C、§7；需要使用者在自己的終端機執行）
+### S3. Study 3 的 Haiku dev（decision 036 §5 C、§7）：**已完成（2026-10-23，使用者執行，$0.161）**
 
 - 開關已打開（`STUDY3_APPROVED`）；dev 只限 seed 0–1、R = 3；Study 3 總帳 `~/.agent-gym/study3-haiku-billing.jsonl`（與 Study 2 的
   總帳分開），dev 的所有嘗試合計 ≤ 3 美元（程式檢查），Study 3 合計硬上限 40 美元。預估 0.2–0.7 美元。

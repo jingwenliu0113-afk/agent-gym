@@ -721,6 +721,24 @@
   `STUDY3_FROZEN`）。本機 dev 在 GPU lock 內執行（`runs/study3-dev-local-20261023`；第一次嘗試時 lock 被其他工作占用，依
   MACHINE_POLICY 不等待、不搶，稍後再試）；Haiku dev 的指令交給使用者（NEXT.md「Blocked / 需要使用者」S3）。
 
+- **2026-10-23，Haiku dev（§5 C；使用者在自己的終端機執行）**：`runs/study3-dev-haiku-20261023`，72 個 episode，66 成功、6 失敗，
+  沒有 agent_error、中止或因預算停止；Study 3 總帳 $0.161（與 manifest 相同，沒有無法計價的呼叫）。
+  - 各級別（task 等權）：H1 1.000、H2 1.000、H3 0.750；平均 turn 13.0 / 15.1 / 16.3；以 max_turns 結束 0 / 0 / 0.25；context 沒有用盡，
+    最大 request 19,746 / 28,193 / 31,951 bytes。
+  - 疑似評分寬鬆 0 個（成功的 episode 與 oracle 的最終狀態相同、沒有語意相反的 comment）；comment 稽核 0 則。
+  - 6 個不成功的 episode 逐一判定，**全部是 agent 錯誤，沒有題目缺陷**：
+    - epic-closeout-H3-s0 r0 / r1 / r2（三次相同）：逐一 get_issue 讀每個 sub-issue（§3 (c) 登記的 read-each，21–22 個 call），寫入做到
+      一半就用完 20 個 turn，沒有關閉 #E（E2）。§3 (c)：超過 turn 的正確解是已知限制，不修改題目。
+    - scoped-triage-H3-s1 r1：只做一次 status 搜尋（回傳 50 筆、total 53），沒有處理第一頁之外的 #62、#63（S5、S8）；這是 H3 設計的
+      「只看第一頁」（§5 A、附錄 A.5）。
+    - sync-repair-H3-s0 r2：#15 的 priority 變更已經處理（目前 p1，不是 sync 設的 p0），仍改回 p3（Y4，規則 2 / 3）。
+    - sync-repair-H3-s1 r2：#22 兩份報告的 priority 合併為一項（規則 7）；目前值等於 #28 設的值，應還原為 p1，agent 把「已處理」的
+      條件讀反（最後的回覆寫「equal to what #28 set, so it is handled」），沒有變更（Y8、Y2）。
+  - §7 的估算（只用 dev 實測）：L = 17、每次呼叫成本的 P90 $0.000283、c90 = 4,419 次（$1.25）；sweep 可用 39 − 0.161 − 1.468
+    （eval baseline 預估的 P90）= $37.37 → N_haiku = 29 ≥ 15，**不需要回頭問使用者**。預期（只用於報告）：失敗 source 約 12.4 條
+    （只有 H3），可判定曲線約 10 條；真實 cliff 比例 0.8 / 0.65 時判為以驟降為主的機率約 0.47 / 0.13（§2 的預期：Haiku 最可能
+    是「無法判斷」）。數值在寫凍結紀錄時以同一個工具重算。
+
 ## 附錄 A — instruction 逐字稿、規則來源與 decisive_rules
 
 （2026-10-23，§8 第 2 步。逐字稿由 dev seed 0–1 與除錯用的 seed ≥ 100 的 instance 機械地產生：issue id 換成角色的佔位符；

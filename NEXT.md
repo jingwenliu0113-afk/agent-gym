@@ -287,8 +287,8 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
   - **本機 dev 完成（2026-10-24 03:55–04:34，GPU lock 內）**：`runs/study3-dev-local-20261023`，H1 0.625、H2 0.375、H3 0.292；
     13 個 agent_error 都是輸出截斷；28 個不成功的 episode 逐一判定全部是 agent 錯誤，沒有題目缺陷；6 項候選疑慮（不是缺陷）寫進
     036「實作紀錄」與報告。§7 估算 N_local = 18、N_haiku = 29，都 ≥ 15，不需要問使用者。
-  - 下一步（第 5 步收尾）：在乾淨的工作區寫凍結紀錄（`uv run python -m experiments.study3_freeze --local-dev-run
-    runs/study3-dev-local-20261023 --haiku-dev-run runs/study3-dev-haiku-20261023`）→ `STUDY3_FROZEN = True` → 第 6 步 eval baseline：
+  - **第 5 步完成（2026-10-24）**：凍結紀錄 `docs/decisions/036-freeze-record.json`（code_commit `b512397`）、`STUDY3_FROZEN = True`。
+  - 下一步（第 6 步）eval baseline：
     本機 4 段（seeds 2–3、4–5、6–7、8–9，每段 GPU lock 內、上限 2,880 次）；Haiku 由使用者執行（eval baseline ≤ 8 美元）。
 
 ### Claude Haiku 5.5 的跨模型比較（已完成，2026-10-23）

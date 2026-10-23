@@ -1,0 +1,1236 @@
+{
+ "agents": {
+  "haiku": {
+   "config_id": "sha256:d7738765c6328f06899d68f51f1b160c353da888eb7351b571b30a058902870b",
+   "max_turns": 20,
+   "model": "claude-haiku-5-5"
+  },
+  "local": {
+   "config_id": "sha256:9feb8eb7bb109ccc0308baba1150417f9cfd8b896d3b134f75beb735fa251a87",
+   "max_turns": 20,
+   "model": "qwen3.5:9b-q4_K_M",
+   "model_digest": "sha256:6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7",
+   "ollama_version": "0.35.0"
+  }
+ },
+ "billing": {
+  "journals": {
+   "study2": "~/.agent-gym/study2-haiku-billing.jsonl",
+   "study3": "~/.agent-gym/study3-haiku-billing.jsonl"
+  },
+  "model": "claude-haiku-5-5",
+  "phase_caps": {
+   "baseline": 8.0,
+   "dev": 3.0
+  },
+  "rollouts": 3,
+  "safety_margin_usd": 1.0,
+  "sweep_order": "frozen_permutation",
+  "total_usd": 40.0
+ },
+ "code_commit": "b512397b7702def1d03f20b38db75bedb5e75c73",
+ "decision": "036",
+ "dev": {
+  "haiku": {
+   "call_usd_mean": 0.00015107137558685447,
+   "call_usd_p90": 0.00028318,
+   "comment_audit": 0,
+   "config_id": "sha256:d7738765c6328f06899d68f51f1b160c353da888eb7351b571b30a058902870b",
+   "levels": {
+    "H1": {
+     "aborted": 0,
+     "agent_error": 0,
+     "context_exhausted": 0,
+     "episodes": 24,
+     "max_request_bytes": 19746,
+     "max_turns_rate": 0.0,
+     "max_turns_seen": 16,
+     "mean_turns": 13.0,
+     "p50_turns": 11,
+     "p90_turns": 16,
+     "success_rate": 1.0
+    },
+    "H2": {
+     "aborted": 0,
+     "agent_error": 0,
+     "context_exhausted": 0,
+     "episodes": 24,
+     "max_request_bytes": 28193,
+     "max_turns_rate": 0.0,
+     "max_turns_seen": 18,
+     "mean_turns": 15.125,
+     "p50_turns": 15,
+     "p90_turns": 18,
+     "success_rate": 1.0
+    },
+    "H3": {
+     "aborted": 0,
+     "agent_error": 0,
+     "context_exhausted": 0,
+     "episodes": 24,
+     "max_request_bytes": 31951,
+     "max_turns_rate": 0.25,
+     "max_turns_seen": 20,
+     "mean_turns": 16.25,
+     "p50_turns": 14,
+     "p90_turns": 20,
+     "success_rate": 0.75
+    }
+   },
+   "runs": [
+    "study3-dev-haiku-20261023"
+   ],
+   "spent": {
+    "manifest_usd": 0.160891015,
+    "source": "the Study 3 billing journal",
+    "spent_usd": 0.160891015
+   },
+   "stopped_by_budget": [],
+   "suspected_grader_issues": 0,
+   "to_classify": 6,
+   "unfinished": 0
+  },
+  "local": {
+   "comment_audit": 4,
+   "config_id": "sha256:9feb8eb7bb109ccc0308baba1150417f9cfd8b896d3b134f75beb735fa251a87",
+   "levels": {
+    "H1": {
+     "aborted": 0,
+     "agent_error": 0,
+     "context_exhausted": 0,
+     "episodes": 24,
+     "max_request_bytes": 32044,
+     "max_turns_rate": 0.0,
+     "max_turns_seen": 16,
+     "mean_turns": 12.833333333333334,
+     "p50_turns": 12,
+     "p90_turns": 16,
+     "success_rate": 0.625
+    },
+    "H2": {
+     "aborted": 0,
+     "agent_error": 4,
+     "context_exhausted": 0,
+     "episodes": 24,
+     "max_request_bytes": 39431,
+     "max_turns_rate": 0.041666666666666664,
+     "max_turns_seen": 20,
+     "mean_turns": 14.05,
+     "p50_turns": 14,
+     "p90_turns": 18,
+     "success_rate": 0.375
+    },
+    "H3": {
+     "aborted": 0,
+     "agent_error": 9,
+     "context_exhausted": 0,
+     "episodes": 24,
+     "max_request_bytes": 29814,
+     "max_turns_rate": 0.08333333333333333,
+     "max_turns_seen": 20,
+     "mean_turns": 14.866666666666667,
+     "p50_turns": 15,
+     "p90_turns": 20,
+     "success_rate": 0.2916666666666667
+    }
+   },
+   "runs": [
+    "study3-dev-local-20261023"
+   ],
+   "stopped_by_budget": [],
+   "suspected_grader_issues": 0,
+   "to_classify": 28,
+   "unfinished": 13
+  }
+ },
+ "estimate": {
+  "haiku": {
+   "agent": "haiku",
+   "ask_user": false,
+   "c90_calls": 4419,
+   "c90_usd": 1.25137242,
+   "haiku_baseline_p90_usd": 1.46800512,
+   "haiku_call_usd_p90": 0.00028318,
+   "length": 17,
+   "mean_calls": 2808.624,
+   "n": 29,
+   "reps": 4000,
+   "sweep_usd_left": 37.371103865
+  },
+  "local": {
+   "agent": "local",
+   "ask_user": false,
+   "c90_calls": 4253,
+   "length": 15,
+   "mean_calls": 2664.79325,
+   "n": 18,
+   "reps": 4000
+  }
+ },
+ "expected": {
+  "haiku": {
+   "budget": 37.371103865,
+   "decidable_share": "4/5",
+   "expected_failed_sources": 12.444444444444443,
+   "expected_n": 9.9184,
+   "expected_swept": 12.398,
+   "length": 17,
+   "n_used": 9,
+   "p_any_failed_source": {
+    "H1": 0.0,
+    "H2": 0.0,
+    "H3": 0.38888888888888884
+   },
+   "p_full": 0.0,
+   "p_mostly_cliff": {
+    "0.65": 0.13481726644670908,
+    "0.8": 0.46750763495346626
+   },
+   "reps": 4000,
+   "reserve": 1.8435018,
+   "seed": 0,
+   "unit_cost": 0.00015107137558685447
+  },
+  "local": {
+   "budget": 80000,
+   "decidable_share": "4/5",
+   "expected_failed_sources": 56.59259259259259,
+   "expected_n": 19.9658,
+   "expected_swept": 24.95725,
+   "length": 15,
+   "n_used": 19,
+   "p_any_failed_source": {
+    "H1": 0.5416666666666666,
+    "H2": 0.7175925925925926,
+    "H3": 0.5092592592592592
+   },
+   "p_full": 0.96925,
+   "p_mostly_cliff": {
+    "0.65": 0.27841024147777405,
+    "0.8": 0.8234766149467581
+   },
+   "reps": 4000,
+   "reserve": 6510,
+   "seed": 0,
+   "unit_cost": 1.0
+  }
+ },
+ "format": "agent-gym/study3-freeze/v1",
+ "power": {
+  "rq1": {
+   "reps": 200,
+   "rows": [
+    {
+     "late_exhaustion_flag_excluding": 0.0,
+     "late_exhaustion_flag_round1": 0.0,
+     "length": 16,
+     "max_false_flag_excluding": 0.005,
+     "max_false_flag_round1": 0.005,
+     "mean_detect_excluding": 0.9191666666666666,
+     "mean_detect_round1": 0.9191666666666666,
+     "turn_out": 0.0
+    },
+    {
+     "late_exhaustion_flag_excluding": 0.0,
+     "late_exhaustion_flag_round1": 0.0,
+     "length": 16,
+     "max_false_flag_excluding": 0.0,
+     "max_false_flag_round1": 0.0,
+     "mean_detect_excluding": 0.9108333333333333,
+     "mean_detect_round1": 0.25125000000000003,
+     "turn_out": 0.05
+    },
+    {
+     "late_exhaustion_flag_excluding": 0.0,
+     "late_exhaustion_flag_round1": 0.0,
+     "length": 16,
+     "max_false_flag_excluding": 0.0,
+     "max_false_flag_round1": 0.0,
+     "mean_detect_excluding": 0.9145833333333333,
+     "mean_detect_round1": 0.13166666666666668,
+     "turn_out": 0.1
+    },
+    {
+     "late_exhaustion_flag_excluding": 0.0,
+     "late_exhaustion_flag_round1": 0.0,
+     "length": 16,
+     "max_false_flag_excluding": 0.0,
+     "max_false_flag_round1": 0.0,
+     "mean_detect_excluding": 0.8820833333333332,
+     "mean_detect_round1": 0.043333333333333335,
+     "turn_out": 0.2
+    },
+    {
+     "late_exhaustion_flag_excluding": 0.0,
+     "late_exhaustion_flag_round1": 0.0,
+     "length": 18,
+     "max_false_flag_excluding": 0.0,
+     "max_false_flag_round1": 0.0,
+     "mean_detect_excluding": 0.91125,
+     "mean_detect_round1": 0.91125,
+     "turn_out": 0.0
+    },
+    {
+     "late_exhaustion_flag_excluding": 0.0,
+     "late_exhaustion_flag_round1": 0.0,
+     "length": 18,
+     "max_false_flag_excluding": 0.0,
+     "max_false_flag_round1": 0.0,
+     "mean_detect_excluding": 0.9129166666666667,
+     "mean_detect_round1": 0.25,
+     "turn_out": 0.05
+    },
+    {
+     "late_exhaustion_flag_excluding": 0.0,
+     "late_exhaustion_flag_round1": 0.0,
+     "length": 18,
+     "max_false_flag_excluding": 0.005,
+     "max_false_flag_round1": 0.0,
+     "mean_detect_excluding": 0.8970833333333333,
+     "mean_detect_round1": 0.125,
+     "turn_out": 0.1
+    },
+    {
+     "late_exhaustion_flag_excluding": 0.0,
+     "late_exhaustion_flag_round1": 0.0,
+     "length": 18,
+     "max_false_flag_excluding": 0.0,
+     "max_false_flag_round1": 0.0,
+     "mean_detect_excluding": 0.8983333333333333,
+     "mean_detect_round1": 0.04041666666666666,
+     "turn_out": 0.2
+    },
+    {
+     "late_exhaustion_flag_excluding": 0.0,
+     "late_exhaustion_flag_round1": 0.0,
+     "length": 20,
+     "max_false_flag_excluding": 0.0,
+     "max_false_flag_round1": 0.0,
+     "mean_detect_excluding": 0.9120833333333334,
+     "mean_detect_round1": 0.9120833333333334,
+     "turn_out": 0.0
+    },
+    {
+     "late_exhaustion_flag_excluding": 0.0,
+     "late_exhaustion_flag_round1": 0.0,
+     "length": 20,
+     "max_false_flag_excluding": 0.005,
+     "max_false_flag_round1": 0.0,
+     "mean_detect_excluding": 0.9020833333333332,
+     "mean_detect_round1": 0.22583333333333333,
+     "turn_out": 0.05
+    },
+    {
+     "late_exhaustion_flag_excluding": 0.0,
+     "late_exhaustion_flag_round1": 0.0,
+     "length": 20,
+     "max_false_flag_excluding": 0.0,
+     "max_false_flag_round1": 0.0,
+     "mean_detect_excluding": 0.8975,
+     "mean_detect_round1": 0.12208333333333334,
+     "turn_out": 0.1
+    },
+    {
+     "late_exhaustion_flag_excluding": 0.0,
+     "late_exhaustion_flag_round1": 0.0,
+     "length": 20,
+     "max_false_flag_excluding": 0.0,
+     "max_false_flag_round1": 0.0,
+     "mean_detect_excluding": 0.8816666666666667,
+     "mean_detect_round1": 0.04,
+     "turn_out": 0.2
+    }
+   ]
+  },
+  "rq2": [
+   {
+    "bootstrap_only": 0.191,
+    "delta": 0.1,
+    "kappa": 2,
+    "p1": 0.4,
+    "p3": 0.3,
+    "permutation_only": 0.156,
+    "power": 0.156,
+    "reps": 1000
+   },
+   {
+    "bootstrap_only": 0.792,
+    "delta": 0.25,
+    "kappa": 2,
+    "p1": 0.55,
+    "p3": 0.3,
+    "permutation_only": 0.754,
+    "power": 0.754,
+    "reps": 1000
+   },
+   {
+    "bootstrap_only": 0.996,
+    "delta": 0.4,
+    "kappa": 2,
+    "p1": 0.7,
+    "p3": 0.3,
+    "permutation_only": 0.996,
+    "power": 0.996,
+    "reps": 1000
+   },
+   {
+    "bootstrap_only": 0.195,
+    "delta": 0.1,
+    "kappa": 2,
+    "p1": 0.7,
+    "p3": 0.6,
+    "permutation_only": 0.159,
+    "power": 0.159,
+    "reps": 1000
+   },
+   {
+    "bootstrap_only": 0.88,
+    "delta": 0.25,
+    "kappa": 2,
+    "p1": 0.85,
+    "p3": 0.6,
+    "permutation_only": 0.847,
+    "power": 0.847,
+    "reps": 1000
+   },
+   {
+    "bootstrap_only": 1.0,
+    "delta": 0.4,
+    "kappa": 2,
+    "p1": 1.0,
+    "p3": 0.6,
+    "permutation_only": 1.0,
+    "power": 1.0,
+    "reps": 1000
+   },
+   {
+    "bootstrap_only": 0.35,
+    "delta": 0.1,
+    "kappa": 2,
+    "p1": 0.9,
+    "p3": 0.8,
+    "permutation_only": 0.296,
+    "power": 0.296,
+    "reps": 1000
+   },
+   {
+    "bootstrap_only": 0.276,
+    "delta": 0.1,
+    "kappa": 10,
+    "p1": 0.4,
+    "p3": 0.3,
+    "permutation_only": 0.216,
+    "power": 0.216,
+    "reps": 1000
+   },
+   {
+    "bootstrap_only": 0.897,
+    "delta": 0.25,
+    "kappa": 10,
+    "p1": 0.55,
+    "p3": 0.3,
+    "permutation_only": 0.875,
+    "power": 0.875,
+    "reps": 1000
+   },
+   {
+    "bootstrap_only": 0.999,
+    "delta": 0.4,
+    "kappa": 10,
+    "p1": 0.7,
+    "p3": 0.3,
+    "permutation_only": 0.999,
+    "power": 0.999,
+    "reps": 1000
+   },
+   {
+    "bootstrap_only": 0.235,
+    "delta": 0.1,
+    "kappa": 10,
+    "p1": 0.7,
+    "p3": 0.6,
+    "permutation_only": 0.189,
+    "power": 0.189,
+    "reps": 1000
+   },
+   {
+    "bootstrap_only": 0.952,
+    "delta": 0.25,
+    "kappa": 10,
+    "p1": 0.85,
+    "p3": 0.6,
+    "permutation_only": 0.933,
+    "power": 0.933,
+    "reps": 1000
+   },
+   {
+    "bootstrap_only": 1.0,
+    "delta": 0.4,
+    "kappa": 10,
+    "p1": 1.0,
+    "p3": 0.6,
+    "permutation_only": 1.0,
+    "power": 1.0,
+    "reps": 1000
+   },
+   {
+    "bootstrap_only": 0.441,
+    "delta": 0.1,
+    "kappa": 10,
+    "p1": 0.9,
+    "p3": 0.8,
+    "permutation_only": 0.36,
+    "power": 0.36,
+    "reps": 1000
+   }
+  ]
+ },
+ "protocol": {
+  "caps": {
+   "baseline_calls": {
+    "dev": 2880,
+    "eval": 2880
+   },
+   "eval_segments": [
+    [
+     2,
+     3
+    ],
+    [
+     4,
+     5
+    ],
+    [
+     6,
+     7
+    ],
+    [
+     8,
+     9
+    ]
+   ],
+   "max_sources": 25,
+   "not_raisable": true,
+   "sweep_calls": 80000,
+   "sweep_segment_calls": 3000
+  },
+  "conclusion_line": 0.5,
+  "criterion": "bonferroni95",
+  "decidable": "2/5",
+  "definitions": {
+   "caps": "eval baseline 開始之後不得提高任何上限（80,000 次、40 美元、25 條），也不得依中途看到的曲線提前停止或延長",
+   "completeness": "decision 036 §6「完整性與天花板」：前綴、依規則停止、因上限中途停止、天花板、資料不完整（含提前結束）",
+   "conclusion": "cliff 比例的 Wilson 95% CI 下限 > 0.5 → mostly_cliff；上限 < 0.5 → mostly_gradual；其他 → undetermined",
+   "failed_source": "規則 B 的 source（每題 index 最小的 failure 或 refusal），而且 grade().success 為 False；source 為 None、或規則 B 選到通過評分的 refusal 的題，不屬於 RQ1 的母體（decision 036 §2）",
+   "listing_rule": "runs/ 中該 agent（config_id）、suite study3、split eval、非 dry-run 的全部 baseline 目錄由程式列舉；有 manifest 列或呼叫紀錄、卻沒有列入的目錄 → 拒絕（study3_analysis.check_baseline_set）",
+   "reserve": "開始每一條新的 source 之前，剩下的累計上限（本機 80,000 − 所有 sweep 段的呼叫數；Haiku 40 − 1 − Study 3 總帳的全部花費）必須 ≥ 預留額；預留額 = L = 20 時單條成本的 P99（本機以呼叫數；Haiku 再乘上 dev 每次呼叫成本的 P90）；接續的 source 不再檢查（decision 036 §6）",
+   "small_n": "可判定的曲線 n < 10：判定照規則輸出，報告一律寫明「樣本少（n = …），證據弱」"
+  },
+  "estimate": {
+   "ask_below": 15,
+   "max_turns": 20,
+   "paid_total_usd": 40.0,
+   "reps": 4000,
+   "safety_margin_usd": 1.0,
+   "seed": 0,
+   "sweep_cap_calls": 80000
+  },
+  "eval_rollouts": 3,
+  "plan": {
+   "coarse_stride": 2,
+   "drop_threshold": 0.3,
+   "n_coarse": 10,
+   "n_fine": 48
+  },
+  "primary_rule": "excluding",
+  "proposal_sha256": "sha256:f06c7c64bbbf6bb5fc7ff1bfa55878bef4730bcc0b93d312588e80a4621f51ea",
+  "small_n": 10,
+  "source_rule": "first_failure",
+  "states": {
+   "end_reasons": [
+    "cap_mid_source",
+    "reserve",
+    "early_end"
+   ],
+   "labels": [
+    "mostly_cliff",
+    "mostly_gradual",
+    "undetermined"
+   ],
+   "sweep": [
+    "ceiling",
+    "incomplete_no_failed_source",
+    "complete_full",
+    "complete_reserve",
+    "complete_cap_mid_source",
+    "incomplete_no_curve",
+    "incomplete_early_end"
+   ]
+  },
+  "sweep": {
+   "order": "frozen_permutation",
+   "permutation_key": "study3/sweep-order",
+   "reserve_length": 20,
+   "reserve_quantile": 0.99,
+   "reserve_reps": 4000,
+   "reserve_seed": 0
+  }
+ },
+ "reserve": {
+  "haiku_usd": 1.8435018,
+  "local_calls": 6510
+ },
+ "statistics": {
+  "alpha": 0.025,
+  "behavioral_share": "k = 行為性 cliff 的條數；n = RQ1 的分母 − 機械性 cliff 的條數；Wilson 95% CI 與三分法標籤；(A) 版本 k 相同、n = RQ1 的完整分母（只描述）；另列 k / (k + m)；解讀句依 decision 036 §2 次要結果第 1 點",
+  "blocked": "response model 不只一種 → RQ1 為 blocked，RQ1 的範圍、次要結果與敏感度都不合併估計（decision 009 §4、034）",
+  "bootstrap_replicates": 10000,
+  "bootstrap_seed": 0,
+  "expected_yield": {
+   "decidable_share": "4/5",
+   "reps": 4000,
+   "seed": 0,
+   "true_cliff": [
+    0.8,
+    0.65
+   ]
+  },
+  "labels_suppressed": "RQ1 為天花板、資料不完整（含提前結束）或 blocked 時，次要結果與敏感度只報 k / n 與 CI，不輸出三分法的標籤；因上限中途停止的範圍照 §6 輸出標籤",
+  "lookup": "附錄 A.5 / A.6 的查找與去重（verified-close H3，study3_analysis.lookup）：依整條 source 的最終失敗分類，另列 k / n，不從角色表與 V8 的計數中移除；三者不互斥",
+  "mechanical_scope": "study2_analysis.mechanically_unrecoverable(saturated=True)：034 §7 的情況，加上帶 max_count m 的 comment_added，該 issue 新增的 comment 已達 m 則、其中符合 contains 的少於 min_count",
+  "permutation_test": "task 層級的單側精確置換檢定（study3_stats.exact_permutation）：H1、H3 各 32 題的值（採計 rollout 的成功比例）× 6 化為 0–6 的整數，以動態規劃求 32 / 32 所有分組下「H1 平均 − H3 平均」的精確分布；p = 統計量 ≥ 觀測值的分組比例",
+  "power": {
+   "rq1": {
+    "lengths": [
+     16,
+     18,
+     20
+    ],
+    "reps": 200,
+    "seed": 0,
+    "turn_out": [
+     0.0,
+     0.05,
+     0.1,
+     0.2
+    ]
+   },
+   "rq2": {
+    "delta": [
+     0.1,
+     0.25,
+     0.4
+    ],
+    "kappa": [
+     2,
+     10
+    ],
+    "p3": [
+     0.3,
+     0.6,
+     0.8
+    ],
+    "reps": 1000,
+    "seed": 0
+   }
+  },
+  "round1_rule": "§2 次要結果第 4 點：第一輪的 max_turns 規則（decision 017 §1）在主要判定的同一個完成前綴上的 k / n、Wilson 95% CI 與標籤",
+  "rq2": "bootstrap（study2_analysis.bootstrap_difference：H1 − H3，B = 10,000、seed 0，2.5% 分位數 > 0）與精確置換檢定（p < 0.025）兩者都成立才有效；任一級不足 32 題 → 無法計算",
+  "sensitivity": {
+   "agent_error": "每個 checkpoint 移除以 agent_error 結束的 rerun，以移除後的估計套用主要規則（Bonferroni 的 m 以移除後仍有估計的 checkpoint 數計；可判定性重算）；k / n、Wilson 95% CI 與標籤，只報告",
+   "cap_mid_source": "因累計上限在 source 中途停止：只針對那一條，當成 cliff（k + 1、n + 1）與非 cliff（k、n + 1）各自計算 k / n、Wilson 95% CI 與標籤",
+   "max_turns": "034 的 max_turns 敏感度分析：只移除 max_turns，agent_error 仍計為未成功；只報 k / n 與 Wilson 95% CI（沒有標籤，同 034）",
+   "rq2_without_agent_error": "排除 agent_error 之後各級的成功率與描述用的級別差（study3_analysis.success_rates）：全部 episode 都是 agent_error 的題剔除；只報告，不做檢定，也不判定有效與否"
+  },
+  "tasks_per_level": 32
+ },
+ "sweep_permutation": [
+  "gen3-sync-repair-H3-s3",
+  "gen3-epic-closeout-H3-s9",
+  "gen3-scoped-triage-H2-s2",
+  "gen3-sync-repair-H3-s4",
+  "gen3-epic-closeout-H1-s8",
+  "gen3-scoped-triage-H2-s7",
+  "gen3-scoped-triage-H2-s9",
+  "gen3-sync-repair-H3-s8",
+  "gen3-verified-close-H2-s8",
+  "gen3-verified-close-H1-s6",
+  "gen3-epic-closeout-H2-s5",
+  "gen3-sync-repair-H1-s5",
+  "gen3-scoped-triage-H1-s3",
+  "gen3-epic-closeout-H1-s7",
+  "gen3-scoped-triage-H2-s3",
+  "gen3-epic-closeout-H2-s9",
+  "gen3-verified-close-H2-s9",
+  "gen3-sync-repair-H3-s7",
+  "gen3-epic-closeout-H2-s4",
+  "gen3-scoped-triage-H1-s8",
+  "gen3-epic-closeout-H3-s8",
+  "gen3-sync-repair-H2-s4",
+  "gen3-scoped-triage-H1-s2",
+  "gen3-epic-closeout-H3-s6",
+  "gen3-scoped-triage-H3-s4",
+  "gen3-scoped-triage-H1-s4",
+  "gen3-epic-closeout-H3-s3",
+  "gen3-scoped-triage-H3-s9",
+  "gen3-sync-repair-H2-s9",
+  "gen3-sync-repair-H1-s3",
+  "gen3-epic-closeout-H2-s7",
+  "gen3-verified-close-H2-s2",
+  "gen3-verified-close-H1-s2",
+  "gen3-epic-closeout-H2-s2",
+  "gen3-epic-closeout-H1-s5",
+  "gen3-verified-close-H3-s8",
+  "gen3-sync-repair-H2-s6",
+  "gen3-epic-closeout-H1-s9",
+  "gen3-epic-closeout-H1-s6",
+  "gen3-verified-close-H3-s5",
+  "gen3-verified-close-H1-s9",
+  "gen3-sync-repair-H2-s2",
+  "gen3-scoped-triage-H3-s3",
+  "gen3-epic-closeout-H2-s3",
+  "gen3-verified-close-H1-s4",
+  "gen3-verified-close-H2-s3",
+  "gen3-scoped-triage-H2-s6",
+  "gen3-sync-repair-H1-s4",
+  "gen3-epic-closeout-H3-s5",
+  "gen3-epic-closeout-H1-s4",
+  "gen3-verified-close-H3-s9",
+  "gen3-sync-repair-H3-s6",
+  "gen3-verified-close-H3-s6",
+  "gen3-epic-closeout-H1-s2",
+  "gen3-sync-repair-H1-s9",
+  "gen3-scoped-triage-H1-s7",
+  "gen3-verified-close-H1-s5",
+  "gen3-sync-repair-H1-s6",
+  "gen3-verified-close-H2-s5",
+  "gen3-epic-closeout-H2-s8",
+  "gen3-scoped-triage-H1-s5",
+  "gen3-scoped-triage-H2-s8",
+  "gen3-epic-closeout-H2-s6",
+  "gen3-verified-close-H2-s6",
+  "gen3-verified-close-H3-s4",
+  "gen3-scoped-triage-H3-s7",
+  "gen3-verified-close-H1-s3",
+  "gen3-verified-close-H1-s8",
+  "gen3-sync-repair-H1-s7",
+  "gen3-scoped-triage-H3-s5",
+  "gen3-epic-closeout-H3-s2",
+  "gen3-verified-close-H1-s7",
+  "gen3-sync-repair-H1-s2",
+  "gen3-verified-close-H2-s7",
+  "gen3-scoped-triage-H3-s6",
+  "gen3-epic-closeout-H3-s4",
+  "gen3-sync-repair-H3-s9",
+  "gen3-scoped-triage-H2-s4",
+  "gen3-scoped-triage-H1-s6",
+  "gen3-scoped-triage-H1-s9",
+  "gen3-epic-closeout-H1-s3",
+  "gen3-verified-close-H2-s4",
+  "gen3-verified-close-H3-s7",
+  "gen3-scoped-triage-H3-s8",
+  "gen3-verified-close-H3-s3",
+  "gen3-verified-close-H3-s2",
+  "gen3-sync-repair-H3-s2",
+  "gen3-scoped-triage-H3-s2",
+  "gen3-sync-repair-H2-s3",
+  "gen3-sync-repair-H1-s8",
+  "gen3-sync-repair-H2-s7",
+  "gen3-sync-repair-H2-s8",
+  "gen3-scoped-triage-H2-s5",
+  "gen3-sync-repair-H3-s5",
+  "gen3-epic-closeout-H3-s7",
+  "gen3-sync-repair-H2-s5"
+ ],
+ "tasks": {
+  "appendix_a_sha256": "sha256:fb5e8ce0fd8161dbc725dd05bdb8693488b8086085c1c8c46ddffa56a65591f4",
+  "appendix_b_sha256": "sha256:a573596213820a225b93c84ef21a2aa7480455b878ce6c7e58321cc630a8a454",
+  "eval": [
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:6c8853b1a0c72ec4a621f6aed3535de95d6df57d11683f2459aa9e265eba59d0",
+    "task_id": "gen3-epic-closeout-H1-s2"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:b7cfb5ac54e6173972910655ac6e90dc0fe8673547ccabd50e8d45b34eef1530",
+    "task_id": "gen3-scoped-triage-H1-s2"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:f44f0402b86d6fa73bfa16f76c3718de037e23687f524f7bbb019e86caa5a466",
+    "task_id": "gen3-sync-repair-H1-s2"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:7b13508875a7652323a8eb4e6d56f609e80052e3748f3ffb840e8499fd25aaad",
+    "task_id": "gen3-verified-close-H1-s2"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:12cd363ecdd1b0cd5462e2ae8d3c59ac98f26ce3a3b3ca7d7077b92f0adcd51a",
+    "task_id": "gen3-epic-closeout-H2-s2"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:0b2e875f58d91eb352b38dfd87b8f14e2ba0d2ea4fb58095797007e925452c4f",
+    "task_id": "gen3-scoped-triage-H2-s2"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:facb7ae2cf06647d60a5563a20fbe646587ee09b3bc49c3ecfb602728c73740f",
+    "task_id": "gen3-sync-repair-H2-s2"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:244a8eb4aa82779f3de8cb895eb0fa4cccf726b686deeac98215e47e9d98d493",
+    "task_id": "gen3-verified-close-H2-s2"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:aba2811715909dcdee742dcdac071a142be8d88ea61fa144a7b5ac233ecca06c",
+    "task_id": "gen3-epic-closeout-H3-s2"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:6938d85dca73cf8a010d6d0cd96c19dab7dbb657d8048279f5f271d7ecb3d375",
+    "task_id": "gen3-scoped-triage-H3-s2"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:8287f9e9aba71daaff90dfac945f4b92141c9a09ded475da5a16d37879abe6ff",
+    "task_id": "gen3-sync-repair-H3-s2"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:bd35524245141bac33e6e6bb8dbdeb19956e10c54f124f1868907948d31a8546",
+    "task_id": "gen3-verified-close-H3-s2"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:de9d658495ab4cf5358ddd3a779fdb428a0a21acab108b0dc9633415f01beb65",
+    "task_id": "gen3-epic-closeout-H1-s3"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:dc9c17dceacdc5e9c2fa27d9990dc176c58b004b357bcabd9770303ecefdc517",
+    "task_id": "gen3-scoped-triage-H1-s3"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:4ba3f6a7c423765aa6fc37c3dccb69fc829381f0d771f85fda955ff8c5b22d2b",
+    "task_id": "gen3-sync-repair-H1-s3"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:2278c596b286e0bfdbbc3347a095c456cb59ccfb2d41b1b176e12cbc4f44bc56",
+    "task_id": "gen3-verified-close-H1-s3"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:4e985cc2f5d015143860fa25fc43f9fd45a91b20c7112c78e7bcca2d52fd8846",
+    "task_id": "gen3-epic-closeout-H2-s3"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:951dfec74307a48efa0366bbd90ea158ac085f284aaea82b7ea9aa629b0ebb91",
+    "task_id": "gen3-scoped-triage-H2-s3"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:2bebe6ae40bf896a64b718d5761faa03e64c01d02c5ee0cb4a0cd3e4c8798f66",
+    "task_id": "gen3-sync-repair-H2-s3"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:57b7872a9bc404aaf22a706c7e51d0e4ed4056c20da109c5df301a520d4b2c6c",
+    "task_id": "gen3-verified-close-H2-s3"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:1d162e18ce7261b5cabdf7095e7e81481f213c8b71abf87a25343631dc25f76b",
+    "task_id": "gen3-epic-closeout-H3-s3"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:40cd99094906e53af184868ecc0a2e54a5f270a021c00889bad2912c0d19a12b",
+    "task_id": "gen3-scoped-triage-H3-s3"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:da124b2a6a47e69a98134665ebd8313f25a1f5cf826b9973f33e6a5d67cd6a97",
+    "task_id": "gen3-sync-repair-H3-s3"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:c905703683bd83559b4fbbcf9cd7044a294aa5d9a02b326d19ee426e5264627f",
+    "task_id": "gen3-verified-close-H3-s3"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:0e26788ce8236aeb9e9ecd1eb30e0def8ea4729a786331538dfe2c9fd050cabe",
+    "task_id": "gen3-epic-closeout-H1-s4"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:8daf991843aed28ff48687fc42366c3bfb6fc2a07e65c06a1add8b16c1177702",
+    "task_id": "gen3-scoped-triage-H1-s4"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:779200486b4838f51428eb01ec9e650d3e9f8bbb6c65336073321331536e95f6",
+    "task_id": "gen3-sync-repair-H1-s4"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:0df566df72236ffea15314c62119604dae0514daca171c7c08c7aca1080f2877",
+    "task_id": "gen3-verified-close-H1-s4"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:110b740935a053a3e07de894bff1e5bc9ab24cfec031cfed31d5348dc4e432d6",
+    "task_id": "gen3-epic-closeout-H2-s4"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:91e5fef591c80f5374f69171538f9f77cb5166261d598ac498c89ca5f594e38f",
+    "task_id": "gen3-scoped-triage-H2-s4"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:e7ff93064a4a391407b6661c86447ea6b6e0ec6d361b62a343e8748c16f0a271",
+    "task_id": "gen3-sync-repair-H2-s4"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:585d165f48afb14383b32086b5feef2f9775c005f2b2ffe44b3d13a367448681",
+    "task_id": "gen3-verified-close-H2-s4"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:e2f8f5ea43bccfc0b22f4fd0bae32b6790e1ae2355599a9a7ddf816c2ed6fa6b",
+    "task_id": "gen3-epic-closeout-H3-s4"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:174c7197e34b6c08caa4d0b4038beec33c1541a0736c5a0ad1760ad2185d42b1",
+    "task_id": "gen3-scoped-triage-H3-s4"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:90e540e1d7a67d7079eeba79aa75a7865bae7df86e478e54c0dd66e013603223",
+    "task_id": "gen3-sync-repair-H3-s4"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:9b89b8e530a31fbfd8ffcbdcefe027adce70617a25108d2f07b5772eeb76be4b",
+    "task_id": "gen3-verified-close-H3-s4"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:fde3904edae96968c7829c0a02be5b07878156c29f4248ee6ae276ffcb20e6a2",
+    "task_id": "gen3-epic-closeout-H1-s5"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:0b682ba5ba918990d24834f60d71e20ecb3d06fdb80f937ba529b428264e0596",
+    "task_id": "gen3-scoped-triage-H1-s5"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:a7b8939f93fdf48e532caa68f1afcfa597d1ccf59f6a6c37ab66a4070d31aeb1",
+    "task_id": "gen3-sync-repair-H1-s5"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:cb56337b36fc92d88b12ffe1e66c1635bc4b3a8a627a49432eda440573dda61e",
+    "task_id": "gen3-verified-close-H1-s5"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:725d750c198e9c80cc3bbdc54f7383e6a2dfa69a7165f1edaa01326bfe64b9bc",
+    "task_id": "gen3-epic-closeout-H2-s5"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:7e64b05d1f20d5c966348fa2190d88fd12617fd9e9c7129a4743a0aa0e259155",
+    "task_id": "gen3-scoped-triage-H2-s5"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:e55248e96e715b4fa8ee1a770e669bca58d74a334248407d4d2a0d4bfc107a8f",
+    "task_id": "gen3-sync-repair-H2-s5"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:7a7cef943bdc5bd3cc0c1dba1f922b2e54990252ecf4f69ec169e98e5c4eeaf0",
+    "task_id": "gen3-verified-close-H2-s5"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:977a4a422cf61a93c4442f676c9608ae308722038ab3b9f67619daad44c3a6d0",
+    "task_id": "gen3-epic-closeout-H3-s5"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:fa8d6000db812be6ac879c4a3ad0e02f98fe4236919c53e6d42a3d439eeff015",
+    "task_id": "gen3-scoped-triage-H3-s5"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:9eb5d7f7653331d4a139f00b06708673e3ccffa0756638325ea7ed895df6be54",
+    "task_id": "gen3-sync-repair-H3-s5"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:6b8b96b60eb523954e5ef963ad37fc8e95b198b9c7f4950920e1ee98e49af251",
+    "task_id": "gen3-verified-close-H3-s5"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:1309ef9be1f8b2bfaeeb438bde951bdbc88fb362da7bbbf276aa3cd224566f03",
+    "task_id": "gen3-epic-closeout-H1-s6"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:a0d8e45f313c28f098e77a59c60069f2563f5c93e3e589e6e2725e8e85bd942d",
+    "task_id": "gen3-scoped-triage-H1-s6"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:e8212d5a22d19083a86c85a795bb7ecfb92dbe9be27ebc1bbe9c25decf55392b",
+    "task_id": "gen3-sync-repair-H1-s6"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:3424cad6a91325e318c4c051e783f714013a103423a6e9220704c2d29f4ab8a7",
+    "task_id": "gen3-verified-close-H1-s6"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:2168d3847718c4789414bc7722ec78e0da4b50cafdd1a375ad4111dde69fe397",
+    "task_id": "gen3-epic-closeout-H2-s6"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:4bc33d01cc506caadb87530d1fad989e0265b65623c5fe677013fd1599111bbb",
+    "task_id": "gen3-scoped-triage-H2-s6"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:43eba913b88d8de0600b4ebee262e706e3b7f0af3ac82417bdd9d2abbc1848ff",
+    "task_id": "gen3-sync-repair-H2-s6"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:b5d9e30c4538768822c32e71be50a7f8b9bd7086ea7faccca8e3fe261976acd6",
+    "task_id": "gen3-verified-close-H2-s6"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:a3add065c0521848bdd844028702b1273a1162cab39cd7fead66a515d47e2e9e",
+    "task_id": "gen3-epic-closeout-H3-s6"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:a0bc83b5199fc1996f9e1a882fe4f35b1d291a212aab95e10b4c306ea525ee01",
+    "task_id": "gen3-scoped-triage-H3-s6"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:dc188ebf47cab2218bb17d619201d926ba342ee9750295950693fa50a6f795df",
+    "task_id": "gen3-sync-repair-H3-s6"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:d2e1181f57d56262f89a9fe9bfdc42fcf78dc250dbccf063f44b4abe70608129",
+    "task_id": "gen3-verified-close-H3-s6"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:396a44ffef5da06c7e9469867c759517f2401b99abd9bc67953df1044bdc2740",
+    "task_id": "gen3-epic-closeout-H1-s7"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:a29f63362182ea8f96410ce72fe36cb5ae089958796374abc4f4f48434bf8fec",
+    "task_id": "gen3-scoped-triage-H1-s7"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:b120c15db449539ef0442fa62fc2774e56466be78dde5087339812cc611e298f",
+    "task_id": "gen3-sync-repair-H1-s7"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:783923f25cea17cdac5479a0bd5e5993a67f403189f3c017f00becc499ff5c1e",
+    "task_id": "gen3-verified-close-H1-s7"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:88bc38f9f9a7bf3cd7bfcd59e35778f3305fb62718ec44d99ab71279b3846164",
+    "task_id": "gen3-epic-closeout-H2-s7"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:2ac7bf04667ac4f9fbfdf324e6891551ba6ed8318a1e7eb72b04d7304ccf6426",
+    "task_id": "gen3-scoped-triage-H2-s7"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:3b7d034378630621240fdd0f71c96e69e429d2e640d31b3d7362f3a29e6669ae",
+    "task_id": "gen3-sync-repair-H2-s7"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:7e656ddfa560c55b14f5462adcfbc7f5fe77670634e012b94f140db09c696c8d",
+    "task_id": "gen3-verified-close-H2-s7"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:a6f78d673a8fc1f5a16fdae56083d6cab9df4b44356beaad205408684747bfd2",
+    "task_id": "gen3-epic-closeout-H3-s7"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:9a22f622f0a78a76fd5a795730a3b5f52bb4f5d79e8c07003ffdae0837030ab3",
+    "task_id": "gen3-scoped-triage-H3-s7"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:9403c325a1d7f9faa95da8900666aa7abb19b9aa9746fa75d8370856afad40e6",
+    "task_id": "gen3-sync-repair-H3-s7"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:85f5e12b75d73464051579f300d940cf31aef4bda28e533ae540f6142d2491f0",
+    "task_id": "gen3-verified-close-H3-s7"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:df7cbc7a99d11ea00ca87ff1d5943448e6966fe3135e082ffe98c42b3d68cf3a",
+    "task_id": "gen3-epic-closeout-H1-s8"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:f94b664ef1ad78fa7c202f8845550056465da344e48f45dc1262eb7fc0a02b35",
+    "task_id": "gen3-scoped-triage-H1-s8"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:9b8c292a4478aecc340eb05ee9bb0595d15b483c3547dd27d45e1a77ecfd4867",
+    "task_id": "gen3-sync-repair-H1-s8"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:c909291c1bfbddf260b747c264428ddbcd87bc39901ed967be6acb3922452469",
+    "task_id": "gen3-verified-close-H1-s8"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:6b9010f3ed7224ebc8c8a10eeed56fa90ab40a11c08ca5def39f4973b5cf4dd9",
+    "task_id": "gen3-epic-closeout-H2-s8"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:99986afd4529b86366ff8ba5103e38d73a69ab697f44cab97709aa710bbe29fb",
+    "task_id": "gen3-scoped-triage-H2-s8"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:ba86ef618e7ccae033095bf127b4aae7d1194112613bff98b4206da49948e3d0",
+    "task_id": "gen3-sync-repair-H2-s8"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:341005204fe034dd6322f9974240ac2fa69e1171cfc4d9a498300b477270c755",
+    "task_id": "gen3-verified-close-H2-s8"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:d20e1517c56fc8c10cb312312a65ed67a1a55fd816f1d7645490fe3212f86086",
+    "task_id": "gen3-epic-closeout-H3-s8"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:8ad69bd11f8992107c0be6b5d1234143679178a2dad481e12173bf305fa7d695",
+    "task_id": "gen3-scoped-triage-H3-s8"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:50e56732ade500d26cae6af385796cb51aae0848dd6d1f7a1be48ba01cb71514",
+    "task_id": "gen3-sync-repair-H3-s8"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:9289e34218b41e17f57b5eada7e80db16b00f5c88abf36619337dd3ad0f89310",
+    "task_id": "gen3-verified-close-H3-s8"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:f2a1f4a60c3f09707505357004baf105e0a2aff89ed3f909406b365187cbd29b",
+    "task_id": "gen3-epic-closeout-H1-s9"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:58f34b09ec649c3e3078fc796c726d7a3ad96a35f228750d0ce81c317c26f15d",
+    "task_id": "gen3-scoped-triage-H1-s9"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:88eb37964a47d1a534d5efd3b475408e7f04674d9febdf153a6fedba22edb1c8",
+    "task_id": "gen3-sync-repair-H1-s9"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:35ad42941c713b058207899b95cc7a254a71d412fcfab4d943728b809e454d21",
+    "task_id": "gen3-verified-close-H1-s9"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:ba755f49c23accc2002ff4b1f99211d8c6129de77ab540583d5154e4ce143bd2",
+    "task_id": "gen3-epic-closeout-H2-s9"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:d7684128a7032f9d1a4972b39e3ffdb2e7e0a1f2185b1024f87319bc39d8cf07",
+    "task_id": "gen3-scoped-triage-H2-s9"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:da283788974f01378403192ee73cb60dd1893c4a7936e54d345fe9efe8a903b3",
+    "task_id": "gen3-sync-repair-H2-s9"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:74ce5caa845f27f76bfb345184b6998923aac50374703ce218ea172aba2859ee",
+    "task_id": "gen3-verified-close-H2-s9"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:2ecc07a9ebc435aec043d1d8c77e381c32cf62d66d6049253013ae1e4804e175",
+    "task_id": "gen3-epic-closeout-H3-s9"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:d582e2016d01b6f6b00bd9daee6a549e260d497dce5f9e392052ae4eceaa11c6",
+    "task_id": "gen3-scoped-triage-H3-s9"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:aef5345cec6b9037c226b0d2602ca556fdc1ab7d3118dff2e252bca2a613b6a0",
+    "task_id": "gen3-sync-repair-H3-s9"
+   },
+   {
+    "format": "agent-gym/task/v2",
+    "sha256": "sha256:75692ebbeea279b4478668b758aec850111c01d67f53298cbd2781560432c97e",
+    "task_id": "gen3-verified-close-H3-s9"
+   }
+  ],
+  "generator_version": "issue-tracker-gen/v3",
+  "golden_pool_sha256": "9d97d04de7ae9740f99bd75e7d06da6f5f92f8edf4fd18b525a0719d1700e43f",
+  "golden_rng_sha256": "a6ad2ed1185dd63825b86545c182ddc975164ff528b520c6977da2408341037b",
+  "grader_version": "agent-gym/grader/v2",
+  "schema_version": "issue_tracker/v1"
+ }
+}

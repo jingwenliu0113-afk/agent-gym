@@ -777,6 +777,11 @@
     依 §8 第 5 步寫凍結紀錄、打開 `STUDY3_FROZEN`。預期（只用於報告）：本機失敗 source 約 57 條，約 97% 的情況能做完 25 條，可判定
     曲線約 20 條，真實 cliff 比例 0.8 / 0.65 時判為以驟降為主的機率約 0.82 / 0.28。
 
+- **2026-10-24，§8 第 5 步完成：凍結**。在任何 eval 推論之前寫入並 commit `docs/decisions/036-freeze-record.json`（code_commit
+  `b512397`；`check_record` 一致；兩個 agent 的估算都不要求問使用者，所以沒有 user_decision），並設定 `STUDY3_FROZEN = True`。紀錄中的
+  預留額：本機 6,510 次呼叫、Haiku $1.8435（6,510 × dev 每次呼叫成本的 P90 $0.000283）。之後題目、agent、協定、統計、上限與預留額都
+  不得改動（測試每次比對）。下一步是第 6 步的 eval baseline。
+
 ## 附錄 A — instruction 逐字稿、規則來源與 decisive_rules
 
 （2026-10-23，§8 第 2 步。逐字稿由 dev seed 0–1 與除錯用的 seed ≥ 100 的 instance 機械地產生：issue id 換成角色的佔位符；

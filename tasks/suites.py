@@ -41,7 +41,7 @@ STUDY2_BASELINE_CAPS = {"dev": 2880, "eval": 4320}  # 每輪 dev / eval baseline
 # Study 3（decision 036，使用者 2026-10-23 核准）：§8 第 1–4 步完成之前不推論（STUDY3_APPROVED；2026-10-23 第 1–4 步完成後打開，
 # 773cd1a）；凍結紀錄 commit 之前不推論 eval（STUDY3_FROZEN 與 docs/decisions/036-freeze-record.json 一起改，測試核對）。
 STUDY3_APPROVED = True
-STUDY3_FROZEN = False
+STUDY3_FROZEN = True  # 2026-10-24：凍結紀錄 docs/decisions/036-freeze-record.json（code_commit b512397）
 STUDY3_SWEEP_CAP: int | None = 80_000  # 本機 sweep 的累計呼叫上限（decision 036 §7）
 STUDY3_SEGMENT_CAP = 3000  # 本機 sweep 每段的呼叫上限；段與段之間釋放 GPU lock
 STUDY3_BASELINE_CAPS = {"dev": 2880, "eval": 2880}  # dev 一輪（24 題 × 3）與 eval 每個 seed 區塊（24 題 × 3）：× max_turns 20 × 2

@@ -14,7 +14,7 @@ Task → Agent actions → state changes → grader → replay from checkpoint
 > （`qwen3.5:9b-q4_K_M`，台中 gpu-server 的 Ollama，decision 026）；付費 API 為 Optional。本 Project 在 GPU lock 內啟動自己的
 > Ollama server（與 incident-investigator 共用模型檔案，decision 029）。第一輪正式實驗（設定凍結，decision 030）已完成並封存：
 > Gate `gradual`、天花板效應、不進 Advanced。獨立的第二輪研究 Study 2（decision 034）也已完成。2026-10-22 使用者授權以
-> Claude Haiku 5.5 跑同一組 Study 2 題目的跨模型比較（decision 035，付費 API），2026-10-23 完成：108 / 108 成功（天花板，不跑 sweep），花費 $0.117。結論的分類見下方「結論的分類」。下面的示範是 **synthetic policy，不是 LLM 結果**。
+> Claude Haiku 5.5 跑同一組 Study 2 題目的跨模型比較（decision 035，付費 API），2026-10-23 完成：108 / 108 成功（天花板，不跑 sweep），花費 $0.117。2026-10-23 使用者核准第三輪研究 Study 3（decision 036：更難的分級任務，本機模型與 Haiku 5.5 都跑，Haiku 硬上限 40 美元），實作中，尚無結果。結論的分類見下方「結論的分類」。下面的示範是 **synthetic policy，不是 LLM 結果**。
 
 ## 示範：replay 能回答什麼（synthetic，keyless，可重現）
 

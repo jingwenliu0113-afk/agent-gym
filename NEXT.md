@@ -288,7 +288,8 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
     13 個 agent_error 都是輸出截斷；28 個不成功的 episode 逐一判定全部是 agent 錯誤，沒有題目缺陷；6 項候選疑慮（不是缺陷）寫進
     036「實作紀錄」與報告。§7 估算 N_local = 18、N_haiku = 29，都 ≥ 15，不需要問使用者。
   - **第 5 步完成（2026-10-24）**：凍結紀錄 `docs/decisions/036-freeze-record.json`（code_commit `b512397`）、`STUDY3_FROZEN = True`。
-  - 下一步（第 6 步）eval baseline：
+  - 第 6 步進行中：本機 eval baseline 依序 4 段（背景，GPU lock 內，第一段 seeds 2–3 於 10-24 05:3x 開始）；Haiku 見「Blocked / 需要使用者」S4。
+  - eval baseline 的規則：
     本機 4 段（seeds 2–3、4–5、6–7、8–9，每段 GPU lock 內、上限 2,880 次）；Haiku 由使用者執行（eval baseline ≤ 8 美元）。
 
 ### Claude Haiku 5.5 的跨模型比較（已完成，2026-10-23）
@@ -333,7 +334,20 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 ## Blocked / 需要使用者
 
 2026-10-19 結案時沒有待處理的事項；2026-10-22 使用者授權以 Claude Haiku 5.5 做跨模型比較，2026-10-23 完成（108 / 108，天花板，$0.117；
-見「下一步」與 C）。**2026-10-23 使用者核准 Study 3（decision 036），實作中。** S3（Haiku dev）已完成；目前沒有需要使用者的事項（本機 dev 只等 GPU lock）。以下保留為歷史紀錄。
+見「下一步」與 C）。**2026-10-23 使用者核准 Study 3（decision 036），實作中。** S3（Haiku dev）已完成。**目前需要使用者的事項：S4（Haiku 的 eval baseline）。** 其餘保留為歷史紀錄。
+
+### S4. Study 3 的 Haiku eval baseline（decision 036 §6、§7；需要使用者在自己的終端機執行）
+
+- 已凍結（`a14c336`，`STUDY3_FROZEN = True`）；eval 96 題 × R = 3 = 288 個 episode，一次跑完即可（Haiku 不需要分段）。eval baseline 的
+  所有嘗試合計 ≤ 8 美元（程式檢查），Study 3 合計硬上限 40 美元；依 dev 的實測（$0.161 / 72 個 episode）預估約 0.65 美元。
+- 在自己的終端機設定 Anthropic API 的 credential（不要貼給 Claude；程式不讀取、不保存），在 repo 根目錄執行：
+
+  ```bash
+  uv run --extra llm python -m experiments.run_baseline --split eval --suite study3 --provider anthropic --model claude-haiku-5-5 --rollouts 3 --max-cost-usd 8 --confirm-paid-run --run-name study3-eval-haiku-20261024
+  ```
+
+- 中斷或因預算停止時，以新的 `--run-name` 重跑（兩個目錄都列入，依最早結束者採計；合計仍 ≤ 8 美元）；跑完告訴 Claude。之後由 Claude
+  分析；有失敗的 source 才需要 sweep（指令由 Claude 寫好，使用者執行；每段 `--max-cost-usd 5`、以 `--resume-from` 接續）。
 
 ### S3. Study 3 的 Haiku dev（decision 036 §5 C、§7）：**已完成（2026-10-23，使用者執行，$0.161）**
 

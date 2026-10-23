@@ -717,6 +717,10 @@
   7. `code_commit`：工作區必須乾淨，沒有追蹤的檔案也算（忽略的 runs/ 等除外）。
   - 經一輪對抗式審查（22 項，9 項成立，都已修正；另採用 6 項成本低的強化）。修正以變異測試確認測試能抓到。
 
+- **2026-10-23，§8 第 5 步開始**：第 1–4 步完成（`773cd1a`）之後打開 `STUDY3_APPROVED`（dev 可以推論；eval 仍等凍結紀錄與
+  `STUDY3_FROZEN`）。本機 dev 在 GPU lock 內執行（`runs/study3-dev-local-20261023`；第一次嘗試時 lock 被其他工作占用，依
+  MACHINE_POLICY 不等待、不搶，稍後再試）；Haiku dev 的指令交給使用者（NEXT.md「Blocked / 需要使用者」S3）。
+
 ## 附錄 A — instruction 逐字稿、規則來源與 decisive_rules
 
 （2026-10-23，§8 第 2 步。逐字稿由 dev seed 0–1 與除錯用的 seed ≥ 100 的 instance 機械地產生：issue id 換成角色的佔位符；

@@ -280,7 +280,11 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
     study3 / study3-haiku / study3-compare 段落）、eval 的 comment 稽核；對抗式審查 12 項成立，已修正（Haiku 的累計上限一律讀
     Study 3 總帳、正式分析只列舉 repo 的 runs/、Haiku 付費 sweep 的天花板改用 036 §6 的定義等，見 036「實作紀錄」）。
   - 凍結紀錄的工具完成（`experiments/study3_freeze.py`）：對抗式審查 9 項成立，已修正。紀錄要等兩個 agent 的 dev 之後才寫。
-  - 下一步（第 5 步）：打開 `STUDY3_APPROVED` → 本機 dev（GPU lock 內，24 題 × 3）；Haiku dev 由使用者在自己的終端機執行 →
+  - 第 4 步與凍結工具 commit：`773cd1a`。第 5 步開始：`STUDY3_APPROVED = True`（eval 仍等凍結紀錄）。
+  - **本機 dev blocked（2026-10-23 18:2x）**：GPU lock 被其他工作占用（wrapper exit 75，什麼都沒啟動、沒有建立目錄）；依
+    MACHINE_POLICY 不等待、不搶，稍後再試：
+    `tools/with-gpu-lock -- uv run python -m experiments.run_baseline --split dev --suite study3 --rollouts 3 --confirm-local-run --max-model-calls 2880 --run-name study3-dev-local-20261023`
+  - 下一步（第 5 步）：本機 dev（GPU lock 內，24 題 × 3）；Haiku dev 由使用者在自己的終端機執行（指令見「Blocked / 需要使用者」）→
     兩個 dev 的審查（每個不成功或不安全的 episode 逐一判定）→ §7 估算（任一 agent 能 sweep 的失敗 source < 15 → 回頭問使用者）
     → 寫凍結紀錄（`uv run python -m experiments.study3_freeze --local-dev-run … --haiku-dev-run …`）→ `STUDY3_FROZEN = True`。
 
@@ -326,7 +330,20 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 ## Blocked / 需要使用者
 
 2026-10-19 結案時沒有待處理的事項；2026-10-22 使用者授權以 Claude Haiku 5.5 做跨模型比較，2026-10-23 完成（108 / 108，天花板，$0.117；
-見「下一步」與 C）。**2026-10-23 使用者核准 Study 3（decision 036），實作中；目前沒有需要使用者的事項。** 以下保留為歷史紀錄。
+見「下一步」與 C）。**2026-10-23 使用者核准 Study 3（decision 036），實作中。** 以下 S3 是目前唯一需要使用者的事項；其餘保留為歷史紀錄。
+
+### S3. Study 3 的 Haiku dev（decision 036 §5 C、§7；需要使用者在自己的終端機執行）
+
+- 開關已打開（`STUDY3_APPROVED`）；dev 只限 seed 0–1、R = 3；Study 3 總帳 `~/.agent-gym/study3-haiku-billing.jsonl`（與 Study 2 的
+  總帳分開），dev 的所有嘗試合計 ≤ 3 美元（程式檢查），Study 3 合計硬上限 40 美元。預估 0.2–0.7 美元。
+- 在自己的終端機設定 Anthropic API 的 credential（不要貼給 Claude；程式不讀取、不保存），在 repo 根目錄執行：
+
+  ```bash
+  uv run --extra llm python -m experiments.run_baseline --split dev --suite study3 --provider anthropic --model claude-haiku-5-5 --rollouts 3 --max-cost-usd 3 --confirm-paid-run --run-name study3-dev-haiku-20261023
+  ```
+
+- 中斷時以新的 `--run-name` 重跑（dev 的所有嘗試合計仍 ≤ 3 美元）；跑完告訴 Claude 目錄名稱。之後由 Claude 做 dev 審查與 §7 的估算；
+  任一 agent 能 sweep 的失敗 source < 15 條時，回頭問使用者（提高該 agent 的上限，或接受較少的曲線），之後才寫凍結紀錄。
 
 ### A. Study 2（decision 034）：**已完成（2026-10-17）**
 

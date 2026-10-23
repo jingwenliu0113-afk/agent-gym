@@ -38,8 +38,9 @@ STUDY2_SWEEP_CAP: int | None = 70_000  # 正式 sweep 的累計呼叫上限（de
 STUDY2_SEGMENT_CAP = 3000  # 正式 sweep 每段的呼叫上限；段與段之間釋放 GPU lock（decision 034 §8）
 STUDY2_BASELINE_CAPS = {"dev": 2880, "eval": 4320}  # 每輪 dev / eval baseline 的呼叫上限（24 或 36 題 × R 3 × max_turns 20 × 2 次嘗試）
 
-# Study 3（decision 036，使用者 2026-10-23 核准）：§8 第 1–4 步完成之前不推論（STUDY3_APPROVED）；凍結紀錄 commit 之前不推論 eval。
-STUDY3_APPROVED = False
+# Study 3（decision 036，使用者 2026-10-23 核准）：§8 第 1–4 步完成之前不推論（STUDY3_APPROVED；2026-10-23 第 1–4 步完成後打開，
+# 773cd1a）；凍結紀錄 commit 之前不推論 eval（STUDY3_FROZEN 與 docs/decisions/036-freeze-record.json 一起改，測試核對）。
+STUDY3_APPROVED = True
 STUDY3_FROZEN = False
 STUDY3_SWEEP_CAP: int | None = 80_000  # 本機 sweep 的累計呼叫上限（decision 036 §7）
 STUDY3_SEGMENT_CAP = 3000  # 本機 sweep 每段的呼叫上限；段與段之間釋放 GPU lock

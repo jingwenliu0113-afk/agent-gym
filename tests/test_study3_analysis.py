@@ -298,9 +298,10 @@ def test_formal_sweeps_use_exactly_the_listed_baselines(segment: Path, tmp_path:
     listed = [tmp_path / "runs" / "seg", tmp_path / "runs" / "seg-4-5"]
     with pytest.raises(ValueError, match=r"not listed \['[^']*seg-6'\]"):
         s3.check_baseline_set(local_agent_config().config_id, [*listed, outside], tmp_path / "runs")
-    with pytest.raises(SystemExit):  # 給齊之後，列入規則通過，接著才是研究的開關
+    monkeypatch.setattr(suites, "STUDY3_FROZEN", False)
+    with pytest.raises(SystemExit):  # 給齊之後，列入規則通過，接著才是研究的開關（eval 等凍結紀錄）
         run_sweep.main([*argv[:2], "runs/seg-4-5", *argv[2:]])
-    assert "approval of decision 036" in capsys.readouterr().err
+    assert "frozen record of decision 036" in capsys.readouterr().err
 
 
 def test_a_formal_analysis_needs_three_rollouts(segment: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

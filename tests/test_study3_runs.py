@@ -33,7 +33,8 @@ def test_study3_is_registered_with_its_switches_caps_and_rules() -> None:
     spec = STUDIES["study3"]
     assert "study3" in suites.SUITES and suite_for_generator(g3.GENERATOR_VERSION) == "study3"
     assert spec.gated and spec.approved_flag == "STUDY3_APPROVED" and spec.frozen_flag == "STUDY3_FROZEN"
-    assert suites.STUDY3_APPROVED is False and suites.STUDY3_FROZEN is False  # §8 第 1–4 步完成之前不推論
+    # §8 第 1–4 步完成（2026-10-23，773cd1a）之後打開；eval 等凍結紀錄（STUDY3_FROZEN 與紀錄一起，見 test_study3_freeze）
+    assert suites.STUDY3_APPROVED is True
     assert dict(spec.baseline_caps) == {"dev": 2880, "eval": 2880} and spec.segment_cap == 3000
     assert suites.sweep_cap("study3") == 80_000
     assert spec.source_rule == "first_failure" and spec.paid is suites.STUDY3_PAID
@@ -42,6 +43,8 @@ def test_study3_is_registered_with_its_switches_caps_and_rules() -> None:
 
 
 def test_study3_model_runs_wait_for_both_switches(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(suites, "STUDY3_APPROVED", False)
+    monkeypatch.setattr(suites, "STUDY3_FROZEN", False)
     for split in ("dev", "eval"):
         with pytest.raises(ValueError, match="approval of decision 036"):
             suites.check_model_run("study3", split)

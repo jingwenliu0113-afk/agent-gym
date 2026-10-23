@@ -333,9 +333,11 @@ def estimate_sweep_calls(levels: dict[str, dict[str, Any]], *, source_rule: str,
 # ---------------------------------------------------------------- power
 
 
-def max_turns_power(*, reps: int = 200, seed: int = 0, plan: SweepPlan = REGISTERED_PLAN) -> list[dict[str, Any]]:
+def max_turns_power(*, reps: int = 200, seed: int = 0, plan: SweepPlan = REGISTERED_PLAN,
+                    lengths: Sequence[int] = POWER_LENGTHS) -> list[dict[str, Any]]:
+    """lengths：曲線長度（預設 Study 2 的 13 / 16 / 20；Study 3 用 16–20，decision 036 §8 第 3 步）。"""
     rows = []
-    for length in POWER_LENGTHS:
+    for length in lengths:
         scenarios: list[tuple[str, str, tuple[float, ...], int | None, tuple[int, float] | None]] = []
         for p_pre, p_post in ((0.9, 0.1), (0.8, 0.2), (0.7, 0.2), (0.6, 0.1)):
             for m in sorted({0, (length - 1) // 2, length - 2}):
@@ -359,9 +361,9 @@ def max_turns_power(*, reps: int = 200, seed: int = 0, plan: SweepPlan = REGISTE
     return rows
 
 
-def summarize_power(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+def summarize_power(rows: Sequence[dict[str, Any]], lengths: Sequence[int] = POWER_LENGTHS) -> list[dict[str, Any]]:
     out = []
-    for length in POWER_LENGTHS:
+    for length in lengths:
         for f in POWER_TURN_OUT:
             sel = [r for r in rows if r["length"] == length and r["turn_out"] == f]
             row: dict[str, Any] = {"length": length, "turn_out": f}

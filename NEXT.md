@@ -268,6 +268,11 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
   5. dev（本機在 GPU lock 內；Haiku 由使用者執行）→ 估算 → 凍結紀錄 → 打開 eval 的開關；
   6. eval baseline；7. sweep；8. 分析、報告、README、NEXT。
 - 第 1–4 步完成之前，不做任何 Study 3 的模型推論。
+- 進度（2026-10-23）：
+  - 第 1 步 A 部分完成（`032b030`）：研究登記表 `tasks.suites.STUDIES`、各研究的付費規格與總帳（`STUDY3_PAID`：40 美元、dev ≤ 3、
+    eval baseline ≤ 8）、Study 2 的付費入口關閉。B 部分（study3 的登記、依 seed 區塊的 baseline、Study 3 的 sweep 執行方式）
+    在 generator v3 完成後與 study3 的登記一起做（decision 036「實作紀錄」）。
+  - 第 2 步：generator v3 的核心完成（`a54c972`，`tasks/generator_v3.py`）；四個題型（`tasks/gen3/`）實作中。
 
 ### Claude Haiku 5.5 的跨模型比較（已完成，2026-10-23）
 

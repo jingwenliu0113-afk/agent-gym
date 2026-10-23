@@ -274,8 +274,15 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
     在 generator v3 完成後與 study3 的登記一起做（decision 036「實作紀錄」）。
   - 第 2 步完成：generator v3（核心與四個題型）、附錄 A、B 類審查（6 項發現，0 項成立；採用 1 項措辭澄清），golden hash 已釘住。
   - 第 1 步 B 部分完成：study3 登記（開關仍關閉）、依 seed 區塊的 baseline、Study 3 的 sweep 執行方式。
-  - 第 3 步的工具已先完成：context 檢查、統計工具（置換檢定、sweep 成本與預留額、估算、偵測力）。剩下 dev 審查工具。
-  - 下一步：第 3 步的 dev 審查工具（兩個 agent、comment 稽核）；第 4 步分析與報告的一般化；完成後打開 STUDY3_APPROVED 跑 dev。
+  - 第 3 步完成（`23ef189`）：context 檢查、統計工具（置換檢定、sweep 成本與預留額、估算、偵測力）、dev 審查與估算工具
+    （兩個 agent、comment 稽核）。
+  - 第 4 步完成：`experiments/study3_analysis.py`（一次一個 agent）、`experiments/study3_report.py`（結果頁、曲線圖、README 的
+    study3 / study3-haiku / study3-compare 段落）、eval 的 comment 稽核；對抗式審查 12 項成立，已修正（Haiku 的累計上限一律讀
+    Study 3 總帳、正式分析只列舉 repo 的 runs/、Haiku 付費 sweep 的天花板改用 036 §6 的定義等，見 036「實作紀錄」）。
+  - 凍結紀錄的工具完成（`experiments/study3_freeze.py`）：對抗式審查 9 項成立，已修正。紀錄要等兩個 agent 的 dev 之後才寫。
+  - 下一步（第 5 步）：打開 `STUDY3_APPROVED` → 本機 dev（GPU lock 內，24 題 × 3）；Haiku dev 由使用者在自己的終端機執行 →
+    兩個 dev 的審查（每個不成功或不安全的 episode 逐一判定）→ §7 估算（任一 agent 能 sweep 的失敗 source < 15 → 回頭問使用者）
+    → 寫凍結紀錄（`uv run python -m experiments.study3_freeze --local-dev-run … --haiku-dev-run …`）→ `STUDY3_FROZEN = True`。
 
 ### Claude Haiku 5.5 的跨模型比較（已完成，2026-10-23）
 

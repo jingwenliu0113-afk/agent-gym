@@ -11,6 +11,7 @@ Claude Haiku 5.5 的跨模型比較（decision 035）寫到 ``docs/results/study
 - **不做 Core Gate 的判定**，輸出中也不會出現「Advanced」（有測試）。
 - 第一輪封存：拒絕寫入 repo 的 ``docs/results/`` 本身（第一輪的五個檔案在那裡），也拒絕把 ``--readme`` 指到 ``docs/results/`` 之下；
   比較時不分大小寫（macOS 的檔案系統不分大小寫），也不依賴目前的工作目錄。README 只改 study2 的段落。
+- 也拒絕寫進 Study 3 的結果目錄（``STUDY3_RESULT_DIRS``）或覆寫 Study 3 報告的 summary.json（decision 036 §6）。
 - baseline 或 sweep 任一是 dry-run，報告就標示「不是研究結果」，而且不能寫進 README。資料不完整時照常寫入，並標示「資料不完整」。
 - 所有檢查（含 README 的標記）都在寫任何檔案之前完成；正式結果必須使用 B = 10,000。
 """
@@ -53,6 +54,9 @@ VARIANTS: dict[str, dict[str, str]] = {
     },
 }
 RESULT_DIRS: dict[str, Path] = {name: ROUND1_RESULTS / Path(v["page"]).parent.name for name, v in VARIANTS.items()}
+# Study 3 的結果目錄（decision 036 §6；與 experiments.study3_report.RESULT_DIRS 相同，有測試）：Study 2 / 035 的報告不寫進去
+STUDY3_RESULT_DIRS: dict[str, Path] = {name: ROUND1_RESULTS / name for name in ("study3", "study3-haiku")}
+STUDY3_FORMAT_PREFIX = "agent-gym/study3-"
 
 
 def variant(summary: dict[str, Any]) -> str:
@@ -286,6 +290,23 @@ def _under_round1(path: Path) -> bool:
     return any(_is_round1_path(parent) for parent in (resolved, *resolved.parents))
 
 
+def _refuse_study3_dir(out: Path) -> None:
+    """Study 2 / 035 的報告不寫進 Study 3 的結果目錄（或其子目錄），也不覆寫 Study 3 報告的 summary.json（decision 036 §6）。
+    只拒絕 Study 3 的目錄與檔案；Study 2 與 035 原本的輸出不受影響。"""
+    resolved = Path(out).resolve()
+    for name, directory in STUDY3_RESULT_DIRS.items():
+        if any(_same_dir(p, directory) for p in (resolved, *resolved.parents)):
+            raise ValueError(f"{directory} holds the {name} report (decision 036); a Study 2 / decision 035 report never goes there")
+    existing = Path(out) / "summary.json"
+    if existing.is_file():
+        try:
+            fmt = json.loads(existing.read_text(encoding="utf-8")).get("format")
+        except (OSError, ValueError, AttributeError):
+            fmt = None
+        if isinstance(fmt, str) and fmt.startswith(STUDY3_FORMAT_PREFIX):
+            raise ValueError(f"{existing} is a Study 3 summary (decision 036); a Study 2 / decision 035 report never overwrites it")
+
+
 def write_report(baseline_runs: Sequence[str | Path], sweep_runs: Sequence[str | Path], out: str | Path, *,
                  readme: str | Path | None = None, replicates: int = BOOTSTRAP_REPLICATES) -> dict[str, Any]:
     out = Path(out)
@@ -293,6 +314,7 @@ def write_report(baseline_runs: Sequence[str | Path], sweep_runs: Sequence[str |
         raise ValueError("docs/results holds the sealed round-1 results; write Study 2 to docs/results/study2 (decision 034 §1)")
     if readme is not None and _under_round1(Path(readme).parent):
         raise ValueError("the README of the sealed round-1 results is never modified (decision 034 §1)")
+    _refuse_study3_dir(out)
     summary = build(baseline_runs, sweep_runs, replicates=replicates)
     own = variant(summary)
     for name, directory in RESULT_DIRS.items():  # 一個 agent 的報告不寫進另一個 agent 的目錄或其子目錄（decision 035 §6）

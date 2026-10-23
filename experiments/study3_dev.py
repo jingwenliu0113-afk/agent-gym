@@ -21,7 +21,8 @@ review（§5 C）
   開頭，供逐一判定為 agent 錯誤或題目缺陷。
 - **每級別**（§3 的報告項目）：成功率（task 等權，agent_error / aborted 計為未成功）、turn 的分布（平均、P50、P90、最大）、以
   max_turns 結束的比例（分母為全部 episode）、agent_error / aborted 的數目、context 用盡的次數（manifest 中
-  ``OllamaContextError``，或 fit check 拒絕送出的 ``AdapterError``）。不得依這些數字調整題目。
+  ``OllamaContextError``，或 fit check 拒絕送出的 ``AdapterError``）、最大的 request（bytes；``study3_context.request_bytes``
+  由 trajectory 重建，沒有 trajectory 的 agent_error 不在其中）。不得依這些數字調整題目。
 
 estimate（§7）
 ==============
@@ -42,6 +43,7 @@ from agents.ollama import local_agent_config
 from apps.issue_tracker.schema import IssueTrackerState
 from env.hashing import canonical_json
 from experiments.study2_dev import negated_comments, oracle_final_state, state_diff
+from experiments.study3_context import request_bytes
 from experiments.study3_stats import estimate, quantile
 from replay.aborts import read_manifest
 from replay.trajectory import Trajectory, load_strict_json
@@ -105,6 +107,7 @@ def _episode(trajectory: Trajectory, instance: Any) -> dict[str, Any]:
         "turns": len(trajectory.turns), "tool_calls": len(trajectory.records()), "oracle_calls": len(instance.oracle_calls),
         "comment_audit": comment_audit(trajectory),
         "cost_per_turn": [turn.usage.cost_usd for turn in trajectory.turns],
+        "max_request_bytes": max(request_bytes(trajectory)),
     }
     if report.success:
         out["diff_from_oracle"] = state_diff(final, oracle_final_state(instance))
@@ -189,6 +192,7 @@ def review(run_dirs: Sequence[str | Path], *, agent: str, allow_dry_run: bool = 
             "agent_error": sum(u["outcome"] == "agent_error" for u in bad),
             "aborted": sum(u["outcome"] == "aborted" for u in bad),
             "context_exhausted": context[lv],
+            "max_request_bytes": max((e["max_request_bytes"] for e in eps), default=None),
         }
     return {
         "agent": agent,
@@ -233,12 +237,12 @@ def render_review(data: dict[str, Any]) -> str:
     lines = [f"# Study 3 dev 審查（decision 036 §5 C）：{data['agent']}", ""]
     if data["stopped_by_budget"] or data["missing"]:
         lines += [f"> **不完整**：因預算停止 {data['stopped_by_budget'] or '無'}；缺少 {len(data['missing'])} 個 episode。", ""]
-    lines += ["| 級別 | episode | 成功率（task 等權） | 平均 turn | P50 | P90 | 最大 | max_turns 比例 | agent_error | aborted | context 用盡 |",
-              "|---|---|---|---|---|---|---|---|---|---|---|"]
+    lines += ["| 級別 | episode | 成功率（task 等權） | 平均 turn | P50 | P90 | 最大 | max_turns 比例 | agent_error | aborted | context 用盡 | "
+              "最大 request（bytes） |", "|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for lv, m in data["levels"].items():
         lines.append(f"| {lv} | {m['episodes']} | {fmt(m['success_rate'])} | {fmt(m['mean_turns'])} | {m['p50_turns'] or '—'} | "
                      f"{m['p90_turns'] or '—'} | {m['max_turns_seen'] or '—'} | {fmt(m['max_turns_rate'])} | {m['agent_error']} | "
-                     f"{m['aborted']} | {m['context_exhausted']} |")
+                     f"{m['aborted']} | {m['context_exhausted']} | {m['max_request_bytes'] or '—'} |")
     lines += ["", f"## 疑似評分寬鬆（成功、但與 oracle 的最終狀態不同、comment 可能語意相反，或 comment 稽核有標記）："
               f"{len(data['suspected_grader_issues'])} 個", ""]
     for e in data["suspected_grader_issues"]:

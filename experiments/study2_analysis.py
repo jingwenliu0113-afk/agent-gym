@@ -348,8 +348,12 @@ def _state_at(source: Trajectory, k: int) -> tuple[Task, Any]:
     return task, env.current_state()
 
 
-def mechanically_unrecoverable(source: Trajectory, k: int) -> bool:
-    """checkpoint k 的狀態已讓某個 success predicate 永遠無法成立（comment 無法刪除；見模組 docstring）。"""
+def mechanically_unrecoverable(source: Trajectory, k: int, *, saturated: bool = False) -> bool:
+    """checkpoint k 的狀態已讓某個 success predicate 永遠無法成立（comment 無法刪除；見模組 docstring）。
+
+    saturated（只供 Study 3，decision 036 §2 次要結果 1）：另含 034 §7 定義中、這裡原本沒有涵蓋的情況：帶 max_count m 的
+    comment_added，該 issue 新增的 comment 已達 m 則，而且其中符合 contains 的少於 min_count。預設 False：Study 2 與 decision 035
+    的結果逐 byte 不變。"""
     task, state = _state_at(source, k)
     initial = task.initial_state_obj()
 
@@ -362,8 +366,14 @@ def mechanically_unrecoverable(source: Trajectory, k: int) -> bool:
             if comments(state, issue_id) != comments(initial, issue_id):
                 return True
         if predicate["type"] == "comment_added" and "max_count" in predicate:
-            if len(comments(state, issue_id) - comments(initial, issue_id)) > predicate["max_count"]:
+            new = comments(state, issue_id) - comments(initial, issue_id)
+            if len(new) > predicate["max_count"]:
                 return True
+            if saturated and len(new) >= predicate["max_count"]:
+                bodies = [c.body.casefold() for c in state.comments.values() if c.id in new]
+                matching = sum(1 for body in bodies if all(s.casefold() in body for s in predicate.get("contains", [])))
+                if matching < predicate.get("min_count", 1):
+                    return True
     return False
 
 

@@ -715,6 +715,15 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--confirm-paid-run needs sources produced by the Anthropic agent (Optional, decision 026 §4)")
     if args.confirm_local_run and args.max_cost_usd is not None:
         parser.error("cost caps do not apply to local models; use --max-model-calls (decision 026 §2)")
+    suite = suite_for_task_ids(list(sources))
+    listing = None
+    if not args.dry_run and study(suite).sweep_order == "frozen_permutation":  # decision 036 §6：baseline 目錄由程式列舉、核對
+        from experiments.study3_analysis import check_baseline_set  # 延遲 import：study3_analysis 依賴本模組
+
+        try:  # 列舉的根目錄是 repo 的 runs/（study3_analysis.RUNS_ROOT），與正式分析相同
+            listing = check_baseline_set(config.config_id, baseline_directories(args.baseline_run))
+        except ValueError as exc:
+            parser.error(str(exc))
     skip: tuple[str, ...] = ()
     resumed_from: list[str] = []
     carried: dict[str, Any] = {}
@@ -765,7 +774,6 @@ def main(argv: list[str] | None = None) -> int:
         if all(source is None or task_id in skip for task_id, source in sources.items()):
             print("nothing left to run: analyze the existing directories with experiments.analyze_sweep", file=sys.stderr)
             return 0
-    suite = suite_for_task_ids(list(sources))
     max_model_calls = args.max_model_calls
     cumulative_left: int | None = None
     if args.total_model_calls is not None:
@@ -813,15 +821,21 @@ def main(argv: list[str] | None = None) -> int:
             parser.error("--confirm-paid-run requires --max-cost-usd")
         spec = paid_spec(suite)
         if spec is not None:  # decision 035 / 036 §7：上限由該研究的總帳（所有 Haiku 付費呼叫）計算
-            from experiments.study2_analysis import analyze_baseline_runs
-
             if args.total_cost_usd != spec.total_usd:
                 parser.error(f"a paid {spec.name} sweep must use --total-cost-usd {spec.total_usd:g} (decision {spec.decision})")
             try:
-                adopted = analyze_baseline_runs(args.baseline_run, replicates=1)
-                if adopted["n_failed_episodes"] == 0 and not adopted["missing_tasks"] and not adopted["rollout_counts_not_r"]:
-                    # 採計的 episode 全部成功（含中斷後重跑的目錄）
-                    parser.error("every adopted eval baseline episode succeeded: ceiling, no sweep (decision 034 §8 / 035 §4)")
+                if listing is not None:  # decision 036 §6 的天花板：沒有失敗的 source，而且 baseline 完整（agent_error 不是 source）
+                    from experiments.study3_analysis import ceiling
+
+                    if ceiling(listing, sources):
+                        parser.error("no failed source and the eval baseline is complete: ceiling, no sweep (decision 036 §6)")
+                else:
+                    from experiments.study2_analysis import analyze_baseline_runs
+
+                    adopted = analyze_baseline_runs(args.baseline_run, replicates=1)
+                    if adopted["n_failed_episodes"] == 0 and not adopted["missing_tasks"] and not adopted["rollout_counts_not_r"]:
+                        # 採計的 episode 全部成功（含中斷後重跑的目錄）
+                        parser.error("every adopted eval baseline episode succeeded: ceiling, no sweep (decision 034 §8 / 035 §4)")
                 check_model_run(suite, "eval")
                 check_paid_agent(config, spec)
                 check_paid_run(spec, model=config.model_config.get("model"), split="eval", max_cost_usd=args.max_cost_usd,

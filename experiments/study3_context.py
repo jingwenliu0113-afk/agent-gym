@@ -10,6 +10,10 @@ num_ctx 暫時放大，只為了量出超過上限的 request），assistant 的
 
 超過 turn 的正確解（long alternatives）本來就無法在 max_turns 內完成，不列入檢查。不通過的級別在 golden hash 之前修改，修改寫進
 decision 036。
+
+``request_bytes``：dev 與 eval 報告的「最大的 request 大小」（§3「context 與 agent_error」的報告）由 trajectory 重建每個 turn 送出的
+request（本機：Ollama ``/api/chat`` 的形狀與 turn.meta 記錄的 seed；Haiku：Messages API 的形狀），以 canonical JSON 的 bytes 計。
+被 fit check 拒絕送出的 request 沒有 trajectory，不在其中（記為 agent_error，計入 context 用盡）。
 """
 
 from __future__ import annotations
@@ -21,10 +25,13 @@ import math
 from pathlib import Path
 from typing import Any, Sequence
 
-from agents.ollama import OllamaPolicy, local_agent_config
+from agents.baseline import ANTHROPIC_POLICY, build_request
+from agents.ollama import OLLAMA_POLICY, OllamaPolicy, build_chat_request, local_agent_config
+from env.environment import IssueTrackerEnv
 from env.hashing import canonical_json
 from experiments.run_baseline import OllamaOracleFakeClient
 from replay.runner import run_episode
+from replay.trajectory import Trajectory, render_messages
 from tasks.generator_v3 import MAX_TURNS, GeneratedInstanceV3
 
 _OPTIONS = local_agent_config().model_config["options"]
@@ -66,6 +73,23 @@ def request_sizes(instance: GeneratedInstanceV3, calls: Sequence[Call]) -> list[
     policy = OllamaPolicy(client, _measuring_config(), seed_source=lambda: 1)
     run_episode(replayed.task, policy, max_turns=max(MAX_TURNS, len(calls) + 1), clock=lambda: 0.0)
     return [len(canonical_json(request).encode("utf-8")) for request in client.requests]
+
+
+def request_bytes(trajectory: Trajectory) -> list[int]:
+    """trajectory 每個 turn 送出的 request 的 bytes（canonical JSON），依 agent 的 adapter 重建（模組 docstring）。"""
+    agent = trajectory.agent
+    tools = IssueTrackerEnv.tool_specs()
+    out = []
+    for i, turn in enumerate(trajectory.turns):
+        messages = render_messages(trajectory.task["instruction"], agent, trajectory.turns[:i])
+        if agent.policy == OLLAMA_POLICY:
+            request = build_chat_request(messages, tools, agent.model_config, seed=turn.meta["seed"])
+        elif agent.policy == ANTHROPIC_POLICY:
+            request = build_request(messages, tools, agent.model_config)
+        else:
+            raise ValueError(f"no request shape for the policy {agent.policy!r}")
+        out.append(len(canonical_json(request).encode("utf-8")))
+    return out
 
 
 def _worst(sizes: Sequence[int], reserve: int) -> int:

@@ -514,8 +514,9 @@ def test_the_paid_sweep_cli_refuses_before_creating_a_client(sweep_cli: dict, jo
     assert exc.value.code != 0 and sweep_cli["made"] == [] and sweep_cli["calls"] == []
 
 
-def test_no_paid_sweep_when_every_adopted_episode_succeeded(tmp_path: Path, sweep_cli: dict) -> None:
-    """採計的 episode 全部成功 → 天花板，不跑 sweep（decision 034 §8 / 035 §4）；中斷後重跑的目錄也一樣。"""
+def test_no_paid_sweep_when_every_adopted_episode_succeeded(tmp_path: Path, sweep_cli: dict, capsys: pytest.CaptureFixture[str]) -> None:
+    """採計的 episode 全部成功 → 天花板，不跑 sweep（decision 034 §8 / 035 §4）；中斷後重跑的目錄也一樣。Study 2 的訊息不變
+    （Study 3 的天花板另依 036 §6 判定，見 tests/test_study3_paid_cli.py）。"""
     for name in ("c0", "c"):  # 同一份總帳（sweep_cli 的 journal fixture）
         run_split("eval", PaidLikeClient(EVAL), run_dir=tmp_path / "runs" / name, clock=ZERO, suite="study2",
                   agent_config=haiku_agent_config(), rollouts=3, max_cost_usd=7.0)
@@ -524,6 +525,7 @@ def test_no_paid_sweep_when_every_adopted_episode_succeeded(tmp_path: Path, swee
         with pytest.raises(SystemExit) as exc:
             run_sweep.main(["--baseline-run", *dirs, *SWEEP, "--max-cost-usd", "70", "--total-cost-usd", "70", "--run-name", "s1"])
         assert exc.value.code != 0
+        assert "every adopted eval baseline episode succeeded: ceiling, no sweep (decision 034 §8 / 035 §4)" in capsys.readouterr().err
     assert sweep_cli["made"] == []
 
 

@@ -13,6 +13,7 @@ from agents.baseline import haiku_agent_config
 from agents.ollama import local_agent_config
 from experiments import study3_dev as dev
 from experiments.run_baseline import OllamaOracleFakeClient, OracleFakeClient, run_split
+from experiments.study3_context import LIMIT_BYTES
 from tasks.suites import suite_pool
 
 DEV = suite_pool("study3", "dev")
@@ -75,6 +76,10 @@ def test_review_reports_every_level_and_the_audits(local_dev: Path) -> None:
     assert any(e["task_id"] == "gen3-epic-closeout-H2-s0" for e in data["to_classify"])
     text = dev.render_review(data)
     assert "comment 稽核" in text and "wrong-tracker" in text
+    for lv, m in data["levels"].items():  # §3：dev 也逐級別報告最大的 request 大小（由 trajectory 重建）
+        sizes = [e["max_request_bytes"] for e in data["episodes"] if e["level"] == lv]
+        assert m["max_request_bytes"] == max(sizes) and 0 < max(sizes) <= LIMIT_BYTES
+    assert "最大 request（bytes" in text
 
 
 def test_review_checks_the_agent_and_refuses_dry_runs_by_default(local_dev: Path, haiku_dev: Path) -> None:

@@ -653,6 +653,70 @@
     只跑失敗的 source、完成 25 條就停止（跨段累計）、開始新的 source 之前剩下的累計上限必須 ≥ 預留額、接續的 source 不再檢查、
     沒有凍結紀錄就拒絕；`analyze_sweep` 依同一個順序核對完成的曲線是前綴。
 
+- **2026-10-23，§8 第 3 步完成**：
+  - dev 審查與估算（`experiments/study3_dev.py`，`23ef189`）：兩個 agent；§5 C 的 comment 稽核；成功 episode 與 oracle 最終狀態的
+    機械比對；各級別的成功率、turn 的分布、max_turns 比例、agent_error、context 用盡與最大的 request；§7 的估算
+    （`study3_stats.estimate`）。
+  - 偵測力：分級檢定的模擬（`study3_stats.rq2_power`）與 RQ1 在 L = 16–20 的偵測力（`study2_dev.max_turns_power(lengths=…)`；
+    Study 2 的預設長度不變）。
+- **2026-10-23，§8 第 4 步完成**：`experiments/study3_analysis.py`（一次一個 agent）與 `experiments/study3_report.py`（結果頁、
+  曲線圖、README 的 study3 / study3-haiku / study3-compare 段落）；Study 2 / 035 的輸出逐 byte 不變（測試）。經一輪對抗式審查
+  （12 項成立），修正記在下一筆。另外補上 **eval 的 comment 稽核**（§5 C「dev 與 eval 都一樣」）：採計的 eval baseline episode
+  以 `study3_dev.comment_audit` 稽核，列在分析的 `baseline.comment_audit` 與報告的「comment 稽核」一節（條數、成功 episode 上的
+  條數、依類別的條數、逐則清單）；只列出，不改變評分。讀法：sweep 的 rerun 不稽核（§5 C 說的是 dev 與 eval 的 episode；rerun 是
+  曲線的估計，不是 episode 的評分）。
+- **2026-10-23，§8 第 4 步（分析與報告：`study3_analysis`、`study3_report`）審查之後的修正**。在任何 eval 推論之前（沒有任何
+  Study 3 結果）；不是設計變更，只把實作對齊本 decision 的字面，並記錄讀法：
+  - **Haiku 剩下的累計上限**一律以登記的 Study 3 總帳（`billing.journal_path(STUDY3_PAID)`，也是 run_sweep 停止時用的值）計算：
+    40 − 1 − 總帳的全部花費（§6）。總帳不存在、無法讀取，或 runs/ 中這個 agent 的 Study 3 manifest 合計大於總帳（總帳被重設）
+    → 拒絕；manifest 合計只核對與列出。不能另給總帳的路徑（原本的 `--haiku-journal` 移除：預設用 manifest、另一個來源只是選項，
+    等於看過結果之後才能選擇 sweep 的完整性狀態）。dry-run 沒有總帳，以 dry-run 目錄的 manifest 合計。
+  - **runs 根目錄**：正式分析與正式報告一律列舉 repo 的 `runs/`（`study3_analysis.RUNS_ROOT`，不依賴工作目錄；從磁碟讀回的摘要
+    也核對），run_sweep 的 baseline 目錄核對也以它為準；其他根目錄（某一段、部分副本）只供 dry-run。
+  - **「qa 角色相關」那一行**的角色由 generator 種入的 comment 決定：qa-broken、qa-confirmed，以及 H1 / H3 的 qa-confirmed 干擾項
+    （open-qa-confirmed、unlabeled-qa-confirmed）。§3 已寫明 qa-confirmed 是「H1 的候選，H1 / H3 的干擾項」，附錄 A.6 把另列的
+    那一行擴大到 qa-confirmed；原本只比對完全相同的角色名稱，漏掉這兩個干擾項。
+  - **查找與去重**（附錄 A.5 / A.6）：分類依整條 source 的最終失敗。A.5 沒有指定 cliff 那一步，而遺漏的候選不會在 turn k 有變更，
+    所以不以 cliff 那一步分類。定義：missed = 最終失敗、而且 source 從沒有變更過的候選；只看第一頁 = missed 含 `params.hidden`；
+    只做一次 label search = missed 不是空的，而且全部只帶同一個 label（`params.target_labels`）；去重 = 最終失敗的候選中有兩個 label
+    都帶的（qa-broken）。另列 k / n（算法同另列的那幾行），不從角色表與 V8 的計數中移除；三者不互斥（例如隱藏的候選只帶一個
+    label 時，兩個旗標都成立）。去重的失誤在 cliff 那一步時也計入 qa 那一行（上界，A.6）。
+  - **§2 次要結果第 4 點**：第一輪的 max_turns 規則在主要判定的同一個完成前綴上輸出 k / n、Wilson CI 與標籤（同 034 的次要規則）；
+    034 的 max_turns 敏感度只報 k / n 與 CI（同 034 的 `_sensitivity_rq1`，沒有標籤）。
+  - **RQ2 排除 agent_error**（§3「只報告」）：只報各級的成功率與描述用的差，不做檢定，也不判定有效與否。
+  - **最大的 request**（§3 的報告項目，dev 與 eval）：由採計 episode 的 trajectory 依 adapter 的 request 形狀重建
+    （`study3_context.request_bytes`；本機用 turn.meta 記錄的 seed）。被 fit check 拒絕送出的 agent_error 沒有 trajectory，不在其中，
+    已計入 context 用盡（報告中註明）。dev 審查（`study3_dev`）同樣補上。
+  - **run_sweep 的 Study 3 付費入口**：天花板依 §6（沒有失敗的 source，而且 baseline 完整；agent_error 不是 source），不再呼叫只接受
+    Study 2 的分析（原本一律以 "these are not Study 2 baseline runs" 拒絕）。Study 2 的路徑不變。
+  - **歧義（依字面或較保守的讀法實作，不依任何結果選擇）**：
+    1. 提前結束時，次要結果與敏感度（行為性 cliff 比例、第一輪的規則、agent_error 的 RQ1 敏感度）是否也不輸出三分法的標籤：
+       §6 寫「不論已完成的曲線有多少，都不輸出三分法的標籤；只報告已完成前綴的 k / n 與 Wilson 95% CI，以及敏感度範圍」。這些是
+       「RQ1 的次要結果」，採「都不輸出、k / n 與 CI 照報」；另一種讀法是只有主要判定不輸出。天花板與其他資料不完整的情況同樣不輸出
+       （沒有曲線，n = 0）。因上限中途停止的範圍照 §6 輸出標籤。
+    2. 天花板是否要求 response model 只有一種：034 的天花板含「not blocked」，036 §6 的字面只有「沒有失敗的 source，而且 baseline
+       完整」。依 036 的字面：baseline 的 pooling_blocked 不影響天花板（天花板沒有任何合併的估計）。
+    3. response model 不只一種（sweep 的 blocked）時：036 沒有直接寫次要結果與敏感度怎麼處理；依 034 的 `analyze_sweep_dirs`
+       （blocked → RQ2、by_rule、sensitivity 都是 None）與 decision 009 §4，RQ1 的兩個範圍、次要結果與 RQ1 的敏感度都不合併估計。
+
+- **2026-10-23，凍結紀錄的工具（§9，`experiments/study3_freeze.py`）**：在任何 eval 推論之前；不是設計變更，記錄讀法：
+  1. 內容依 §9；`check_record` 由測試每次比對紀錄與程式（題目、agent、付費、協定、統計、排列、預留額，以及 §9 其他項目都存在），
+     `STUDY3_FROZEN` 只在紀錄存在時為 True（測試）。
+  2. 除了「附錄 A 逐字稿的 hash」，也記錄本文（「背景」到「放棄的替代方案」）與附錄 B 的 hash：§6 的完整性與天花板等定義在凍結後
+     不能改寫。實作紀錄不在 hash 內，之後可以繼續寫。
+  3. Haiku dev 的實際花費（§7 的 N_haiku）一律讀登記的 Study 3 總帳，不能另給路徑；總帳不存在、有無法計價的呼叫、凍結之前已有
+     eval 的花費，或 manifest 合計大於總帳（總帳被重設）→ 拒絕（同第 4 步的修正）。
+  4. 「預期的 n 與上述機率」（§2，只用於報告）依 §6 的停止規則模擬：每題有失敗 source 的機率由 dev 每題的失敗比例計
+     （agent_error 沒有 trajectory，不是 source，只計入分母）；目標 min(25, N_failed)；開始新的 source 之前剩下的 ≥ 預留額；
+     單條成本取自登記的 plan 的成本模擬；可判定的條數 ~ Binomial(完成條數, 4/5)。不用 §7 的 N：它以單條成本的 P90 計，是回頭問
+     使用者的保守門檻，不是期望值。Haiku 的成本以 dev 每次呼叫成本的平均換算（預留額仍依 §6 用 P90）。
+  5. RQ1 在 L = 16–20 的偵測力（`max_turns_power`，reps 200、seed 0）也寫進紀錄（§9「預期的 n 與偵測力」）。
+  6. §7 的兩種回應中，「接受較少的曲線」以 `--user-accepts-fewer-curves`（日期與使用者的話）記進紀錄；「提高上限」是程式與 decision
+     log 的變更，之後重算的估算不再要求問。估算要求問、紀錄中卻沒有使用者對那些 agent 的決定 → `check_record` 不通過；
+     沒有要求問卻有決定 → 也不通過。
+  7. `code_commit`：工作區必須乾淨，沒有追蹤的檔案也算（忽略的 runs/ 等除外）。
+  - 經一輪對抗式審查（22 項，9 項成立，都已修正；另採用 6 項成本低的強化）。修正以變異測試確認測試能抓到。
+
 ## 附錄 A — instruction 逐字稿、規則來源與 decisive_rules
 
 （2026-10-23，§8 第 2 步。逐字稿由 dev seed 0–1 與除錯用的 seed ≥ 100 的 instance 機械地產生：issue id 換成角色的佔位符；

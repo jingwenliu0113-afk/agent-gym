@@ -782,6 +782,21 @@
   預留額：本機 6,510 次呼叫、Haiku $1.8435（6,510 × dev 每次呼叫成本的 P90 $0.000283）。之後題目、agent、協定、統計、上限與預留額都
   不得改動（測試每次比對）。下一步是第 6 步的 eval baseline。
 
+- **2026-10-24，§8 第 6 步：本機 eval baseline**（4 段，各一次 GPU lock，每段 ≤ 2,880 次呼叫）：
+  - `study3-eval-local-20261024-s23`（05:3x–06:14，899 次）、`-s45`（–06:51，978 次）、`-s67`（–07:32，925 次）正常結束；wrapper 都確認
+    server 已停止、共用目錄沒有改變、lock 已釋放。
+  - `-s89` 在 07:45 中斷：Mac 到 gpu-server 的 SSH 連線逾時（"Operation timed out"），adapter 得到 "Remote end closed connection"，
+    wrapper 無法收到收尾確認並印出警告（MACHINE_POLICY：回報使用者、不刪 lock、不終止程序）。之後以唯讀方式確認：gpu-server 上沒有任何
+    Ollama 程序；遠端 helper 在持有 lock 時寫下的 session 紀錄是 STOPPED / MODELS_UNCHANGED。已告知使用者。依 §6 以新目錄重跑該段
+    （`-s89-b`，09:1x–09:53，942 次，正常結束）；`-s89`（19 個嘗試）照樣列入，依最早結束者採計。
+  - 正式分析（`study3_analysis --agent local`，程式列舉 runs/ 的 5 個目錄）：**baseline 完整**（288 個 (task, rollout) 都有採計的已結束
+    rollout，沒有 aborted；18 個嘗試被取代、1 個中斷的目錄）。success：H1 0.573、H2 0.385、H3 0.260；agent_error 6 / 23 / 38；以
+    max_turns 結束 0 / 0.02 / 0.13；最大 request 33,966 / 38,450 / 42,663 bytes（< 57,344）。**RQ2：分級有效**（H1 − H3 = 0.3125，
+    bootstrap 與精確置換檢定都成立，三級單調）。失敗的 source 53 條（H1 16、H2 19、H3 18；epic-closeout 10、scoped-triage 24、
+    sync-repair 15、verified-close 4）；只因 agent_error 而沒有 source 的題 15 題；comment 稽核 8 則（成功的 episode 上 1 則）。
+  - **§8 第 7 步：本機 sweep 開始**（10-24 09:5x）：凍結排列中的失敗 source，目標 min(25, 53) = 25 條；每段 ≤ 3,000 次、累計 80,000 次、
+    開始新的 source 之前剩下的累計上限 ≥ 6,510；以 `--resume-from` 接續全部前段；GPU lock 被占用時不等待、不搶，稍後重試。
+
 ## 附錄 A — instruction 逐字稿、規則來源與 decisive_rules
 
 （2026-10-23，§8 第 2 步。逐字稿由 dev seed 0–1 與除錯用的 seed ≥ 100 的 instance 機械地產生：issue id 換成角色的佔位符；

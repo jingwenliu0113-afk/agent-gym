@@ -288,7 +288,14 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
     13 個 agent_error 都是輸出截斷；28 個不成功的 episode 逐一判定全部是 agent 錯誤，沒有題目缺陷；6 項候選疑慮（不是缺陷）寫進
     036「實作紀錄」與報告。§7 估算 N_local = 18、N_haiku = 29，都 ≥ 15，不需要問使用者。
   - **第 5 步完成（2026-10-24）**：凍結紀錄 `docs/decisions/036-freeze-record.json`（code_commit `b512397`）、`STUDY3_FROZEN = True`。
-  - 第 6 步進行中：本機 eval baseline 依序 4 段（背景，GPU lock 內，第一段 seeds 2–3 於 10-24 05:3x 開始）；Haiku 見「Blocked / 需要使用者」S4。
+  - **第 6 步：本機 eval baseline 完成（10-24）**：4 段 + 第四段重跑（`-s89` 因 gpu-server 的 SSH 逾時中斷；遠端已確認 STOPPED /
+    MODELS_UNCHANGED、沒有殘留程序；以 `-s89-b` 重跑，兩個都列入）。baseline 完整；success H1 0.573、H2 0.385、H3 0.260；RQ2 分級有效
+    （H1 − H3 = 0.3125）；失敗的 source 53 條。Haiku 的 eval baseline 由使用者執行中（S4）。
+  - **第 7 步：本機 sweep 進行中**（10-24 09:5x 起，背景分段：`runs/study3-sweep-local-20261024-NN`，每段 ≤ 3,000 次、累計 80,000 次，
+    目標 25 條；約 25 段、30–45 GPU 小時；lock 被占用時稍後重試）。每段的指令：
+    `tools/with-gpu-lock -- uv run python -m experiments.run_sweep --baseline-run runs/study3-eval-local-20261024-s23 …-s45 …-s67 …-s89
+    …-s89-b --plan 2,10,48,0.3 --criterion bonferroni95 --confirm-local-run --max-model-calls 3000 --total-model-calls 80000
+    --run-name study3-sweep-local-20261024-NN --resume-from <全部前段>`。
   - eval baseline 的規則：
     本機 4 段（seeds 2–3、4–5、6–7、8–9，每段 GPU lock 內、上限 2,880 次）；Haiku 由使用者執行（eval baseline ≤ 8 美元）。
 

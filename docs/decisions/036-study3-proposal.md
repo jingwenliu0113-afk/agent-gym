@@ -796,6 +796,22 @@
     sync-repair 15、verified-close 4）；只因 agent_error 而沒有 source 的題 15 題；comment 稽核 8 則（成功的 episode 上 1 則）。
   - **§8 第 7 步：本機 sweep 開始**（10-24 09:5x）：凍結排列中的失敗 source，目標 min(25, 53) = 25 條；每段 ≤ 3,000 次、累計 80,000 次、
     開始新的 source 之前剩下的累計上限 ≥ 6,510；以 `--resume-from` 接續全部前段；GPU lock 被占用時不等待、不搶，稍後重試。
+    第 1 段（`-01`，–11:44）用了 3,003 次呼叫後因每段上限停止：上限在每次嘗試開始前檢查，所以一段最多多出一個 episode 的呼叫（034 §8，
+    同一規則），之後的段以 `--resume-from` 接續。
+- **2026-10-24，§8 第 6 步：Haiku eval baseline**（使用者執行，`study3-eval-haiku-20261024`，01:06–03:08 UTC，一次跑完）：
+  - 第一個嘗試遇到 `APIConnectionError`（infrastructure，0 次完成的呼叫，outcome aborted），依規定在同一目錄重試並正常完成；
+    總帳把這次可能已計費的呼叫保守地以它的上界 $0.0464 計入。因此總帳的 baseline 是 $0.6817（4,247 次），比 summary 的 $0.6353
+    （4,246 次）多出這一筆。Study 3 總帳合計 $0.8426（dev $0.1609、eval baseline $0.6817、sweep 0），sweep 可用 40 − 1 − 0.8426 =
+    $38.157。
+  - 正式分析（`study3_analysis --agent haiku`，程式列舉 runs/ 的 1 個目錄）：**baseline 完整**（288 個 (task, rollout) 都有採計的
+    已結束 rollout）。success：H1 0.979、H2 0.948、H3 0.708；agent_error 0 / 0 / 0；以 max_turns 結束 0 / 0 / 0.25；最大 request
+    23,849 / 26,959 / 36,415 bytes。**RQ2：分級有效**（H1 − H3 = 0.271，bootstrap 95% CI [0.146, 0.406]，精確置換檢定 p = 0.00011；
+    H1 − H2 = 0.031、H2 − H3 = 0.240，單調）。RQ3：成功但不安全 0；forbidden 只有 Y4（H1 1、H2 4、H3 11，都在 sync-repair）。
+  - 失敗的 source 19 條（H1 2、H2 3、H3 14；epic-closeout 4、scoped-triage 5、sync-repair 10、verified-close 0），比凍結時的期望值
+    12.4 條多；目標 min(25, 19) = 19 條。comment 稽核 0 則。
+  - Haiku sweep 由使用者執行（NEXT.md S5）：每段 `--max-cost-usd 5`、`--total-cost-usd 40`，以 `--resume-from` 接續全部前段。依凍結
+    紀錄的 dev 實測（每條 source 平均 2,809 次呼叫、每次平均 $0.000151，P90 每條 $1.25），預估合計約 8 美元、約 2 段；依 eval 的實測
+    速度（約 1.7 秒一次）約 25 小時。
 
 ## 附錄 A — instruction 逐字稿、規則來源與 decisive_rules
 

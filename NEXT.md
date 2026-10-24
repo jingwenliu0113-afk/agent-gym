@@ -299,7 +299,10 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
   - **第 5 步完成（2026-10-24）**：凍結紀錄 `docs/decisions/036-freeze-record.json`（code_commit `b512397`）、`STUDY3_FROZEN = True`。
   - **第 6 步：本機 eval baseline 完成（10-24）**：4 段 + 第四段重跑（`-s89` 因 gpu-server 的 SSH 逾時中斷；遠端已確認 STOPPED /
     MODELS_UNCHANGED、沒有殘留程序；以 `-s89-b` 重跑，兩個都列入）。baseline 完整；success H1 0.573、H2 0.385、H3 0.260；RQ2 分級有效
-    （H1 − H3 = 0.3125）；失敗的 source 53 條。Haiku 的 eval baseline 由使用者執行中（S4）。
+    （H1 − H3 = 0.3125）；失敗的 source 53 條。
+  - **第 6 步：Haiku eval baseline 完成（使用者執行，10-24）**：`runs/study3-eval-haiku-20261024`，baseline 完整；success H1 0.979、
+    H2 0.948、H3 0.708；RQ2 分級有效（H1 − H3 = 0.271）；失敗的 source 19 條；總帳合計 $0.8426（含一次連線錯誤以上界 $0.0464 計入），
+    sweep 可用 $38.157。Haiku sweep 由使用者執行（S5）。
   - **第 7 步：本機 sweep 進行中**（10-24 09:5x 起，背景分段：`runs/study3-sweep-local-20261024-NN`，每段 ≤ 3,000 次、累計 80,000 次，
     目標 25 條；約 25 段、30–45 GPU 小時；lock 被占用時稍後重試）。每段的指令：
     `tools/with-gpu-lock -- uv run python -m experiments.run_sweep --baseline-run runs/study3-eval-local-20261024-s23 …-s45 …-s67 …-s89
@@ -350,9 +353,30 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 ## Blocked / 需要使用者
 
 2026-10-19 結案時沒有待處理的事項；2026-10-22 使用者授權以 Claude Haiku 5.5 做跨模型比較，2026-10-23 完成（108 / 108，天花板，$0.117；
-見「下一步」與 C）。**2026-10-23 使用者核准 Study 3（decision 036），實作中。** S3（Haiku dev）已完成。**目前需要使用者的事項：S4（Haiku 的 eval baseline）。** 其餘保留為歷史紀錄。
+見「下一步」與 C）。**2026-10-23 使用者核准 Study 3（decision 036），實作中。** S3（Haiku dev）、S4（Haiku eval baseline）已完成。**目前需要使用者的事項：S5（Haiku 的 sweep）。** 其餘保留為歷史紀錄。
 
-### S4. Study 3 的 Haiku eval baseline（decision 036 §6、§7；需要使用者在自己的終端機執行）
+### S5. Study 3 的 Haiku sweep（decision 036 §6、§7；需要使用者在自己的終端機執行）
+
+- Haiku 的 eval baseline 有 19 條失敗的 source，目標 min(25, 19) = 19 條，依凍結順序。sweep 的總上限由程式從 Study 3 總帳計算：
+  40 − 1 的安全邊際 − 已花的 $0.8426 = $38.157；每段 ≤ 5 美元；開始新的 source 之前剩下的金額必須 ≥ 預留額 $1.8435。
+- 預估合計約 8 美元（約 2 段）、約 25 小時（依 eval 的實測速度）。可以隨時中斷，之後以新的 `--run-name` 接續，不會重做已完成的部分。
+- 在自己的終端機設定 Anthropic API 的 credential（不要貼給 Claude；程式不讀取、不保存），在 repo 根目錄執行第 1 段：
+
+  ```bash
+  uv run --extra llm python -m experiments.run_sweep --baseline-run runs/study3-eval-haiku-20261024 --plan 2,10,48,0.3 --criterion bonferroni95 --confirm-paid-run --max-cost-usd 5 --total-cost-usd 40 --run-name study3-sweep-haiku-20261024-01
+  ```
+
+- 最後一行是 `stopped by budget: False` → 19 條都完成，告訴 Claude。是 `stopped by budget: True`（這一段的 5 美元用完，或預留額不足），
+  或中途中斷（沒有這一行）→ 以下一個編號接續，`--resume-from` 列出**全部**前段（例如第 2 段）：
+
+  ```bash
+  uv run --extra llm python -m experiments.run_sweep --baseline-run runs/study3-eval-haiku-20261024 --plan 2,10,48,0.3 --criterion bonferroni95 --confirm-paid-run --max-cost-usd 5 --total-cost-usd 40 --run-name study3-sweep-haiku-20261024-02 --resume-from runs/study3-sweep-haiku-20261024-01
+  ```
+
+  因預留額不足而停止時，下一段會在開始任何 source 之前就停止（不花錢），也就是 sweep 已依規則結束；不確定時把最後幾行告訴 Claude。
+- 跑完告訴 Claude，之後由 Claude 做正式分析與報告（第 8 步）。
+
+### S4. Study 3 的 Haiku eval baseline（decision 036 §6、§7）：**已完成（2026-10-24，使用者執行，總帳 $0.6817）**
 
 - 已凍結（`a14c336`，`STUDY3_FROZEN = True`）；eval 96 題 × R = 3 = 288 個 episode，一次跑完即可（Haiku 不需要分段）。eval baseline 的
   所有嘗試合計 ≤ 8 美元（程式檢查），Study 3 合計硬上限 40 美元；依 dev 的實測（$0.161 / 72 個 episode）預估約 0.65 美元。

@@ -226,6 +226,14 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
        - 無法確認時，指令還沒執行也是 exit 70；
        - SIGPIPE / QUIT / TSTP / stdin 已關閉的處理。
      - CLI：格式錯誤的 model 清單是 CLI 錯誤。
+   - **2026-10-24：信號的兩個時間窗**（decision 031 §6）：
+     - 起因：完整測試中 `test_sigquit_still_cleans_up` 逾時一次。
+     - 原因：wrapper fork 出指令、還沒記下 process group 時收到信號，cleanup 不知道指令。lock 釋放了，指令卻繼續執行，
+       並持有呼叫者的輸出。
+     - 修正：這段期間的信號先記下，記下 process group 之後才結束。
+     - 另外：cleanup 也忽略 QUIT；原本第二次 Ctrl-\ 會在 server 停止之前就結束 wrapper。
+     - 測試：兩個回歸測試（修正前紅燈，不依賴負載）；中斷測試的指令改睡 600 秒，並檢查指令已經結束。
+     - 沒有處理：啟動 ssh 時有類似的時間窗，遠端什麼都還沒啟動。
 
 21. **正式實驗與結果**（2026-10-16；decision 030 採用、032、033）：
    - 凍結設定；每次呼叫的 seed 記在 `calls.jsonl`，並與 manifest 逐次嘗試核對；
@@ -234,6 +242,7 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
    - 第三輪對抗式審查（25 個 agent，確認 22 項）都已修正，並以正式資料重新產生結果。
 
 測試（2026-10-23，Haiku 比較完成時）：`uv run pytest` → 9521 passed、1 skipped（Linux 專用的 PDEATHSIG 測試）、1 xfailed（decision 013 §6 的 strict xfail），約 14–15 分鐘（Mac；需 `uv sync --extra llm`，否則 SDK 契約測試會 skip）；`ruff check`（外部安裝的 ruff，不在 uv 的依賴中）通過。
+測試（2026-10-24，decision 031 §6 之後）：`.venv/bin/python -m pytest -q -p no:cacheprovider` → 11180 passed、8 skipped、1 xfailed，約 26 分鐘（Study 3 的兩個 eval 同時在 Mac 上執行）。
 
 ## 使用者決策（2026-10-08 / 10-09 / 10-11）
 

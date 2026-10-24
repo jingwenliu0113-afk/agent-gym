@@ -16,7 +16,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Iterator
+from typing import Callable, Iterator
 
 import pytest
 
@@ -242,27 +242,49 @@ def test_a_server_that_ignores_sigterm_is_still_stopped(setup: Setup) -> None:
 
 def test_an_interrupted_wrapper_stops_the_server(setup: Setup) -> None:
     marker = setup.tmp_path / "started"
-    proc = subprocess.Popen([*setup.args(), "--", sys.executable, "-c",
-                             f"import time; open({str(marker)!r}, 'w'); time.sleep(60)"],
-                            env=setup.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    status, command, stderr = _interrupt(setup, _sleeper(marker), marker, signal.SIGTERM)
+    assert status == 143, stderr
+    assert not alive(command) and _servers_stopped(setup) and setup.lock_is_free()
+
+
+LONG_S = 600  # 指令睡得比任何等待都久：wrapper 沒有結束它時，測試以「指令還在」失敗，而不是指令剛好在逾時前自己結束
+
+
+def _sleeper(marker: Path) -> list[str]:
+    """寫下自己的 pid、之後睡 LONG_S 秒的指令。"""
+    return [sys.executable, "-c", f"import os, time; open({str(marker)!r}, 'w').write(str(os.getpid())); time.sleep({LONG_S})"]
+
+
+def _wait_for_pid(marker: Path, timeout: float = 30) -> int:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        text = marker.read_text(encoding="utf-8").strip() if marker.exists() else ""
+        if text:
+            return int(text)
+        time.sleep(0.05)
+    raise AssertionError(f"{marker} was not written within {timeout}s")
+
+
+def _interrupt(setup: Setup, command: list[str], marker: Path, signum: int,
+               then: Callable[[subprocess.Popen[bytes], int], object] | None = None, **env: str) -> tuple[int, int, str]:
+    """執行指令；它寫下 pid（marker）之後送 signum 給 wrapper、呼叫 then(proc, pid)，等 wrapper 結束。
+    回傳 wrapper 的 exit code、指令的 pid 與 wrapper 的 stderr。輸出寫到檔案而不是 pipe：遺留的程序持有輸出時，等待不會因此逾時，
+    而是由「指令還在」的檢查失敗（2026-10-24 完整測試中的逾時）。"""
+    stderr_path = setup.tmp_path / "wrapper.stderr"
+    with open(stderr_path, "w", encoding="utf-8") as stderr:
+        proc = subprocess.Popen([*setup.args(), "--", *command], env={**setup.env, **env}, stdout=subprocess.DEVNULL,
+                                stderr=stderr)
     try:
-        assert _wait_for_file(marker)
-        proc.send_signal(signal.SIGTERM)
-        _, stderr = proc.communicate(timeout=60)
+        pid = _wait_for_pid(marker)
+        proc.send_signal(signum)
+        if then is not None:
+            then(proc, pid)
+        proc.wait(timeout=60)
     finally:
         if proc.poll() is None:
             proc.kill()
-    assert proc.returncode == 143, stderr
-    assert _servers_stopped(setup) and setup.lock_is_free()
-
-
-def _wait_for_file(path: Path, timeout: float = 30) -> bool:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if path.exists():
-            return True
-        time.sleep(0.05)
-    return False
+            proc.wait()
+    return proc.returncode, pid, stderr_path.read_text(encoding="utf-8")
 
 
 def test_a_remote_that_never_sees_the_end_is_stopped_over_a_second_connection(setup: Setup) -> None:
@@ -465,17 +487,9 @@ def test_messages_before_the_session_survive_a_closed_stderr(setup: Setup) -> No
 
 def test_sigquit_still_cleans_up(setup: Setup) -> None:
     marker = setup.tmp_path / "started"
-    proc = subprocess.Popen([*setup.args(), "--", sys.executable, "-c",
-                             f"import time; open({str(marker)!r}, 'w'); time.sleep(60)"],
-                            env=setup.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    try:
-        assert _wait_for_file(marker)
-        proc.send_signal(signal.SIGQUIT)
-        proc.communicate(timeout=60)
-    finally:
-        if proc.poll() is None:
-            proc.kill()
-    assert proc.returncode == 131 and _servers_stopped(setup) and setup.lock_is_free()
+    status, command, stderr = _interrupt(setup, _sleeper(marker), marker, signal.SIGQUIT)
+    assert status == 131, stderr
+    assert not alive(command) and _servers_stopped(setup) and setup.lock_is_free()
 
 
 def test_a_closed_stdin_is_not_an_error(setup: Setup) -> None:
@@ -488,20 +502,12 @@ def test_a_closed_stdin_is_not_an_error(setup: Setup) -> None:
 def test_an_interrupt_ends_the_commands_whole_process_group(setup: Setup) -> None:
     marker = setup.tmp_path / "grandchild"
     program = setup.tmp_path / "grandchild.py"
-    program.write_text(f"import os, time\nopen({str(marker)!r}, 'w').write(str(os.getpid()))\ntime.sleep(60)\n", encoding="utf-8")
+    program.write_text(f"import os, time\nopen({str(marker)!r}, 'w').write(str(os.getpid()))\ntime.sleep({LONG_S})\n",
+                       encoding="utf-8")
     script = f"python3 {program}; echo done"  # bash 不轉送 TERM：只對 bash 送信號會留下 python
-    proc = subprocess.Popen([*setup.args(), "--", "bash", "-c", script], env=setup.env, stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE, text=True)
-    try:
-        assert _wait_for_file(marker)
-        time.sleep(0.2)
-        grandchild = int(marker.read_text())
-        proc.send_signal(signal.SIGTERM)
-        proc.communicate(timeout=60)
-    finally:
-        if proc.poll() is None:
-            proc.kill()
-    assert proc.returncode == 143 and not alive(grandchild) and _servers_stopped(setup)
+    status, grandchild, stderr = _interrupt(setup, ["bash", "-c", script], marker, signal.SIGTERM)
+    assert status == 143, stderr
+    assert not alive(grandchild) and _servers_stopped(setup)
 
 
 def test_background_processes_left_by_the_command_are_ended(setup: Setup) -> None:
@@ -516,14 +522,7 @@ def test_background_processes_left_by_the_command_are_ended(setup: Setup) -> Non
 
 def test_the_fallback_uses_the_helper_copied_at_the_start(tmp_path: Path) -> None:
     """執行期間 agents/ollama_serve.py 被修改（例如切換分支）：第二條連線仍送出與開始時相同的 helper。"""
-    tree = tmp_path / "tree"
-    (tree / "tools").mkdir(parents=True)
-    (tree / "agents").mkdir()
-    wrapper = tree / "tools" / "with-gpu-lock"
-    wrapper.write_bytes(WRAPPER.read_bytes())
-    wrapper.chmod(0o755)
-    helper = tree / "agents" / "ollama_serve.py"
-    helper.write_bytes((WRAPPER.parents[1] / "agents" / "ollama_serve.py").read_bytes())
+    wrapper, helper = _wrapper_copy(tmp_path)
     setup = Setup(tmp_path, wrapper=wrapper)
     try:
         edit = f"p = {str(helper)!r}; t = open(p).read(); open(p, 'w').write('# edited during the run\\n' + t)"
@@ -567,4 +566,61 @@ def test_a_warning_keeps_the_diagnostics(setup: Setup) -> None:
 def test_a_surviving_process_of_the_session_is_a_failure(setup: Setup) -> None:
     result = setup.run("true", FAKE_OLLAMA_MODE="detached_runner")
     assert result.returncode == EXIT_DIRTY and "WARNING" in result.stderr and "STOP_FAILED" in result.stderr
+
+
+# ---------------------------------------------------------------- 2026-10-24：信號的時間窗（完整測試中 test_sigquit_still_cleans_up 逾時）
+
+
+def _wrapper_copy(tmp_path: Path, edit: Callable[[str], str] | None = None) -> tuple[Path, Path]:
+    """wrapper 與 helper 的複本（同樣的目錄結構）；edit 改寫 wrapper 的內容。回傳 (wrapper, helper)。"""
+    tree = tmp_path / "tree"
+    (tree / "tools").mkdir(parents=True)
+    (tree / "agents").mkdir()
+    wrapper = tree / "tools" / "with-gpu-lock"
+    text = WRAPPER.read_text(encoding="utf-8")
+    wrapper.write_text(edit(text) if edit else text, encoding="utf-8")
+    wrapper.chmod(0o755)
+    helper = tree / "agents" / "ollama_serve.py"
+    helper.write_bytes((WRAPPER.parents[1] / "agents" / "ollama_serve.py").read_bytes())
+    return wrapper, helper
+
+
+def test_a_signal_while_the_command_is_being_started_still_ends_it(tmp_path: Path) -> None:
+    """wrapper 剛 fork 出指令、還沒記下它的 process group 時收到信號（完整測試的負載下 wrapper 在這裡被延遲）：指令仍被結束。
+    原本 trap 立刻結束 wrapper，cleanup 不知道指令：server 停了、lock 釋放了，指令卻繼續執行，並持有呼叫者的輸出 pipe
+    （test_sigquit_still_cleans_up 因此等到指令自己的 60 秒結束，剛好碰上 60 秒的逾時）。
+    複本在 fork 之後等 gate：信號一定在 wrapper 記下 process group 之前送達，不靠負載。"""
+    gate = tmp_path / "gate"
+    fork_line = 'exec "$@" ) &\n'
+
+    def delay_after_the_fork(text: str) -> str:
+        assert text.count(fork_line) == 1
+        return text.replace(fork_line, fork_line + f"until [[ -e '{gate}' ]]; do sleep 0.05; done\n")
+
+    wrapper, _ = _wrapper_copy(tmp_path, delay_after_the_fork)
+    setup = Setup(tmp_path, wrapper=wrapper)
+    marker = tmp_path / "started"
+    try:
+        status, command, stderr = _interrupt(setup, _sleeper(marker), marker, signal.SIGQUIT, then=lambda *_: gate.touch())
+        assert status == 131, stderr
+        assert not alive(command) and _servers_stopped(setup) and setup.lock_is_free()
+    finally:
+        _clean(setup)
+
+
+def test_a_second_sigquit_does_not_cut_the_cleanup_short(setup: Setup) -> None:
+    """cleanup 期間再收到一次 QUIT（再按一次 Ctrl-\\）：cleanup 照樣等 server 停止、確認之後才結束（decision 028 §4）。
+    原本 cleanup 只忽略 INT / TERM / HUP：第二次 QUIT 讓 wrapper 在 server 停止之前就結束，沒有確認也沒有警告。
+    server 忽略 SIGTERM：停止至少要 grace 的 2 秒，第二次 QUIT 一定落在 cleanup 之中。"""
+    marker = setup.tmp_path / "started"
+
+    def again(proc: subprocess.Popen[bytes], command: int) -> None:
+        deadline = time.monotonic() + 30
+        while alive(command) and time.monotonic() < deadline:  # cleanup 已開始：它先結束指令
+            time.sleep(0.02)
+        proc.send_signal(signal.SIGQUIT)
+
+    status, _, stderr = _interrupt(setup, _sleeper(marker), marker, signal.SIGQUIT, then=again, FAKE_OLLAMA_MODE="ignore_term")
+    assert status == 131, stderr
+    assert _servers_stopped(setup) and setup.lock_is_free() and "GPU lock released" in stderr, stderr
 

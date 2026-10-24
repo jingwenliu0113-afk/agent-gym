@@ -19,7 +19,7 @@
 #   不符 → exit 69（連線中斷、逾時各自有不同的訊息）。
 # - 指令在自己的 process group 執行（不繼承 FIFO 的 fd），環境：AI_PORTFOLIO_GPU_LOCK=held、
 #   AGENT_GYM_OLLAMA_URL=http://127.0.0.1:<local>、AGENT_GYM_OLLAMA_SERVER=<READY 的 JSON>。
-# - 結束（含 INT / TERM / HUP：先以 TERM 結束指令的整個 process group）：關閉 stdin → helper 停止 server、比對快照、結束
+# - 結束（含 INT / TERM / HUP / QUIT：先以 TERM 結束指令的整個 process group）：關閉 stdin → helper 停止 server、比對快照、結束
 #   （lock 隨之釋放）。等待 ssh 結束最多 WITH_GPU_LOCK_STOP_TIMEOUT_S 秒（不論 server 是否已啟動）。
 #   - 有 STARTING 而沒有 STOPPED → 以第二條連線（helper 的 stop 模式，只停止 STARTING 回報、身分相符的 helper 與 server）停止。
 #   - 最後沒有確認 STOPPED 與 MODELS_UNCHANGED，或無法證明「什麼都沒啟動」→ 印出警告、檢查方式，保留診斷檔案；
@@ -155,7 +155,7 @@ nothing_started() {  # 有證據顯示遠端沒有啟動 server
 cleanup() {
   local status=$?
   set +e  # cleanup 的每一步都要執行；stderr 寫入失敗也不中斷（decision 031 §2）
-  trap '' INT TERM HUP  # cleanup 期間不再被中斷（decision 028 §4）
+  trap '' INT TERM HUP QUIT  # cleanup 期間不再被中斷（decision 028 §4；QUIT：decision 031 §6）
   if [[ -n "$CMD_PGID" ]] && kill -0 -- "-$CMD_PGID" 2>/dev/null; then  # 被中斷，或指令留下了背景程序：結束整個 process group
     kill -TERM -- "-$CMD_PGID" 2>/dev/null
     local cmd_deadline=$((SECONDS + 30))
@@ -211,11 +211,24 @@ cleanup() {
   fi
   exit "$status"
 }
+
+exit_on_signals() {  # INT / TERM / HUP / QUIT（Ctrl-\）→ 走 cleanup
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  trap 'exit 129' HUP
+  trap 'exit 131' QUIT
+}
+
+defer_signals() {  # 收到的信號只記下 exit code（第一個），由 exit_on_signals 之後的檢查結束
+  PENDING_EXIT=
+  trap 'PENDING_EXIT=${PENDING_EXIT:-130}' INT
+  trap 'PENDING_EXIT=${PENDING_EXIT:-143}' TERM
+  trap 'PENDING_EXIT=${PENDING_EXIT:-129}' HUP
+  trap 'PENDING_EXIT=${PENDING_EXIT:-131}' QUIT
+}
+
 trap cleanup EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
-trap 'exit 129' HUP
-trap 'exit 131' QUIT  # Ctrl-\ 也走 cleanup
+exit_on_signals
 trap '' TSTP  # Ctrl-Z 不停住 session（之後啟動的 ssh 與指令也忽略它）
 
 # ssh 忽略 TERM / HUP：送給整個 process group 的信號不會在遠端還在啟動或停止時切斷連線；結束由 cleanup 負責
@@ -313,9 +326,12 @@ fi
 
 SERVER_INFO=$(sed -n 's/^READY //p' "$OUT" | head -n 1)
 say "with-gpu-lock: holding $LOCK_FILE on $HOST; this session's server answers at http://127.0.0.1:$LOCAL_PORT"
-# 指令在自己的 process group 背景執行、以 wait 等待：wrapper 收到 INT / TERM / HUP 時 wait 立刻返回，cleanup 先結束指令的整個
+# 指令在自己的 process group 背景執行、以 wait 等待：wrapper 收到 INT / TERM / HUP / QUIT 時 wait 立刻返回，cleanup 先結束指令的整個
 # process group（沒有 server 它也無法繼續）。指令不繼承 FIFO 的 fd 9（否則它的後代會讓遠端收不到 stdin 的結束）。
 # 先單獨重導再 exec：bash 3.2 對「exec cmd <&8 8<&- 9>&-」會把 fd 8 / 9 複製到 >= 10 的 fd 並傳給 cmd（decision 031 第二輪）。
+# fork 到記下 process group 之間收到的信號先記下、記下之後才結束：trap 在兩個指令之間執行，立刻結束的話 cleanup 不知道剛啟動的指令，
+# server 停了、lock 釋放了，指令卻繼續執行（負載高時 wrapper 會在這裡被延遲；decision 031 §6）。
+defer_signals
 set -m
 ( trap - PIPE; trap - TSTP; exec <&8 8<&- 9>&-
   AI_PORTFOLIO_GPU_LOCK=held AGENT_GYM_OLLAMA_URL="http://127.0.0.1:$LOCAL_PORT" AGENT_GYM_OLLAMA_SERVER="$SERVER_INFO" exec "$@" ) &
@@ -323,6 +339,8 @@ CMD_PID=$!
 CMD_PGID=$CMD_PID
 CMD_RAN=1
 set +m
+exit_on_signals
+[[ -z "$PENDING_EXIT" ]] || exit "$PENDING_EXIT"
 # 等待指令；它若被停住（T，例如 SIGTTIN / SIGTTOU），wait 不會返回而 session 會一直持有 lock → 結束它
 while kill -0 "$CMD_PID" 2>/dev/null; do
   cmd_state=$(ps -o stat= -p "$CMD_PID" 2>/dev/null || true)

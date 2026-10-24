@@ -126,6 +126,45 @@ decision 029 commit（`7992c2e`）之後的對抗式審查分五個面向：help
 - 移除 cleanup 的 `set +e` 沒有測試會抓到：`test_a_closed_stderr_does_not_change_the_exit_code` 會抓到。
 - 測試在系統暫存目錄遺留診斷目錄：測試已改用自己的 TMPDIR。
 
+### 6. 2026-10-24：信號的兩個時間窗（完整測試中 `test_sigquit_still_cleans_up` 逾時）
+
+**現象**：2026-10-24 的完整測試中，`test_sigquit_still_cleans_up` 失敗一次（`TimeoutExpired`，60 秒）。單獨執行時通過。
+§5 之後，wrapper 與測試都沒有改變。
+
+**原因**：wrapper fork 出指令之後、記下 `CMD_PGID` 之前，如果收到信號，trap（`exit 131`）會在兩個指令之間立刻執行。
+這時 cleanup 還不知道指令，所以：
+- server 停了、lock 釋放了，wrapper 以 131 結束；
+- 指令卻繼續執行，並持有呼叫者的 stdout / stderr。
+
+測試的指令睡 60 秒，`communicate` 也等 60 秒，所以會剛好碰上逾時。完整測試的負載讓 wrapper 在這幾行之間被延遲；
+這時指令已經啟動並寫下 marker，測試的信號就落在這個時間窗內。
+
+重現方式：用 wrapper 的複本，在 fork 之後延遲 0.5 秒。wrapper 1.1 秒就結束，但輸出 pipe 到第 60 秒才關閉。
+沒有延遲時，從信號到結束約 1.7 秒，指令已被結束。
+
+實際使用時的影響：Ctrl-C 等信號若落在這個時間窗，指令會在 lock 釋放之後繼續執行。它的 server 已經停止，所以推論會失敗。
+
+**修正**：
+- fork 到記下 process group 之間，INT / TERM / HUP / QUIT 只記下第一個信號的 exit code。記下 process group 之後才結束，照常走 cleanup。
+- 同一次檢查發現：cleanup 只忽略 INT / TERM / HUP。第二次 QUIT（再按一次 Ctrl-\）會在 server 停止之前就結束 wrapper，
+  沒有確認，也沒有警告。實測 0.79 秒就結束，server 比 wrapper 晚停止。§5 讓 QUIT 走 cleanup 時漏了這一項。
+  現在 cleanup 也忽略 QUIT。
+
+**測試**：
+- 兩個回歸測試，修正前都是紅燈：
+  - wrapper 的複本在 fork 之後等待 gate，測試送出 QUIT 之後才打開 gate。信號因此一定落在時間窗內，不依賴負載。
+  - 第二次 QUIT 落在 cleanup 之中：server 忽略 SIGTERM，停止至少要 grace 的 2 秒。
+- 三個中斷測試（TERM、QUIT、process group）：
+  - 指令改睡 600 秒，並檢查指令已經結束；
+  - 輸出改寫到檔案，不再用 pipe。
+
+  遺留的指令因此以「指令還在」失敗。不會再剛好碰上逾時，也不會因為指令在逾時前自己結束而通過。原本的 TERM / QUIT 測試
+  沒有檢查指令是否結束。
+
+**沒有處理**：啟動 ssh 的 fork 與 `SSH_PID=$!` 之間也有同樣的時間窗。落在這裡時，遠端還沒有啟動任何東西
+（ssh 的 subshell 還在等 FIFO 的寫入端），但這個 subshell 會一直等待，並持有呼叫者的輸出。
+目前沒有測試會碰到，也沒有發生過，這次不處理。
+
 ## 審查判定不成立而未處理
 
 - stop 模式等待後的 pid 重複使用：process group 存在時 pgid 不會被重新分配；送給 helper 的信號現在每次都重新確認身分。

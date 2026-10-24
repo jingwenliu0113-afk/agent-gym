@@ -303,8 +303,10 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
   - **第 6 步：Haiku eval baseline 完成（使用者執行，10-24）**：`runs/study3-eval-haiku-20261024`，baseline 完整；success H1 0.979、
     H2 0.948、H3 0.708；RQ2 分級有效（H1 − H3 = 0.271）；失敗的 source 19 條；總帳合計 $0.8426（含一次連線錯誤以上界 $0.0464 計入），
     sweep 可用 $38.157。Haiku sweep 由使用者執行（S5）。
-  - **第 7 步：本機 sweep 進行中**（10-24 09:5x 起，背景分段：`runs/study3-sweep-local-20261024-NN`，每段 ≤ 3,000 次、累計 80,000 次，
-    目標 25 條；約 25 段、30–45 GPU 小時；lock 被占用時稍後重試）。每段的指令：
+  - **第 7 步：本機 sweep 完成（10-25 07:38）**：10 段 `runs/study3-sweep-local-20261024-01` – `-10`（`-08` 因通道連線中斷，wrapper 以
+    第二條連線確認收尾，遠端已確認 STOPPED / MODELS_UNCHANGED；以 `--resume-from` 接續），25 條全部完成，累計 26,642 次。正式分析
+    `runs/study3-analysis-local-20261025`：**RQ1 無法判斷**（可判定 5 條中 cliff 3 條，Wilson 95% CI [0.231, 0.882]；無法判定 20 條，
+    可判定的比例遠低於凍結時的假設 4/5）。Haiku sweep 由使用者執行中（S5）；完成後做第 8 步。每段的指令：
     `tools/with-gpu-lock -- uv run python -m experiments.run_sweep --baseline-run runs/study3-eval-local-20261024-s23 …-s45 …-s67 …-s89
     …-s89-b --plan 2,10,48,0.3 --criterion bonferroni95 --confirm-local-run --max-model-calls 3000 --total-model-calls 80000
     --run-name study3-sweep-local-20261024-NN --resume-from <全部前段>`。

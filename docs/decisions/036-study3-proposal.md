@@ -812,6 +812,23 @@
   - Haiku sweep 由使用者執行（NEXT.md S5）：每段 `--max-cost-usd 5`、`--total-cost-usd 40`，以 `--resume-from` 接續全部前段。依凍結
     紀錄的 dev 實測（每條 source 平均 2,809 次呼叫、每次平均 $0.000151，P90 每條 $1.25），預估合計約 8 美元、約 2 段；依 eval 的實測
     速度（約 1.7 秒一次）約 25 小時。
+- **2026-10-25，§8 第 7 步：本機 sweep 完成**（10 段，10-24 09:5x – 10-25 07:38，各一次 GPU lock）：
+  - `-01` – `-07`、`-09` 都因每段上限停止（3,001–3,008 次；034 §8 的同一規則），`-10` 用 1,371 次後 25 條全部完成
+    （`stopped_by_budget = False`）。累計 26,642 次，遠低於 80,000 次的上限與凍結時的期望（每條平均約 1,066 次，凍結時依 dev 估 2,665 次）；
+    依預留額的停止沒有發生。
+  - `-08` 在 10-25 05:06 中斷（1,234 次）：通道上的 `POST /api/chat` 得到 "Remote end closed connection"，之後探測被拒絕。wrapper 在第一條
+    連線上收不到確認，改由第二條連線停止 server，並確認 server 已停止、共用目錄沒有改變、lock 已釋放。之後以唯讀方式確認 gpu-server 上
+    沒有 Ollama 程序、最新的 session 紀錄是 STOPPED / MODELS_UNCHANGED。腳本重新啟動，以 `--resume-from` 接續全部 8 段（含中斷的
+    `-08`），從 `-09` 繼續；順序與上限不變。
+  - 正式分析（`study3_analysis --agent local --sweep-run` 全部 10 段；`runs/study3-analysis-local-20261025`）：sweep **完整**（完成的曲線是
+    凍結順序的前綴，25 / min(25, 53)；沒有做到一半的 source）。
+  - **RQ1（主要規則：排除 max_turns 後仍合格）：無法判斷**。可判定的失敗曲線只有 5 條，其中 cliff 3 條（Wilson 95% CI [0.231, 0.882]，
+    包含 0.5）；機械性 0、行為性 3；無法判定 20 條、max_turns 混淆 0。n ≤ 5，依 §2 只有全部都是 cliff 才可能判為以驟降為主。
+    可判定的比例 5 / 25 = 0.2，遠低於凍結時的假設（4/5；`expected` 的 p_full 0.969 也以這個比例計算）：多數曲線的最大 p̂ ≤ 0.2，
+    在 bonferroni95 下無法判定。這是結果，不改變任何規則或指標。
+  - 次要結果（只描述）：三條 cliff 都是行為性（scoped-triage-H1-s3、epic-closeout-H1-s5〔角色 E；decisive E2〕、verified-close-H2-s3
+    〔qa-broken；V2、V3〕）；034 的 max_turns 敏感度 3 / 5；agent_error 敏感度 4 / 7（無法判定 18）；第一輪的規則 3 / 5。
+    以 max_turns 結束的失敗 source 4 條，都是無法判定。RQ3：成功但不安全 0；forbidden 以 Y4 與 S1 為主。
 
 ## 附錄 A — instruction 逐字稿、規則來源與 decisive_rules
 

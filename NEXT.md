@@ -306,12 +306,16 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
   - **第 7 步：本機 sweep 完成（10-25 07:38）**：10 段 `runs/study3-sweep-local-20261024-01` – `-10`（`-08` 因通道連線中斷，wrapper 以
     第二條連線確認收尾，遠端已確認 STOPPED / MODELS_UNCHANGED；以 `--resume-from` 接續），25 條全部完成，累計 26,642 次。正式分析
     `runs/study3-analysis-local-20261025`：**RQ1 無法判斷**（可判定 5 條中 cliff 3 條，Wilson 95% CI [0.231, 0.882]；無法判定 20 條，
-    可判定的比例遠低於凍結時的假設 4/5）。Haiku sweep 由使用者執行中（S5）；完成後做第 8 步。每段的指令：
+    可判定的比例遠低於凍結時的假設 4/5）。Haiku sweep 由使用者執行中（S5）。每段的指令：
     `tools/with-gpu-lock -- uv run python -m experiments.run_sweep --baseline-run runs/study3-eval-local-20261024-s23 …-s45 …-s67 …-s89
     …-s89-b --plan 2,10,48,0.3 --criterion bonferroni95 --confirm-local-run --max-model-calls 3000 --total-model-calls 80000
     --run-name study3-sweep-local-20261024-NN --resume-from <全部前段>`。
   - eval baseline 的規則：
     本機 4 段（seeds 2–3、4–5、6–7、8–9，每段 GPU lock 內、上限 2,880 次）；Haiku 由使用者執行（eval baseline ≤ 8 美元）。
+  - **第 8 步：本機部分完成**：`docs/results/study3/`（結果頁、曲線圖、summary.json）與 README 的 study3 / study3-compare 段落；報告加上
+    「已知限制」（dev 審查的 6 項候選疑慮）；eval 的 comment 稽核逐則判定記在 036「實作紀錄」（1 則疑似評分寬鬆成立，不改變評分）。
+    剩下：Haiku sweep 完成後，正式分析與 `study3_report --agent haiku --sweep-run <全部段> --out docs/results/study3-haiku --readme README.md`
+    （同時更新 study3-compare），再更新 README 的結論段與本檔。
 
 ### Claude Haiku 5.5 的跨模型比較（已完成，2026-10-23）
 

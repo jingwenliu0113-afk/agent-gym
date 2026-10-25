@@ -256,6 +256,27 @@ def _composition(a: Mapping[str, Any]) -> list[str]:
     return [*lines, "", COMPARE_NOTE, ""]
 
 
+# dev 審查（eval 之前）判定不是缺陷、但寫進報告的候選疑慮（decision 036「實作紀錄」，034 §5 C）；固定文字，兩個 agent 都列出
+LIMITATIONS = (
+    "本機 agent 每個 episode 的第一個 search 都用 limit 100，被 invalid_arguments 拒絕後改用 50，每個 episode 少一個 turn"
+    "（上限 50 寫在 tool 的 input_schema；dev 中 Haiku 沒有這樣做）。",
+    "epic-closeout 的 dev trajectory 都是逐一 get_issue 的讀法：H3 done 分支需要 21 個 call（結構上做不完）、blocked 分支恰好 20 個"
+    "（§3 (c) 登記的已知限制）。epic-closeout H3 的失敗與依 decisive_rules 列出的歸屬，可能主要由讀法決定。",
+    "verified-close：instruction 的範例 user id 可能恰好是 qa-broken 上 QA comment 的作者，「照抄範例」與「把 QA 作者誤認為 reporter」"
+    "兩種錯誤無法區分（歸屬混淆；grader 對兩者都判為失敗是正確的）。",
+    "sync-repair rule 2 的英文句子較拗口；只有一種合理讀法（反向讀法會使 rule 1 失去作用）。",
+    "scoped-triage 的「S7 相關」一行會機械地計入 label 幻覺造成的失敗，是上界（附錄 A.5）。",
+    "「不要改變 status」只以最終狀態與 forbid（只禁止 closed）判定，暫時改動再改回不會被判為失敗（全專案的慣例）。",
+)
+
+
+def _limitations() -> list[str]:
+    return ["## 已知限制（dev 審查的候選疑慮；不是題目缺陷，不改變評分）", "",
+            "以下在 eval 之前的 dev 審查中判定不是題目缺陷，依 034 §5 C 寫進報告；題目、tool 說明與 grader 都沒有修改。"
+            "判定的依據見 decision 036「實作紀錄」。", "",
+            *(f"{i}. {text}" for i, text in enumerate(LIMITATIONS, 1)), ""]
+
+
 def _settings(summary: Mapping[str, Any]) -> list[str]:
     a, rec = summary["analysis"], summary["records"]
     prov, b, sw = a["provenance"], a["baseline"], a["sweep"]
@@ -300,7 +321,7 @@ def render_page(summary: Mapping[str, Any]) -> str:
     body = s3.render_markdown(a)
     # 分析的 markdown 從第一個二級標題開始（標題與標示已在上面）；分析摘要在這裡是 summary.json 的 "analysis"
     lines += [body[body.index("\n## ") + 1:].replace("analysis.json", "summary.json").rstrip("\n"), ""]
-    lines += [*_composition(a), *_settings(summary), "", "曲線圖：[recoverability.svg](recoverability.svg)。數字：[summary.json](summary.json)。", ""]
+    lines += [*_composition(a), *_limitations(), *_settings(summary), "", "曲線圖：[recoverability.svg](recoverability.svg)。數字：[summary.json](summary.json)。", ""]
     return "\n".join(lines)
 
 

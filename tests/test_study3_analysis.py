@@ -879,6 +879,7 @@ def test_the_eval_comment_audit_only_lists(failing_root: Path, tmp_path: Path, m
     assert _audited_id() not in out["sources"]["failed"] and "gen3-epic-closeout-H2-s2" in out["sources"]["failed"]
     text = s3.render_markdown(out)
     assert "## comment 稽核" in text and "owner-text-on-permitted" in text and "不改變評分" in text
+    assert "逐則判定見 decision 036「實作紀錄」" in text  # 人工判定記在決策紀錄，報告由程式重新產生
 
 
 def test_request_bytes_rebuild_every_sent_request(tmp_path: Path) -> None:

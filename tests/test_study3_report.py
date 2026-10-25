@@ -146,8 +146,12 @@ def _patch_dirs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
 
 
 def _readme(tmp_path: Path) -> Path:
+    """repo 的 README，去掉已 commit 的 Study 3 段落（正式結果寫入之後也從「還沒有 Study 3 段落」的 README 開始）。"""
+    text = (ROOT / "README.md").read_text(encoding="utf-8")
+    for start, end in [(v["start"], v["end"]) for v in rep.VARIANTS.values()] + [(rep.COMPARE["start"], rep.COMPARE["end"])]:
+        text = re.sub(r"\n\n" + re.escape(start) + r".*?" + re.escape(end), "", text, flags=re.S)
     path = tmp_path / "README.md"
-    path.write_text((ROOT / "README.md").read_text(encoding="utf-8"), encoding="utf-8")
+    path.write_text(text, encoding="utf-8")
     return path
 
 
@@ -217,13 +221,23 @@ def test_the_page_structure(local: dict[str, Any]) -> None:
     headings = [line for line in page.splitlines() if line.startswith("## ")]
     names = [h.split("（")[0].split("：")[0] for h in headings]
     assert names == ["## 結論", "## 目錄", "## eval baseline", "## comment 稽核", "## source", "## sweep", "## RQ1", "## RQ1 的次要結果", "## RQ3", "## 曲線",
-                     "## 分母的組成", "## 設定與紀錄"]
+                     "## 分母的組成", "## 已知限制", "## 設定與紀錄"]
     assert "analysis.json" not in page and "[recoverability.svg](recoverability.svg)" in page and "[summary.json](summary.json)" in page
     assert rep.COMPARE_NOTE in page and local["analysis"]["provenance"]["config_id"] in page
     for lv in LEVELS:
         assert f"| {lv} |" in page
     haiku_page = rep.render_page(_formal(local, "haiku"))
     assert haiku_page.startswith("# Study 3：Claude Haiku 5.5") and "$1.2500" in haiku_page
+
+
+def test_the_known_limitations_are_on_both_pages(local: dict[str, Any]) -> None:
+    """dev 審查（eval 之前，decision 036「實作紀錄」）判定不是缺陷、但寫進報告的 6 項候選疑慮：兩個 agent 的結果頁都列出，固定文字。"""
+    for page in (rep.render_page(local), rep.render_page(_formal(local, "haiku"))):
+        section = page[page.index("## 已知限制"):page.index("## 設定與紀錄")]
+        assert [line[:3] for line in section.splitlines() if line[:1].isdigit()] == ["1. ", "2. ", "3. ", "4. ", "5. ", "6. "]
+        for phrase in ("limit 100", "get_issue", "qa-broken", "rule 2", "S7", "status"):
+            assert phrase in section
+        assert "不是題目缺陷" in section and "decision 036「實作紀錄」" in section and "不改變評分" in section
 
 
 # ------------------------------------------------------------------ RQ1 的措辭（§2、§6）

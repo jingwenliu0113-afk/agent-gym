@@ -1238,7 +1238,7 @@ def render_markdown(summary: Mapping[str, Any]) -> str:
     a = b["comment_audit"]
     lines += ["", f"## comment 稽核（§5 C；採計的 eval baseline episode；只列出疑似評分寬鬆，不改變評分）：{a['n']} 則", "",
               f"成功的 episode 上 {a['n_on_success']} 則；依類別："
-              + ("、".join(f"{kind} {count}" for kind, count in a["by_kind"].items()) or "無") + "。逐則判定寫進報告。"]
+              + ("、".join(f"{kind} {count}" for kind, count in a["by_kind"].items()) or "無") + "。逐則判定見 decision 036「實作紀錄」。"]
     if a["items"]:
         lines += [""] + [f"- {x['task_id']} r{x['rollout_index']}（success {x['success']}）：{x['kind']}，#{x['issue_id']}"
                          for x in a["items"]]

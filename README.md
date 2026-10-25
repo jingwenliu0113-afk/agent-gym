@@ -207,6 +207,63 @@ uv run python -m experiments.study2_report --baseline-run runs/haiku-study2-eval
 
 <!-- study2-haiku:end -->
 
+<!-- study3:start -->
+
+### Study 3：更難的分級任務，本機模型（decision 036）
+
+獨立的後續研究（generator v3，eval 96 題 × R = 3，只 sweep 失敗的 source）；第一輪、Study 2 與 decision 035 的結果與判定不變，本段也不做 Core Gate 的判定。
+
+| 級別 | success | 成功但不安全 | agent_error | 以 max_turns 結束 |
+|---|---|---|---|---|
+| H1 | 0.573 | 0.000 | 6 | 0.000 |
+| H2 | 0.385 | 0.000 | 23 | 0.021 |
+| H3 | 0.260 | 0.000 | 38 | 0.125 |
+
+- RQ1：無法判斷（Wilson 95% CI 包含 0.5）：可判定的失敗曲線中 cliff 3 / 5，Wilson 95% CI [0.231, 0.882]（失敗的 source 53 條、完成的曲線 25 條；無法判定 20 條、max_turns 混淆 0 條；cliff 中機械性 0、行為性 3）。
+  - **樣本少（n = 5），證據弱。**
+  - n ≤ 5：只有全部都是 cliff 才可能判為以驟降為主。
+- 行為性 cliff 比例（次要結果，不取代主要判定）：3 / 5（Wilson 95% CI [0.231, 0.882]） → 無法判斷；(A) 版本（n = RQ1 的完整分母，只做描述）：3 / 5（Wilson 95% CI [0.231, 0.882]）；行為性 cliff 占全部 cliff：3 / 3。
+- 第一輪的規則（decision 017 §1；次要結果）：3 / 5（Wilson 95% CI [0.231, 0.882]） → 無法判斷；無法判定 20、max_turns 混淆 0。
+- sweep：完整：完成的曲線是固定順序的前綴，長度為 min(25, N_failed)。完成 25 / 目標 25 條（失敗的 source 53 條）；做到一半：—；之後沒有開始：0 條；依設計不 sweep：成功的 source 30 條、第 26 條之後的失敗 source 28 條。
+- 分級（RQ2）：有效。H1 − H3 = 0.312，bootstrap 95% CI [0.115, 0.510]（B = 10000、seed 0；2.5% 分位數 > 0：成立）；精確置換檢定 p = 0.003266（< 0.025：成立）。兩者都成立才有效。「有效」只表示 H1 > H3，不代表差距大小。
+- RQ3（安全）：成功中不安全的 episode H1 0 / 55、H2 0 / 37、H3 0 / 25；只錯在順序、最終狀態正確的 trajectory 是 success，計為 RQ3 的事件。
+
+完整結果：[docs/results/study3/README.md](docs/results/study3/README.md)。
+
+<!-- study3:end -->
+
+<!-- study3-compare:start -->
+
+### Study 3：兩個 agent 並列（RQ1-X，只做描述）
+
+**兩個 agent 的失敗來自不同的題（預期本機主要在 H1 / H2，Haiku 主要在 H3），所以 cliff 比例的差異不能歸因於 agent。** 不合併資料，也不做 agent 之間的檢定（decision 009 §4）；各自的判定與措辭見各自的段落。
+
+| | 本機模型 | Claude Haiku 5.5 |
+|---|---|---|
+| RQ1 的判定 | 無法判斷；樣本少（n = 5），證據弱 | 尚未有正式結果 |
+| cliff 比例（可判定的失敗曲線） | 3 / 5（Wilson 95% CI [0.231, 0.882]） | — |
+
+分母的組成（可判定 = 不是無法判定、也不是 max_turns 混淆；cliff 為可判定曲線中的條數）：
+
+| 組 | agent | 失敗的 source | 完成的曲線 | 可判定 | 無法判定 | max_turns 混淆 | cliff |
+|---|---|---|---|---|---|---|---|
+| H1 | 本機模型 | 16 | 7 | 2 | 5 | 0 | 2 |
+| H1 | Claude Haiku 5.5 | — | — | — | — | — | — |
+| H2 | 本機模型 | 19 | 10 | 2 | 8 | 0 | 1 |
+| H2 | Claude Haiku 5.5 | — | — | — | — | — | — |
+| H3 | 本機模型 | 18 | 8 | 1 | 7 | 0 | 0 |
+| H3 | Claude Haiku 5.5 | — | — | — | — | — | — |
+| epic-closeout | 本機模型 | 10 | 6 | 2 | 4 | 0 | 1 |
+| epic-closeout | Claude Haiku 5.5 | — | — | — | — | — | — |
+| scoped-triage | 本機模型 | 24 | 12 | 2 | 10 | 0 | 1 |
+| scoped-triage | Claude Haiku 5.5 | — | — | — | — | — | — |
+| sync-repair | 本機模型 | 15 | 6 | 0 | 6 | 0 | 0 |
+| sync-repair | Claude Haiku 5.5 | — | — | — | — | — | — |
+| verified-close | 本機模型 | 4 | 1 | 1 | 0 | 0 | 1 |
+| verified-close | Claude Haiku 5.5 | — | — | — | — | — | — |
+
+<!-- study3-compare:end -->
+
 ## 結論的分類（2026-10-19 結案；2026-10-23 加入 Claude Haiku 5.5 的跨模型比較）
 
 **已證實的結論**（事先登記的分析；只適用於各自的 agent 與這兩組題目）

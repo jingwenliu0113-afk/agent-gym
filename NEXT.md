@@ -381,6 +381,9 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 
   因預留額不足而停止時，下一段會在開始任何 source 之前就停止（不花錢），也就是 sweep 已依規則結束；不確定時把最後幾行告訴 Claude。
 - 跑完告訴 Claude，之後由 Claude 做正式分析與報告（第 8 步）。
+- **進度（10-25 09:3x）**：第 1 段 `study3-sweep-haiku-20261024-01`（10-24 16:4x – 10-25 09:32）因每段 5 美元的上限停止
+  （`stopped_by_budget = True`，$5.0020；上限在每次嘗試開始前檢查，所以可能略超過一個 episode 的花費），完成 15 / 19 條。
+  Study 3 總帳合計約 $5.845，sweep 還可用約 $33.16。**下一步：使用者執行上面的第 2 段指令**（`--resume-from` 第 1 段）。
 
 ### S4. Study 3 的 Haiku eval baseline（decision 036 §6、§7）：**已完成（2026-10-24，使用者執行，總帳 $0.6817）**
 

@@ -7,6 +7,17 @@
 **Study 3 已完成（2026-10-29）**：兩個 agent 的分級（RQ2）都有效；RQ1 本機「無法判斷」（可判定的曲線只有 5 條，cliff 3 / 5）、Haiku「以驟降為主」
 （cliff 13 / 15，Wilson 95% CI [0.621, 0.963]）；RQ3 兩者都沒有「成功但不安全」。Haiku 總帳 $7.32 / 40。結果在 `docs/results/study3/`、
 `docs/results/study3-haiku/` 與 README，經過與解讀在 decision 036「實作紀錄」。依 036 §10 只有一輪；沒有進行中的研究，也沒有待使用者處理的事項。
+
+**正式公開（2026-10-30，使用者 2026-10-29 要求並比照 inspection-robot 的規則）**：https://github.com/jingwenliu0113-afk/agent-gym（Public，BSD-3-Clause）。
+
+| 公開檢查 | 結果 |
+|---|---|
+| Git 全歷史 | 82 個 commit（公開前）全部掃描：沒有 API key、token、私鑰、密碼、帶帳密的 URL、Tailscale 位址或私有 IP、遠端主機的帳號；最大的 blob 132 KB，沒有權重或 run 產物（`runs/` 從未進 repo）。被標出的只有測試用的範例（`10.0.0.5` 是「拒絕非 loopback」的測試輸入、`bot@example.com`、`t@example.invalid`） |
+| 個人資訊 | commit 作者 email 公開（使用者同意，不改寫歷史；`b66dd4c` 起改用 GitHub noreply，repo-local config）。Study 3 的兩份 `summary.json` 記錄了 Mac 上的絕對路徑（含帳號名稱），已在歷史中，使用者同意保留。遠端主機的所在地點從目前的版本移除（使用者決定；歷史中仍有） |
+| 授權 | 原創程式碼 BSD-3-Clause（`LICENSE`、`pyproject.toml`；GitHub 辨識為 bsd-3-clause）；依賴全部是 MIT / BSD / Apache-2.0 / PSF-2.0，沒有 GPL / AGPL；repo 中沒有第三方資料或模型檔 |
+| 測試 / 重現 | 工作目錄全部通過；**乾淨 clone**（沒有 `runs/`）：11,193 個測試收集，全部通過，6 個跳過（5 個需要原始 run 目錄、1 個 Linux 專用） |
+| 未登入存取 | repo 首頁、README、LICENSE、`experiments/`、Study 3 結果頁、raw README 與曲線圖都回傳 200；匿名 `git clone` 成功 |
+| 之後 | 作品集呈現（英文 README、`README.zh-TW.md`、輕量 GitHub Actions CI）依使用者決定在公開後進行，只改呈現，不改研究 |
 **2026-10-11 起 Core 的 LLM 改用自行部署的本機模型**（`qwen3.5:9b-q4_K_M`，遠端 gpu-server 的 Ollama；decision 026）；付費 API 改為 Optional。
 **2026-10-15**：本 Project 在 GPU lock 內啟動自己的 Ollama server（與 incident-investigator 共用模型檔案、共用目錄只讀；decision 029），
 已在 gpu-server 實測：server 檢查、截斷自我測試、開發題測試（15 / 15 成功）全部通過，每次結束都確認 server 已停止、共用目錄沒有改變、

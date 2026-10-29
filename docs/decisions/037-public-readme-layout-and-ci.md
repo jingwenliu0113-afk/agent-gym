@@ -23,8 +23,11 @@ inspection-robot（「照 robot 移到 zh-TW」），CI 跑 ruff 與完整 pytes
 3. **報告工具與測試**：`demo_synthetic`、`study2_report`、`study3_report` 的段落一律寫進 `README.zh-TW.md`（由 `--readme` /
    `--update-readme` 指定；說明與測試同步）。讀取 repo README 的測試改讀 `README.zh-TW.md`。
 
-4. **CI**（GitHub Actions，`.github/workflows/ci.yml`）：push 與 pull request 時在固定版本的 runner 上執行 `ruff check` 與完整
-   `pytest`（keyless；不需要 GPU、API key 或 `runs/`，需要原始 run 目錄的測試依原本的規則跳過）。CI 只做檢查，不產生或修改任何結果。
+4. **CI**（GitHub Actions，`.github/workflows/ci.yml`）：push 與 pull request 時在固定版本的 runner 上執行 `ruff check`、第一輪封存
+   檢查與完整 `pytest`（keyless；不需要 GPU、API key 或 `runs/`，需要原始 run 目錄的測試依原本的規則跳過）。CI 只做檢查，不產生或修改
+   任何結果。
+   - 第一次執行（2026-10-30）在單一 runner 上 45 分鐘只跑到 73%（hosted runner 約比 Mac 慢 5 倍，Mac 全部約 15 分鐘），沒有任何失敗，
+     因逾時被取消。改為把測試檔依序輪流分到 6 個平行的 job（每個測試檔剛好跑一次），lint 與封存檢查另為一個 job；不新增依賴。
 
 ## 不改的部分
 

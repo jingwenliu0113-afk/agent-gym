@@ -1,6 +1,8 @@
 # Keyless CI (decision 037): no GPU, no API key, no runs/ directory.
 # Lint, the sealed round-1 results and the full test suite; tests that need the original run directories skip,
 # as they do in any clean clone. CI only checks; it never produces or changes a result.
+# The suite takes about 15 minutes on a Mac but over an hour on one hosted runner, so the test files are split
+# round-robin over parallel shards; together the shards run every test file exactly once.
 name: CI
 
 on:
@@ -17,9 +19,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  checks:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
@@ -27,7 +29,7 @@ jobs:
         with:
           enable-cache: true  # Python 3.12 from .python-version
 
-      - name: Install (the llm extra also runs the Anthropic SDK contract tests)
+      - name: Install
         run: uv sync --locked --extra llm
 
       - name: Lint (ruff is not a project dependency; pinned to the version used locally)
@@ -36,5 +38,25 @@ jobs:
       - name: Sealed round-1 results unchanged (repository part; run directories are not in the repo)
         run: uv run python -m experiments.round1_seal --check
 
-      - name: Tests (tests that need runs/ skip)
-        run: uv run pytest -q -rs
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+
+      - name: Install (the llm extra also runs the Anthropic SDK contract tests)
+        run: uv sync --locked --extra llm
+
+      - name: Tests, shard ${{ matrix.shard }} of 6 (tests that need runs/ skip)
+        run: |
+          files=$(git ls-files 'tests/test_*.py' | awk -v shard=${{ matrix.shard }} 'NR % 6 == shard')
+          echo "$files"
+          uv run pytest -q -rs $files

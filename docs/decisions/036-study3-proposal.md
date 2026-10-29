@@ -854,7 +854,7 @@
     scoped-triage（5）；沒有歸屬（cliff 那一步沒有失敗的 predicate）17 條。
   - RQ1-X（兩個 agent 並列，只做描述）：本機 3 / 5（無法判斷）、Haiku 13 / 15（以驟降為主）；不合併、不做 agent 之間的檢定。失敗的
     source 部分重疊：Haiku 的 19 條中 13 條本機也失敗，兩個 agent 都有曲線的題 8 題（各自從自己的 trajectory 重跑）。凍結時的預期
-    「Haiku 主要在 H3」成立（H3 14 / 19），「本機主要在 H1 / H2」不成立（H1 16、H2 19、H3 18）；報告的並列段落沿用事先寫定的措辭。
+    「Haiku 主要在 H3」成立（H3 14 / 19），「本機主要在 H1 / H2」不成立（H1 16、H2 19、H3 18）；報告的並列段落沿用事先寫定的措辭（2026-10-29 使用者決定維持原本措辭）。
 - **2026-10-29，§8 第 8 步完成**：`docs/results/study3-haiku/`（結果頁、曲線圖、summary.json）、README 的 study3-haiku 段落與
   study3-compare 段落（兩欄都有正式結果）；README 的狀態、元件表、重現指令、結論的分類與限制加上 Study 3；NEXT.md 更新。Study 3 結束，
   依 §10 只有一輪，不再對 eval seed 推論。

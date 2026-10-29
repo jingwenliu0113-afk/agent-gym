@@ -320,7 +320,7 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
     行為性 12、機械性 1；無法判定 4 條都是 epic-closeout H3）。
   - **第 8 步完成（10-29）**：`docs/results/study3-haiku/`、README 的 study3-haiku 與 study3-compare 段落，以及 README 的狀態、元件表、
     重現指令、結論的分類與限制。並列段落事先寫定的措辭「兩個 agent 的失敗來自不同的題（預期本機主要在 H1 / H2…）」與實際不完全一致
-    （失敗 source 部分重疊，本機不是以 H1 / H2 為主），差異記在 036「實作紀錄」與 README 的結論段；措辭本身沒有改。
+    （失敗 source 部分重疊，本機不是以 H1 / H2 為主），差異記在 036「實作紀錄」與 README 的結論段；措辭本身沒有改（10-29 使用者決定維持原本措辭）。
   - **第 8 步：本機部分**（10-25）：`docs/results/study3/`（結果頁、曲線圖、summary.json）與 README 的 study3 / study3-compare 段落；報告加上
     「已知限制」（dev 審查的 6 項候選疑慮）；eval 的 comment 稽核逐則判定記在 036「實作紀錄」（1 則疑似評分寬鬆成立，不改變評分）。
     剩下：Haiku sweep 完成後，正式分析與 `study3_report --agent haiku --sweep-run <全部段> --out docs/results/study3-haiku --readme README.md`

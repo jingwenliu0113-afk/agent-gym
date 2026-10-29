@@ -52,11 +52,18 @@ def test_run_dirs_match_the_seal() -> None:
     assert report["run_extra"] == []
 
 
+def test_the_sealed_block_lives_in_the_chinese_readme() -> None:
+    """decision 037：封存紀錄的鍵仍是封存時的名稱 README.md#results，段落現在位於 README.zh-TW.md。"""
+    assert round1_seal.README_FILE == "README.zh-TW.md" and README_BLOCK == "README.md#results"
+    seal = json.loads((ROOT / SEAL_PATH).read_text(encoding="utf-8"))
+    assert round1_seal._repo_hashes(ROOT)[README_BLOCK] == seal["repo_files"][README_BLOCK]
+
+
 def test_verify_detects_changed_missing_and_extra_files(tmp_path: Path) -> None:
     (tmp_path / "docs" / "results").mkdir(parents=True)
     for name in ROUND1_REPO_FILES:
         (tmp_path / name).write_text(name, encoding="utf-8")
-    (tmp_path / "README.md").write_text("x\n<!-- results:start -->\nblock\n<!-- results:end -->\ny\n", encoding="utf-8")
+    (tmp_path / round1_seal.README_FILE).write_text("x\n<!-- results:start -->\nblock\n<!-- results:end -->\ny\n", encoding="utf-8")
     for run_dir in ROUND1_RUN_DIRS:
         (tmp_path / "runs" / run_dir / "sub").mkdir(parents=True)
         (tmp_path / "runs" / run_dir / "a.json").write_text("a", encoding="utf-8")
@@ -65,10 +72,10 @@ def test_verify_detects_changed_missing_and_extra_files(tmp_path: Path) -> None:
     assert verify_seal(tmp_path, seal, runs=True) == {"repo_mismatches": [], "run_mismatches": [], "run_missing": [], "run_extra": []}
 
     # README 結果段落以外的改動不影響封存
-    (tmp_path / "README.md").write_text("changed\n<!-- results:start -->\nblock\n<!-- results:end -->\n", encoding="utf-8")
+    (tmp_path / round1_seal.README_FILE).write_text("changed\n<!-- results:start -->\nblock\n<!-- results:end -->\n", encoding="utf-8")
     assert verify_seal(tmp_path, seal, runs=False)["repo_mismatches"] == []
 
-    (tmp_path / "README.md").write_text("<!-- results:start -->\nother\n<!-- results:end -->\n", encoding="utf-8")
+    (tmp_path / round1_seal.README_FILE).write_text("<!-- results:start -->\nother\n<!-- results:end -->\n", encoding="utf-8")
     (tmp_path / ROUND1_REPO_FILES[0]).write_text("changed", encoding="utf-8")
     first = ROUND1_RUN_DIRS[0]
     (tmp_path / "runs" / first / "a.json").write_text("changed", encoding="utf-8")
@@ -85,12 +92,12 @@ def test_missing_readme_block_is_a_mismatch(tmp_path: Path) -> None:
     (tmp_path / "docs" / "results").mkdir(parents=True)
     for name in ROUND1_REPO_FILES:
         (tmp_path / name).write_text(name, encoding="utf-8")
-    (tmp_path / "README.md").write_text("<!-- results:start -->\nblock\n<!-- results:end -->\n", encoding="utf-8")
+    (tmp_path / round1_seal.README_FILE).write_text("<!-- results:start -->\nblock\n<!-- results:end -->\n", encoding="utf-8")
     for run_dir in ROUND1_RUN_DIRS:
         (tmp_path / "runs" / run_dir).mkdir(parents=True)
         (tmp_path / "runs" / run_dir / "a.json").write_text("a", encoding="utf-8")
     seal = build_seal(tmp_path)
-    (tmp_path / "README.md").write_text("no block\n", encoding="utf-8")
+    (tmp_path / round1_seal.README_FILE).write_text("no block\n", encoding="utf-8")
     (tmp_path / ROUND1_REPO_FILES[1]).unlink()
     assert verify_seal(tmp_path, seal, runs=False)["repo_mismatches"] == sorted([ROUND1_REPO_FILES[1], README_BLOCK])
 
@@ -103,7 +110,7 @@ def test_round1_report_regenerates_byte_identical(tmp_path: Path) -> None:
     summary = write_report([ROOT / "runs" / "local-eval-20261016"], [ROOT / "runs" / "local-sweep-20261016-1"], tmp_path)
     for name in ROUND1_REPO_FILES:
         assert (tmp_path / Path(name).name).read_bytes() == (ROOT / name).read_bytes(), name
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    readme = (ROOT / round1_seal.README_FILE).read_text(encoding="utf-8")
     assert render_readme_block(summary) in readme
 
 
@@ -115,7 +122,7 @@ def test_check_fails_when_only_some_sealed_run_dirs_exist(tmp_path: Path, monkey
     (tmp_path / "docs" / "results").mkdir(parents=True)
     for name in ROUND1_REPO_FILES:
         (tmp_path / name).write_text(name, encoding="utf-8")
-    (tmp_path / "README.md").write_text("<!-- results:start -->\nblock\n<!-- results:end -->\n", encoding="utf-8")
+    (tmp_path / round1_seal.README_FILE).write_text("<!-- results:start -->\nblock\n<!-- results:end -->\n", encoding="utf-8")
     for run_dir in ROUND1_RUN_DIRS:
         (tmp_path / "runs" / run_dir).mkdir(parents=True)
         (tmp_path / "runs" / run_dir / "a.json").write_text("a", encoding="utf-8")

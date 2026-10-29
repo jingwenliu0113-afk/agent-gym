@@ -5,7 +5,7 @@ LLM 的正式結果（本機模型，decision 030 / 034）見 README 的「結�
 
 用法::
 
-    uv run python -m experiments.demo_synthetic --out docs/demo --update-readme README.md
+    uv run python -m experiments.demo_synthetic --out docs/demo --update-readme README.zh-TW.md
 
 輸出：``<out>/demo.md``（README 引用的文字）與 ``<out>/curve.svg``（recoverability curve）。輸出完全決定性（固定 seed、常數 clock）。
 """

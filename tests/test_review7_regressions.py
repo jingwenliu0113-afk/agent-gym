@@ -125,5 +125,6 @@ def test_demo_text_names_exactly_the_checkpoints_that_were_rerun(tmp_path: Path)
 
 
 def test_readme_does_not_claim_trajectories_are_replayed_on_load() -> None:
-    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(encoding="utf-8")
-    assert "trajectory / checkpoint 自帶前綴並在載入時重放驗證" not in readme
+    for name in ("README.md", "README.zh-TW.md"):  # decision 037：兩種語言
+        readme = (Path(__file__).resolve().parents[1] / name).read_text(encoding="utf-8")
+        assert "trajectory / checkpoint 自帶前綴並在載入時重放驗證" not in readme

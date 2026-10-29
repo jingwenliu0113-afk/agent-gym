@@ -3,7 +3,7 @@
 測試資料：oracle 假 client 在 study3 eval pool 上的 dry-run 輸出（部分題目改用失敗的 negative 當 oracle），以及在它的分析摘要上
 改寫 provenance、RQ1、RQ2 與 sweep 狀態的合成摘要（呈現只依摘要，不重算判定）。所有輸出目錄、結果目錄（本模組的 RESULT_DIRS、
 study2_report 的 ROUND1_RESULTS / RESULT_DIRS / STUDY3_RESULT_DIRS）與 README 一律換成 tmp 路徑：測試不寫 repo 的 docs/results/ 或
-README.md（只讀 README.md 當副本的來源），不讀 repo 的 runs/，也不輸出任何 eval 的內容（decision 036 §4）。
+README（只讀 README.zh-TW.md 當副本的來源；decision 037），不讀 repo 的 runs/，也不輸出任何 eval 的內容（decision 036 §4）。
 """
 
 from __future__ import annotations
@@ -147,7 +147,7 @@ def _patch_dirs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
 
 def _readme(tmp_path: Path) -> Path:
     """repo 的 README，去掉已 commit 的 Study 3 段落（正式結果寫入之後也從「還沒有 Study 3 段落」的 README 開始）。"""
-    text = (ROOT / "README.md").read_text(encoding="utf-8")
+    text = (ROOT / "README.zh-TW.md").read_text(encoding="utf-8")
     for start, end in [(v["start"], v["end"]) for v in rep.VARIANTS.values()] + [(rep.COMPARE["start"], rep.COMPARE["end"])]:
         text = re.sub(r"\n\n" + re.escape(start) + r".*?" + re.escape(end), "", text, flags=re.S)
     path = tmp_path / "README.md"
@@ -542,5 +542,5 @@ def test_the_committed_study3_results_match_their_summary(name: str) -> None:
     assert rep.variant(summary) == name and summary["analysis"]["provenance"]["dry_run"] is False
     assert (directory / "README.md").read_text(encoding="utf-8") == rep.render_page(summary)
     assert (directory / "recoverability.svg").read_text(encoding="utf-8") == rep.recoverability_svg(summary)
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.zh-TW.md").read_text(encoding="utf-8")
     assert rep.embed_block(readme, rep.render_readme_block(summary)) == readme

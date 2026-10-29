@@ -149,7 +149,7 @@ def test_the_committed_study2_results_match_the_summary() -> None:
     summary.json 本身只在有原始 run 目錄時逐 byte 重新產生（下一個測試）。"""
     summary = json.loads((STUDY2_RESULTS / "summary.json").read_text(encoding="utf-8"))
     assert summary["provenance"]["dry_run"] is False and summary["provenance"]["replicates"] == 10_000
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.zh-TW.md").read_text(encoding="utf-8")
     assert rep.embed(readme, rep.render_readme_block(summary)) == readme
     assert (STUDY2_RESULTS / "README.md").read_text(encoding="utf-8") == rep.render_page(summary)
     assert (STUDY2_RESULTS / "recoverability.svg").read_text(encoding="utf-8") == rep.recoverability_svg(summary)

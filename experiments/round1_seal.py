@@ -30,7 +30,8 @@ ROUND1_REPO_FILES: tuple[str, ...] = (
     "docs/results/summary.json",
     "docs/results/sweep-analysis.md",
 )
-README_BLOCK = "README.md#results"
+README_BLOCK = "README.md#results"  # 封存時的鍵名，保留不變
+README_FILE = "README.zh-TW.md"  # decision 037：封存的 results 段落隨繁體中文 README 移到這裡（sha256 不變）
 # 開發題測試（草案設定）、正式 eval baseline、正式 sweep 的原始紀錄。
 ROUND1_RUN_DIRS: tuple[str, ...] = ("local-dev-smoke-20261015", "local-eval-20261016", "local-sweep-20261016-1")
 
@@ -40,7 +41,7 @@ def _sha256(data: bytes) -> str:
 
 
 def _readme_block(root: Path) -> bytes | None:
-    path = root / "README.md"
+    path = root / README_FILE
     if not path.is_file():
         return None
     text = path.read_text(encoding="utf-8")

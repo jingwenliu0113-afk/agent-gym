@@ -119,11 +119,11 @@ def test_embed_in_readme_replaces_the_marked_block() -> None:
 
 def test_readme_demo_block_is_up_to_date(demo: tuple[DemoResult, Path]) -> None:
     """README 首屏的示範區塊必須等於目前程式產生的 demo（避免 README 與程式不同步）；
-    更新方式：``uv run python -m experiments.demo_synthetic --out docs/demo --update-readme README.md``。"""
+    更新方式：``uv run python -m experiments.demo_synthetic --out docs/demo --update-readme README.zh-TW.md``。"""
     from experiments.demo_synthetic import embed_in_readme
 
     result, _ = demo
-    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(encoding="utf-8")
+    readme = (Path(__file__).resolve().parents[1] / "README.zh-TW.md").read_text(encoding="utf-8")
     assert embed_in_readme(readme, render_demo(result)) == readme
     committed = Path(__file__).resolve().parents[1] / "docs" / "demo"
     assert (committed / "demo.md").read_text(encoding="utf-8") == render_demo(result)

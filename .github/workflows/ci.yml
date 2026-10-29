@@ -1,0 +1,40 @@
+# Keyless CI (decision 037): no GPU, no API key, no runs/ directory.
+# Lint, the sealed round-1 results and the full test suite; tests that need the original run directories skip,
+# as they do in any clean clone. CI only checks; it never produces or changes a result.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.2.0  # this action publishes exact tags only
+        with:
+          enable-cache: true  # Python 3.12 from .python-version
+
+      - name: Install (the llm extra also runs the Anthropic SDK contract tests)
+        run: uv sync --locked --extra llm
+
+      - name: Lint (ruff is not a project dependency; pinned to the version used locally)
+        run: uvx ruff@0.12.0 check .
+
+      - name: Sealed round-1 results unchanged (repository part; run directories are not in the repo)
+        run: uv run python -m experiments.round1_seal --check
+
+      - name: Tests (tests that need runs/ skip)
+        run: uv run pytest -q -rs

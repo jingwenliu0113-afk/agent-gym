@@ -13,7 +13,17 @@ def test_the_license_is_bsd_3_clause_everywhere() -> None:
     assert (ROOT / "LICENSE").read_text(encoding="utf-8").startswith("BSD 3-Clause License\n\nCopyright (c) 2026, jingwen\n")
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
     assert project["license"] == "BSD-3-Clause" and project["license-files"] == ["LICENSE"]
-    assert "[LICENSE](LICENSE)" in (ROOT / "README.md").read_text(encoding="utf-8")
+    for readme in ("README.md", "README.zh-TW.md"):
+        assert "[LICENSE](LICENSE)" in (ROOT / readme).read_text(encoding="utf-8")
+
+
+def test_the_two_readmes_link_to_each_other() -> None:
+    """decision 037：README.md 是英文版、README.zh-TW.md 是繁體中文版（程式產生的段落都在中文版），開頭互相連結。"""
+    english = (ROOT / "README.md").read_text(encoding="utf-8")
+    chinese = (ROOT / "README.zh-TW.md").read_text(encoding="utf-8")
+    assert "[繁體中文](README.zh-TW.md)" in english.split("\n## ")[0]
+    assert "[English](README.md)" in chinese.split("\n## ")[0]
+    assert "<!-- results:start -->" in chinese and "<!-- " not in english  # 英文版不含程式產生的段落
 
 
 def test_secrets_and_run_outputs_stay_ignored() -> None:

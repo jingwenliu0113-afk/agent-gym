@@ -5,7 +5,7 @@
     uv run python -m experiments.results_report --baseline-run runs/<eval> [--baseline-run ...] \\
         --sweep-run runs/<sweep-1> [--sweep-run ...] --out runs/<check-dir>
 
-第一輪已封存（docs/results/round1-seal.json）：CLI 拒絕 ``--out docs/results`` 與 ``--readme README.md``；驗證時寫到其他目錄後比對，
+第一輪已封存（docs/results/round1-seal.json）：CLI 拒絕 ``--out docs/results`` 與 ``--readme README.zh-TW.md`` / ``README.md``（decision 037）；驗證時寫到其他目錄後比對，
 或執行 ``python -m experiments.round1_seal --check``。
 
 - 分析一律經過預先登記的分析工具：``analyze_baseline.analyze_runs`` 與 ``analyze_sweep.analyze_sweep_runs``（載入時完整核對
@@ -661,7 +661,8 @@ def _write(out: Path, summary: dict[str, Any], baseline_md: str, sweep_md: str) 
 
 _ROOT = Path(__file__).resolve().parents[1]
 SEALED_RESULTS = _ROOT / "docs" / "results"  # 第一輪已封存（docs/results/round1-seal.json）：CLI 不再寫入
-SEALED_README = _ROOT / "README.md"  # 其中的 results 段落也在封存內
+# 其中的 results 段落也在封存內；decision 037：段落在繁體中文 README，英文 README 不含程式產生的段落，兩者都拒絕
+SEALED_READMES = (_ROOT / "README.zh-TW.md", _ROOT / "README.md")
 
 
 def _same_path(path: str | Path, target: Path) -> bool:
@@ -681,7 +682,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--allow-dry-run", action="store_true", help="允許以 dry-run 的輸出產生報告（不會寫進 README）")
     parser.add_argument("--replicates", type=int, default=10000)
     args = parser.parse_args(argv)
-    if _same_path(args.out, SEALED_RESULTS) or (args.readme and _same_path(args.readme, SEALED_README)):
+    if _same_path(args.out, SEALED_RESULTS) or (args.readme and any(_same_path(args.readme, sealed) for sealed in SEALED_READMES)):
         parser.error("the round-1 results are sealed (docs/results/round1-seal.json): write to another directory without --readme "
                      "and compare, or run `python -m experiments.round1_seal --check`")
     try:

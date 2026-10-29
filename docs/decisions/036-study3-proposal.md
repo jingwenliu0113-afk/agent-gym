@@ -839,6 +839,25 @@
     「尚未有正式結果」）。報告加上「已知限制」一節：上面 dev 審查判定不是缺陷、但寫進報告的 6 項候選疑慮（eval 之前寫定的固定文字，
     兩個 agent 的頁面都列出）；comment 稽核一節改為指向本紀錄的逐則判定。只改呈現，不改任何數字、標籤或規則（測試鎖定）。
     README 測試的 fixture 改為先去掉已 commit 的 Study 3 段落（原本假設 README 還沒有這些段落）。
+- **2026-10-25，§8 第 7 步：Haiku sweep 完成**（使用者執行，2 段）：
+  - `study3-sweep-haiku-20261024-01`（10-24 16:48 – 10-25 09:32，33,838 次付費呼叫、3,248 個嘗試）因每段 5 美元的上限停止（$5.0020；
+    上限在每次嘗試開始前檢查），完成 15 條；`-02`（10-25 13:57 – 20:48，8,716 次、874 個嘗試，`--resume-from -01`，帶過做到一半的
+    sync-repair-H3-s9 已完成的 162 個 rollout）完成剩下 4 條（$1.4765，`stopped_by_budget = False`）。兩段都沒有中止的嘗試，也沒有以上界
+    計入的呼叫；開始新 source 前的預留額檢查都沒有觸發停止。
+  - Study 3 總帳合計 **$7.3210**（dev $0.1609、eval baseline $0.6817、sweep $6.4785；硬上限 40 美元，剩下 $31.679 未使用）。
+  - 正式分析（`study3_analysis --agent haiku --sweep-run` 兩段；`runs/study3-analysis-haiku-20261029`）：sweep **完整**（19 / min(25, 19)）。
+  - **RQ1（主要規則）：以驟降為主**。可判定的失敗曲線中 cliff 13 / 15（Wilson 95% CI [0.621, 0.963]，下限 > 0.5）；機械性 1
+    （scoped-triage-H2-s4，D-nb-ni）、行為性 12；無法判定 4 條（都是 epic-closeout H3，最大 p̂ = 0，以 max_turns 結束：§3 (c) 登記的
+    逐一讀取做不完的限制）、max_turns 混淆 0；逐步 2 條（sync-repair H3-s7、H3-s6）。
+  - 次要結果（只描述）：行為性 cliff 比例 12 / 14（Wilson 95% CI [0.601, 0.960]）→ 以驟降為主，所以 §2 的機械性解讀句不需要；(A) 版本
+    12 / 15（[0.548, 0.930]）；034 的 max_turns 敏感度、agent_error 敏感度、第一輪的規則都是 13 / 15。cliff 集中在 sync-repair（8）與
+    scoped-triage（5）；沒有歸屬（cliff 那一步沒有失敗的 predicate）17 條。
+  - RQ1-X（兩個 agent 並列，只做描述）：本機 3 / 5（無法判斷）、Haiku 13 / 15（以驟降為主）；不合併、不做 agent 之間的檢定。失敗的
+    source 部分重疊：Haiku 的 19 條中 13 條本機也失敗，兩個 agent 都有曲線的題 8 題（各自從自己的 trajectory 重跑）。凍結時的預期
+    「Haiku 主要在 H3」成立（H3 14 / 19），「本機主要在 H1 / H2」不成立（H1 16、H2 19、H3 18）；報告的並列段落沿用事先寫定的措辭。
+- **2026-10-29，§8 第 8 步完成**：`docs/results/study3-haiku/`（結果頁、曲線圖、summary.json）、README 的 study3-haiku 段落與
+  study3-compare 段落（兩欄都有正式結果）；README 的狀態、元件表、重現指令、結論的分類與限制加上 Study 3；NEXT.md 更新。Study 3 結束，
+  依 §10 只有一輪，不再對 eval seed 推論。
 
 ## 附錄 A — instruction 逐字稿、規則來源與 decisive_rules
 

@@ -10,11 +10,11 @@ Task → Agent actions → state changes → grader → replay from checkpoint
 每條 trajectory 逐步記錄 model message、tool call、結果與前後的 state hash；grader 把「最後成功」與「過程安全」分開評；
 從任一 checkpoint 還原後重新 rollout，就能估計 **P(success | checkpoint k)**——從哪一步開始救不回來。
 
-> **目前狀態（2026-10-19 暫時結案；2026-10-23 完成 Claude Haiku 5.5 的跨模型比較）**：Core 的 infrastructure 已完成並以 synthetic policy 驗證。Core 的 LLM 是自行部署的本機模型
+> **目前狀態（2026-10-19 暫時結案；2026-10-23 完成 Claude Haiku 5.5 的跨模型比較；2026-10-29 完成 Study 3）**：Core 的 infrastructure 已完成並以 synthetic policy 驗證。Core 的 LLM 是自行部署的本機模型
 > （`qwen3.5:9b-q4_K_M`，台中 gpu-server 的 Ollama，decision 026）；付費 API 為 Optional。本 Project 在 GPU lock 內啟動自己的
 > Ollama server（與 incident-investigator 共用模型檔案，decision 029）。第一輪正式實驗（設定凍結，decision 030）已完成並封存：
 > Gate `gradual`、天花板效應、不進 Advanced。獨立的第二輪研究 Study 2（decision 034）也已完成。2026-10-22 使用者授權以
-> Claude Haiku 5.5 跑同一組 Study 2 題目的跨模型比較（decision 035，付費 API），2026-10-23 完成：108 / 108 成功（天花板，不跑 sweep），花費 $0.117。2026-10-23 使用者核准第三輪研究 Study 3（decision 036：更難的分級任務，本機模型與 Haiku 5.5 都跑，Haiku 硬上限 40 美元），實作中，尚無結果。結論的分類見下方「結論的分類」。下面的示範是 **synthetic policy，不是 LLM 結果**。
+> Claude Haiku 5.5 跑同一組 Study 2 題目的跨模型比較（decision 035，付費 API），2026-10-23 完成：108 / 108 成功（天花板，不跑 sweep），花費 $0.117。2026-10-23 使用者核准第三輪研究 Study 3（decision 036：更難的分級任務，本機模型與 Haiku 5.5 都跑，Haiku 硬上限 40 美元），2026-10-29 完成：兩個 agent 的分級都有效；RQ1 本機模型「無法判斷」（可判定的曲線只有 5 條）、Haiku「以驟降為主」（13 / 15）；Haiku 花費 $7.32。結論的分類見下方「結論的分類」。下面的示範是 **synthetic policy，不是 LLM 結果**。
 
 ## 示範：replay 能回答什麼（synthetic，keyless，可重現）
 
@@ -84,17 +84,17 @@ Task → Agent actions → state changes → grader → replay from checkpoint
 | 元件 | 位置 | 重點 |
 |---|---|---|
 | Environment | `apps/issue_tracker/`、`env/` | 決定性、canonical state hash、snapshot / restore（格式與 hash 驗證、原子性） |
-| Tasks | `tasks/` | 手寫 smoke tasks（只做回歸）＋ parameterized generator v1：5 個題型 × 4 seeds（dev 5 題、eval 15 題；第一輪）＋ generator v2：4 個題型 × 3 個級別（dev 24 題、eval 36 題；Study 2，task format v2 的 `max_count` / `unless`）；每題附 oracle 與會被判錯的 negatives |
+| Tasks | `tasks/` | 手寫 smoke tasks（只做回歸）＋ parameterized generator v1：5 個題型 × 4 seeds（dev 5 題、eval 15 題；第一輪）＋ generator v2：4 個題型 × 3 個級別（dev 24 題、eval 36 題；Study 2，task format v2 的 `max_count` / `unless`）＋ generator v3：4 個題型 × 3 個級別（dev 24 題、eval 96 題；Study 3）；每題附 oracle 與會被判錯的 negatives |
 | Grader | `grader/` | final-state correctness、constraint violations、forbidden actions / attempts、unnecessary mutations、tool errors、steps、tokens、latency、cost；以重放驗證 records 的完整性 |
 | Recorder / replay | `agents/policy.py`、`replay/` | checkpoint 自帶前綴並在載入時重放驗證；trajectory 以 `verify()` 重放驗證（分析工具載入後一律呼叫）；restore 後 agent 看到的 conversation 與原 episode 逐 byte 相同 |
 | Agent adapters | `agents/ollama.py`、`agents/baseline.py` | Core：Ollama 原生 `/api/chat` adapter（只連 loopback、只呼叫允許的端點、tool call 與 JSON 結構驗證、截斷防護、模型釘選；decision 026）。Optional：Anthropic Messages adapter（decision 009） |
 | Failure localization | `replay/localization.py`、`replay/stats.py` | coarse → 反覆 refine 的 checkpoint sweep、Wilson CI、family 分層 task-level bootstrap、驟降判定 |
-| 實驗腳本 | `experiments/` | baseline / sweep 的執行（dry-run、本機模型的呼叫次數上限與 GPU lock、Optional 的成本上限、manifest）、偵測力模擬、預先登記的分析、本機模型的檢查與開發題彙整（`local_probe`）、第一輪的報告與封存（`results_report`、`round1_seal`）；Study 2 的 dev 驗證與估算（`study2_dev`）、凍結紀錄（`study2_freeze`）、分析（`study2_analysis`）與報告（`study2_report`） |
+| 實驗腳本 | `experiments/` | baseline / sweep 的執行（dry-run、本機模型的呼叫次數上限與 GPU lock、Optional 的成本上限、manifest）、偵測力模擬、預先登記的分析、本機模型的檢查與開發題彙整（`local_probe`）、第一輪的報告與封存（`results_report`、`round1_seal`）；Study 2 的 dev 驗證與估算（`study2_dev`）、凍結紀錄（`study2_freeze`）、分析（`study2_analysis`）與報告（`study2_report`）；Study 3 的 context 檢查（`study3_context`）、統計與 sweep 計畫（`study3_stats`、`study3_plan`）、dev 審查與估算（`study3_dev`）、凍結紀錄（`study3_freeze`）、分析（`study3_analysis`）與報告（`study3_report`）；付費呼叫的總帳（`billing`） |
 | GPU lock 與 server | `tools/with-gpu-lock`、`agents/ollama_serve.py` | 在 gpu-server 的 GPU lock 內啟動本 Project 自己的 Ollama server（共用的模型檔案只讀）、確認通道接到這次的 server、結束時停止並比對快照（decision 029） |
 
-所有實驗設計與格式變更都記在 [docs/decisions/](docs/decisions/)（001–035），包含預先登記的統計協定（005）、baseline 設定（009）、
+所有實驗設計與格式變更都記在 [docs/decisions/](docs/decisions/)（001–036），包含預先登記的統計協定（005）、baseline 設定（009）、
 failure localization 協定（010 / 013）、偵測力模擬（011）、run 協定（012 / 025）、本機模型（026 – 028）、自己的 Ollama server（029 / 031）、
-設定凍結（030）、逐次呼叫紀錄（032）、結果報告（033）、第二輪研究 Study 2（034：已核准、凍結並完成；凍結紀錄 `034-freeze-record.json`）、Claude Haiku 5.5 的跨模型比較（035）、分析規則（016 / 017）、中斷後續跑與寫入的規則（018 – 020 / 023 / 024）與 dry-run 輸出的區分（021 / 022）。
+設定凍結（030）、逐次呼叫紀錄（032）、結果報告（033）、第二輪研究 Study 2（034：已核准、凍結並完成；凍結紀錄 `034-freeze-record.json`）、Claude Haiku 5.5 的跨模型比較（035）、第三輪研究 Study 3（036：兩個 agent；凍結紀錄 `036-freeze-record.json`）、分析規則（016 / 017）、中斷後續跑與寫入的規則（018 – 020 / 023 / 024）與 dry-run 輸出的區分（021 / 022）。
 
 ## 怎麼跑
 
@@ -113,11 +113,15 @@ uv run python -m experiments.round1_seal --check               # 第一輪封存
 
 - **只有 repo 就能重現**：全部測試、synthetic 示範、dry-run、成本估算、`study2_dev power` / `assumed` 的模擬；
   已 commit 的報告與 README 段落都由測試比對（第一輪：封存的 sha256；Study 2 與 Haiku 跨模型比較：由 `docs/results/study2/summary.json`、
-  `docs/results/study2-haiku/summary.json` 重新呈現）。
+  `docs/results/study2-haiku/summary.json` 重新呈現；Study 3：由 `docs/results/study3/summary.json`、`docs/results/study3-haiku/summary.json`
+  重新呈現）；Study 3 的凍結紀錄（`036-freeze-record.json`）每次測試都與程式重新計算的協定比對。
 - **需要原始 run 目錄**：由原始紀錄重新產生報告（第一輪：`local-eval-20261016`、`local-sweep-20261016-1`；
   Study 2：`study2-eval-20261017`、`study2-sweep-20261017-1` … `-6`；Haiku：`haiku-study2-eval-20261023-b`）。有這些目錄時，測試會逐 byte 重新產生並比對；沒有時這些測試會 skip。
   `local-dev-smoke-20261015` 只由 `round1_seal --check` 比對 sha256（沒有任何 runs/ 時只比對 repo 的部分並明說）；
-  `study2-dev-20261017` 是凍結紀錄（`034-freeze-record.json`）的輸入，沒有測試重新產生。`runs/` 不進 repo，只存在原始的 Mac。
+  `study2-dev-20261017` 是凍結紀錄（`034-freeze-record.json`）的輸入，沒有測試重新產生。
+  Study 3 的原始目錄（本機：`study3-eval-local-20261024-s23` / `-s45` / `-s67` / `-s89` / `-s89-b`、`study3-sweep-local-20261024-01` … `-10`；
+  Haiku：`study3-eval-haiku-20261024`、`study3-sweep-haiku-20261024-01` / `-02`；dev：`study3-dev-local-20261023`、`study3-dev-haiku-20261023`）
+  只用於以下面的指令重新產生報告，沒有測試逐 byte 重新產生。`runs/` 不進 repo，只存在原始的 Mac。
 - **需要原本的 gpu-server**：重跑推論（MACHINE_POLICY、decision 029 / 030）。每次呼叫的 seed 隨機（decision 032），
   重跑得到的是同一分布的新樣本，不是相同的數字。Study 2 依 decision 034 §9 不再對 eval seed 推論。
 
@@ -153,6 +157,25 @@ uv run python -m experiments.study2_report --baseline-run runs/<haiku-eval> --sw
 # 實際（2026-10-23）：baseline --run-name haiku-study2-eval-20261023-b（第一次啟動的 haiku-study2-eval-20261023 沒有 credential，不列入）；
 # 108 / 108 成功 → 天花板，run_sweep 拒絕執行，沒有 sweep。實際使用的報告指令（沒有 --sweep-run）：
 uv run python -m experiments.study2_report --baseline-run runs/haiku-study2-eval-20261023-b --out docs/results/study2-haiku --readme README.md
+```
+
+- Study 3（decision 036）：凍結紀錄 `docs/decisions/036-freeze-record.json`。本機的推論都在 GPU lock 內（eval baseline 每段 ≤ 2,880 次、
+  sweep 每段 ≤ 3,000 次、累計 80,000 次）；Haiku 由使用者在自己的終端機執行，所有付費呼叫寫進總帳 `~/.agent-gym/study3-haiku-billing.jsonl`
+  （硬上限 40 美元、安全邊際 1 美元；dev ≤ 3、eval baseline ≤ 8、sweep 每段 ≤ 5）。分析與報告的 baseline 目錄由程式從 runs/ 列舉
+  （中斷的目錄也列入，依最早結束者採計），只給 `--sweep-run`；sweep 依凍結的順序、只做失敗的 source。
+
+```bash
+tools/with-gpu-lock -- uv run python -m experiments.run_baseline --split dev --suite study3 --rollouts 3 --confirm-local-run --max-model-calls 2880 --run-name study3-dev-local-20261023
+uv run --extra llm python -m experiments.run_baseline --split dev --suite study3 --provider anthropic --model claude-haiku-5-5 --rollouts 3 --max-cost-usd 3 --confirm-paid-run --run-name study3-dev-haiku-20261023
+uv run python -m experiments.study3_freeze --local-dev-run runs/study3-dev-local-20261023 --haiku-dev-run runs/study3-dev-haiku-20261023   # 只寫一次
+# 本機 eval baseline 4 段（--seeds 2,3 / 4,5 / 6,7 / 8,9 對應 -s23 / -s45 / -s67 / -s89；實際 -s89 中斷後以 -s89-b 重跑）；Haiku 一次跑完
+tools/with-gpu-lock -- uv run python -m experiments.run_baseline --split eval --suite study3 --seeds 2,3 --rollouts 3 --confirm-local-run --max-model-calls 2880 --run-name study3-eval-local-20261024-s23
+uv run --extra llm python -m experiments.run_baseline --split eval --suite study3 --provider anthropic --model claude-haiku-5-5 --rollouts 3 --max-cost-usd 8 --confirm-paid-run --run-name study3-eval-haiku-20261024
+# sweep 第 N 段：第 2 段起加上 --resume-from 全部前段；某一段沒有因預算停止就結束（本機實際 10 段，Haiku 2 段）
+tools/with-gpu-lock -- uv run python -m experiments.run_sweep --baseline-run runs/study3-eval-local-20261024-s23 runs/study3-eval-local-20261024-s45 runs/study3-eval-local-20261024-s67 runs/study3-eval-local-20261024-s89 runs/study3-eval-local-20261024-s89-b --plan 2,10,48,0.3 --criterion bonferroni95 --confirm-local-run --max-model-calls 3000 --total-model-calls 80000 --run-name study3-sweep-local-20261024-<N>
+uv run --extra llm python -m experiments.run_sweep --baseline-run runs/study3-eval-haiku-20261024 --plan 2,10,48,0.3 --criterion bonferroni95 --confirm-paid-run --max-cost-usd 5 --total-cost-usd 40 --run-name study3-sweep-haiku-20261024-<N>
+uv run python -m experiments.study3_report --agent local --sweep-run runs/study3-sweep-local-20261024-01 … --sweep-run runs/study3-sweep-local-20261024-10 --out docs/results/study3 --readme README.md
+uv run python -m experiments.study3_report --agent haiku --sweep-run runs/study3-sweep-haiku-20261024-01 --sweep-run runs/study3-sweep-haiku-20261024-02 --out docs/results/study3-haiku --readme README.md
 ```
 
 ## 結果
@@ -232,6 +255,29 @@ uv run python -m experiments.study2_report --baseline-run runs/haiku-study2-eval
 
 <!-- study3:end -->
 
+<!-- study3-haiku:start -->
+
+### Study 3：更難的分級任務，Claude Haiku 5.5（decision 036）
+
+獨立的後續研究（generator v3，eval 96 題 × R = 3，只 sweep 失敗的 source）；第一輪、Study 2 與 decision 035 的結果與判定不變，本段也不做 Core Gate 的判定。
+
+| 級別 | success | 成功但不安全 | agent_error | 以 max_turns 結束 |
+|---|---|---|---|---|
+| H1 | 0.979 | 0.000 | 0 | 0.000 |
+| H2 | 0.948 | 0.000 | 0 | 0.000 |
+| H3 | 0.708 | 0.000 | 0 | 0.250 |
+
+- RQ1：以驟降為主（cliff 比例的 Wilson 95% CI 下限 > 0.5）：可判定的失敗曲線中 cliff 13 / 15，Wilson 95% CI [0.621, 0.963]（失敗的 source 19 條、完成的曲線 19 條；無法判定 4 條、max_turns 混淆 0 條；cliff 中機械性 1、行為性 12）。
+- 行為性 cliff 比例（次要結果，不取代主要判定）：12 / 14（Wilson 95% CI [0.601, 0.960]） → 以驟降為主；(A) 版本（n = RQ1 的完整分母，只做描述）：12 / 15（Wilson 95% CI [0.548, 0.930]）；行為性 cliff 占全部 cliff：12 / 13。
+- 第一輪的規則（decision 017 §1；次要結果）：13 / 15（Wilson 95% CI [0.621, 0.963]） → 以驟降為主；無法判定 4、max_turns 混淆 0。
+- sweep：完整：完成的曲線是固定順序的前綴，長度為 min(25, N_failed)。完成 19 / 目標 19 條（失敗的 source 19 條）；做到一半：—；之後沒有開始：0 條；依設計不 sweep：成功的 source 77 條、第 26 條之後的失敗 source 0 條。
+- 分級（RQ2）：有效。H1 − H3 = 0.271，bootstrap 95% CI [0.146, 0.406]（B = 10000、seed 0；2.5% 分位數 > 0：成立）；精確置換檢定 p = 0.0001105（< 0.025：成立）。兩者都成立才有效。「有效」只表示 H1 > H3，不代表差距大小。
+- RQ3（安全）：成功中不安全的 episode H1 0 / 94、H2 0 / 91、H3 0 / 68；只錯在順序、最終狀態正確的 trajectory 是 success，計為 RQ3 的事件。
+
+完整結果：[docs/results/study3-haiku/README.md](docs/results/study3-haiku/README.md)。
+
+<!-- study3-haiku:end -->
+
 <!-- study3-compare:start -->
 
 ### Study 3：兩個 agent 並列（RQ1-X，只做描述）
@@ -240,33 +286,33 @@ uv run python -m experiments.study2_report --baseline-run runs/haiku-study2-eval
 
 | | 本機模型 | Claude Haiku 5.5 |
 |---|---|---|
-| RQ1 的判定 | 無法判斷；樣本少（n = 5），證據弱 | 尚未有正式結果 |
-| cliff 比例（可判定的失敗曲線） | 3 / 5（Wilson 95% CI [0.231, 0.882]） | — |
+| RQ1 的判定 | 無法判斷；樣本少（n = 5），證據弱 | 以驟降為主 |
+| cliff 比例（可判定的失敗曲線） | 3 / 5（Wilson 95% CI [0.231, 0.882]） | 13 / 15（Wilson 95% CI [0.621, 0.963]） |
 
 分母的組成（可判定 = 不是無法判定、也不是 max_turns 混淆；cliff 為可判定曲線中的條數）：
 
 | 組 | agent | 失敗的 source | 完成的曲線 | 可判定 | 無法判定 | max_turns 混淆 | cliff |
 |---|---|---|---|---|---|---|---|
 | H1 | 本機模型 | 16 | 7 | 2 | 5 | 0 | 2 |
-| H1 | Claude Haiku 5.5 | — | — | — | — | — | — |
+| H1 | Claude Haiku 5.5 | 2 | 2 | 2 | 0 | 0 | 2 |
 | H2 | 本機模型 | 19 | 10 | 2 | 8 | 0 | 1 |
-| H2 | Claude Haiku 5.5 | — | — | — | — | — | — |
+| H2 | Claude Haiku 5.5 | 3 | 3 | 3 | 0 | 0 | 3 |
 | H3 | 本機模型 | 18 | 8 | 1 | 7 | 0 | 0 |
-| H3 | Claude Haiku 5.5 | — | — | — | — | — | — |
+| H3 | Claude Haiku 5.5 | 14 | 14 | 10 | 4 | 0 | 8 |
 | epic-closeout | 本機模型 | 10 | 6 | 2 | 4 | 0 | 1 |
-| epic-closeout | Claude Haiku 5.5 | — | — | — | — | — | — |
+| epic-closeout | Claude Haiku 5.5 | 4 | 4 | 0 | 4 | 0 | 0 |
 | scoped-triage | 本機模型 | 24 | 12 | 2 | 10 | 0 | 1 |
-| scoped-triage | Claude Haiku 5.5 | — | — | — | — | — | — |
+| scoped-triage | Claude Haiku 5.5 | 5 | 5 | 5 | 0 | 0 | 5 |
 | sync-repair | 本機模型 | 15 | 6 | 0 | 6 | 0 | 0 |
-| sync-repair | Claude Haiku 5.5 | — | — | — | — | — | — |
+| sync-repair | Claude Haiku 5.5 | 10 | 10 | 10 | 0 | 0 | 8 |
 | verified-close | 本機模型 | 4 | 1 | 1 | 0 | 0 | 1 |
-| verified-close | Claude Haiku 5.5 | — | — | — | — | — | — |
+| verified-close | Claude Haiku 5.5 | 0 | 0 | 0 | 0 | 0 | 0 |
 
 <!-- study3-compare:end -->
 
-## 結論的分類（2026-10-19 結案；2026-10-23 加入 Claude Haiku 5.5 的跨模型比較）
+## 結論的分類（2026-10-19 結案；2026-10-23 加入 Claude Haiku 5.5 的跨模型比較；2026-10-29 加入 Study 3）
 
-**已證實的結論**（事先登記的分析；只適用於各自的 agent 與這兩組題目）
+**已證實的結論**（事先登記的分析；只適用於各自的 agent 與各自的題目）
 
 - 第一輪：eval baseline 45 / 45 成功、全部安全；sweep 480 / 480 rerun 成功，15 個 source 都沒有 cliff。這組題目對這個模型沒有可以定位的失敗（天花板效應）。
 - Study 2 eval baseline：108 個 episode 中 101 success、6 failure、1 agent_error（epic-closeout-L2-s3 r2：輸出達到 num_predict 而截斷、
@@ -278,6 +324,17 @@ uv run python -m experiments.study2_report --baseline-run runs/haiku-study2-eval
 - Claude Haiku 5.5（decision 035，同一組 36 題與協定）：eval baseline 108 / 108 success、全部安全，沒有任何 forbidden action
   或 tool 錯誤；完全天花板，依事先登記的規則不跑 sweep。付費 API 的實際花費 $0.117（預算 70 美元）。
   跨模型比較只做描述（decision 035 §5）：同樣的題目，本機模型有 7 個 episode 未成功，Haiku 沒有；不做模型之間的假設檢定。
+- Study 3（decision 036，generator v3，eval 96 題 × R = 3，兩個 agent 各自分析）：
+  - **分級（RQ2）對兩個 agent 都有效**：本機 success H1 0.573、H2 0.385、H3 0.260（H1 − H3 = 0.312，95% CI [0.115, 0.510]，置換檢定
+    p = 0.0033）；Haiku H1 0.979、H2 0.948、H3 0.708（H1 − H3 = 0.271，95% CI [0.146, 0.406]，p = 0.00011）。「有效」只表示 H1 > H3。
+  - **Haiku 的 RQ1：以驟降為主**（`mostly_cliff`）：可判定的失敗曲線中 cliff 13 / 15，Wilson 95% CI [0.621, 0.963]；行為性 12、機械性 1；
+    排除機械性 cliff 之後的行為性比例 12 / 14（[0.601, 0.960]）也成立；034 的 max_turns 敏感度、agent_error 敏感度與第一輪的規則
+    都是 13 / 15。19 條失敗的 source 全部 sweep；4 條無法判定的都是 epic-closeout H3（以 max_turns 結束，§3 (c) 登記的讀法限制）。
+  - **本機模型的 RQ1：無法判斷**：25 條曲線中只有 5 條可判定（cliff 3 / 5，Wilson 95% CI [0.231, 0.882]；逐步 2）；20 條無法判定，
+    其中 16 條在每個 checkpoint 的 P(success | k) 都 ≤ 0.2（從 source 的任一 checkpoint 重跑也很少成功）。可判定的比例 0.2 遠低於
+    凍結時的假設 0.8。
+  - RQ3：兩個 agent 都沒有「成功但不安全」的 episode。
+  - Haiku 的付費 API 花費合計 $7.32（dev $0.16、eval baseline $0.68、sweep $6.48；硬上限 40 美元）。
 
 **未通過的 Gate 與檢定**
 
@@ -288,7 +345,10 @@ uv run python -m experiments.study2_report --baseline-run runs/haiku-study2-eval
   L1 > L2 = L3 的點估計不是難度的證據。
 - Haiku 5.5 的分級檢定：無效（三個級別都是 1.000，L1 − L3 = 0）。Haiku 沒有失敗的 source，所以 RQ1 對 Haiku 不適用（天花板），
   跨模型比較也無法補強 Study 2 RQ1 只有 4 條曲線的弱點。
-- Study 2 與跨模型比較都不做任何 Gate 判定，也不重新開啟 Core Gate；Advanced 維持關閉。
+- Study 3 本機模型的 RQ1 沒有結論（上述）；Study 3 的兩個 agent 只並列描述（RQ1-X），不合併、不做 agent 之間的檢定：兩者的曲線
+  來自部分重疊、但不相同的題（Haiku 的 19 條失敗 source 中 13 條本機也失敗；兩個 agent 都有曲線的題 8 題），而且各自從自己的
+  trajectory 重跑，cliff 比例的差異不能歸因於 agent。
+- Study 2、跨模型比較與 Study 3 都不做任何 Gate 判定，也不重新開啟 Core Gate；Advanced 維持關閉。
 
 **探索性發現**（看過結果之後整理；不是結論，只作為未來研究的假設）
 
@@ -309,4 +369,8 @@ uv run python -m experiments.study2_report --baseline-run runs/haiku-study2-eval
 - 結論只針對兩個凍結的 agent（本機 `qwen3.5:9b-q4_K_M` 與 Claude Haiku 5.5）；兩者除了模型，adapter 與 thinking 的方式也不同
   （本機 think 關、Haiku adaptive thinking；decision 035 §2），Haiku 的設定也沒有先在 dev 試跑。跨模型比較只有一組 36 題、兩個 agent，
   只做描述，差異不能只歸因於模型。
+- Study 3：eval 96 題；Haiku 的 RQ1 判定只來自 15 條可判定的曲線，只適用於 Haiku 5.5 與 generator v3 的題目。兩個 agent 的失敗 source
+  只部分重疊，所以 RQ1 只能各自解讀。題目參考了 Study 2 的失敗類型，並刻意包含會造成機械性 cliff 的不可撤回 comment
+  （decision 036 事先揭露）。dev 審查判定不是缺陷、但寫進報告的 6 項候選疑慮（例如 epic-closeout H3 逐一讀取做不完）列在兩份結果頁的
+  「已知限制」；eval 的 comment 稽核有 1 則疑似評分寬鬆（本機、成功的 episode），依登記不改變評分（decision 036「實作紀錄」）。
 - 其他已知限制見 [NEXT.md](NEXT.md)。

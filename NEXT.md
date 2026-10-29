@@ -3,7 +3,10 @@
 ## 目前位置
 
 **2026-10-19 暫時結案；2026-10-22 使用者授權以 Claude Haiku 5.5 做跨模型比較（decision 035），2026-10-23 完成：108 / 108 成功（天花板，不跑 sweep），花費 $0.117。** Core：Day 1、Week 1（含 #5：凍結的本機模型已跑完整的正式 eval baseline，2026-10-16）與 SPEC §6 全部完成；Gate `gradual`，不進 Advanced。Study 2 已完成（2026-10-17），使用者 2026-10-19 接受結果；不啟動 Study 3、不新增正式研究。結論的分類（已證實／未通過的 Gate 與檢定／探索性）見 README「結論的分類」。
-**2026-10-23 使用者要求以更難的題目做 Study 3**（本機模型與 Haiku 5.5 都跑，Haiku 硬上限 40 美元，先寫方案）：方案為 decision 036，**使用者 2026-10-23 核准**；依 036 §8 的順序實作中。
+**2026-10-23 使用者要求以更難的題目做 Study 3**（本機模型與 Haiku 5.5 都跑，Haiku 硬上限 40 美元，先寫方案）：方案為 decision 036，**使用者 2026-10-23 核准**。
+**Study 3 已完成（2026-10-29）**：兩個 agent 的分級（RQ2）都有效；RQ1 本機「無法判斷」（可判定的曲線只有 5 條，cliff 3 / 5）、Haiku「以驟降為主」
+（cliff 13 / 15，Wilson 95% CI [0.621, 0.963]）；RQ3 兩者都沒有「成功但不安全」。Haiku 總帳 $7.32 / 40。結果在 `docs/results/study3/`、
+`docs/results/study3-haiku/` 與 README，經過與解讀在 decision 036「實作紀錄」。依 036 §10 只有一輪；沒有進行中的研究，也沒有待使用者處理的事項。
 **2026-10-11 起 Core 的 LLM 改用自行部署的本機模型**（`qwen3.5:9b-q4_K_M`，台中 gpu-server 的 Ollama；decision 026）；付費 API 改為 Optional。
 **2026-10-15**：本 Project 在 GPU lock 內啟動自己的 Ollama server（與 incident-investigator 共用模型檔案、共用目錄只讀；decision 029），
 已在 gpu-server 實測：server 檢查、截斷自我測試、開發題測試（15 / 15 成功）全部通過，每次結束都確認 server 已停止、共用目錄沒有改變、
@@ -264,7 +267,7 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
   performance-sensitive 的數字是正式 LLM run 的 `latency_s`（SPEC §4 的 latency 指標），而正式 run 當時已因付費 API deferred；
   dry-run、測試、審查不產生正式結果，不受影響。電力模式期間若要跑正式 run，必須先恢復一般電力設定或延後（當時指向付費 run 的段落，該段已移除；之後的正式 run——第一輪 2026-10-16、Study 2 2026-10-17——推論都在 gpu-server，Mac 只做 client；結案後沒有待跑的正式 run）。
 
-## 下一步：Study 3 的實作（decision 036 §8，2026-10-23 核准）
+## Study 3 的實作紀錄（decision 036 §8，2026-10-23 核准，2026-10-29 完成；目前沒有下一步）
 
 - 2026-10-23 使用者：「兩個都跑，Haiku 上限 40 美元，先寫方案」。方案 `docs/decisions/036-study3-proposal.md`：
   generator v3（4 題型 × H1–H3）、eval seed 2–9（96 題）、只 sweep 失敗的 source（固定的隨機順序、每個 agent 最多 25 條）、
@@ -312,7 +315,13 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
     --run-name study3-sweep-local-20261024-NN --resume-from <全部前段>`。
   - eval baseline 的規則：
     本機 4 段（seeds 2–3、4–5、6–7、8–9，每段 GPU lock 內、上限 2,880 次）；Haiku 由使用者執行（eval baseline ≤ 8 美元）。
-  - **第 8 步：本機部分完成**：`docs/results/study3/`（結果頁、曲線圖、summary.json）與 README 的 study3 / study3-compare 段落；報告加上
+  - **第 7 步：Haiku sweep 完成（使用者執行，10-25）**：2 段（`-01` 因每段 $5 停止、15 條；`-02` 完成剩下 4 條），19 條全部完成；sweep $6.4785，
+    總帳合計 $7.3210。正式分析 `runs/study3-analysis-haiku-20261029`：**RQ1 以驟降為主**（cliff 13 / 15，Wilson 95% CI [0.621, 0.963]；
+    行為性 12、機械性 1；無法判定 4 條都是 epic-closeout H3）。
+  - **第 8 步完成（10-29）**：`docs/results/study3-haiku/`、README 的 study3-haiku 與 study3-compare 段落，以及 README 的狀態、元件表、
+    重現指令、結論的分類與限制。並列段落事先寫定的措辭「兩個 agent 的失敗來自不同的題（預期本機主要在 H1 / H2…）」與實際不完全一致
+    （失敗 source 部分重疊，本機不是以 H1 / H2 為主），差異記在 036「實作紀錄」與 README 的結論段；措辭本身沒有改。
+  - **第 8 步：本機部分**（10-25）：`docs/results/study3/`（結果頁、曲線圖、summary.json）與 README 的 study3 / study3-compare 段落；報告加上
     「已知限制」（dev 審查的 6 項候選疑慮）；eval 的 comment 稽核逐則判定記在 036「實作紀錄」（1 則疑似評分寬鬆成立，不改變評分）。
     剩下：Haiku sweep 完成後，正式分析與 `study3_report --agent haiku --sweep-run <全部段> --out docs/results/study3-haiku --readme README.md`
     （同時更新 study3-compare），再更新 README 的結論段與本檔。
@@ -359,9 +368,9 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 ## Blocked / 需要使用者
 
 2026-10-19 結案時沒有待處理的事項；2026-10-22 使用者授權以 Claude Haiku 5.5 做跨模型比較，2026-10-23 完成（108 / 108，天花板，$0.117；
-見「下一步」與 C）。**2026-10-23 使用者核准 Study 3（decision 036），實作中。** S3（Haiku dev）、S4（Haiku eval baseline）已完成。**目前需要使用者的事項：S5（Haiku 的 sweep）。** 其餘保留為歷史紀錄。
+見「下一步」與 C）。**2026-10-23 使用者核准 Study 3（decision 036），實作中。** S3（Haiku dev）、S4（Haiku eval baseline）、S5（Haiku sweep）都已完成，Study 3 結束（2026-10-29）。**目前沒有需要使用者的事項。** 其餘保留為歷史紀錄。
 
-### S5. Study 3 的 Haiku sweep（decision 036 §6、§7；需要使用者在自己的終端機執行）
+### S5. Study 3 的 Haiku sweep（decision 036 §6、§7）：**已完成（2026-10-25，使用者執行，2 段，$6.4785）**
 
 - Haiku 的 eval baseline 有 19 條失敗的 source，目標 min(25, 19) = 19 條，依凍結順序。sweep 的總上限由程式從 Study 3 總帳計算：
   40 − 1 的安全邊際 − 已花的 $0.8426 = $38.157；每段 ≤ 5 美元；開始新的 source 之前剩下的金額必須 ≥ 預留額 $1.8435。

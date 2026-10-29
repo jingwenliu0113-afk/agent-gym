@@ -11,7 +11,7 @@ Task → Agent actions → state changes → grader → replay from checkpoint
 從任一 checkpoint 還原後重新 rollout，就能估計 **P(success | checkpoint k)**——從哪一步開始救不回來。
 
 > **目前狀態（2026-10-19 暫時結案；2026-10-23 完成 Claude Haiku 5.5 的跨模型比較；2026-10-29 完成 Study 3）**：Core 的 infrastructure 已完成並以 synthetic policy 驗證。Core 的 LLM 是自行部署的本機模型
-> （`qwen3.5:9b-q4_K_M`，台中 gpu-server 的 Ollama，decision 026）；付費 API 為 Optional。本 Project 在 GPU lock 內啟動自己的
+> （`qwen3.5:9b-q4_K_M`，遠端 gpu-server 的 Ollama，decision 026）；付費 API 為 Optional。本 Project 在 GPU lock 內啟動自己的
 > Ollama server（與 incident-investigator 共用模型檔案，decision 029）。第一輪正式實驗（設定凍結，decision 030）已完成並封存：
 > Gate `gradual`、天花板效應、不進 Advanced。獨立的第二輪研究 Study 2（decision 034）也已完成。2026-10-22 使用者授權以
 > Claude Haiku 5.5 跑同一組 Study 2 題目的跨模型比較（decision 035，付費 API），2026-10-23 完成：108 / 108 成功（天花板，不跑 sweep），花費 $0.117。2026-10-23 使用者核准第三輪研究 Study 3（decision 036：更難的分級任務，本機模型與 Haiku 5.5 都跑，Haiku 硬上限 40 美元），2026-10-29 完成：兩個 agent 的分級都有效；RQ1 本機模型「無法判斷」（可判定的曲線只有 5 條）、Haiku「以驟降為主」（13 / 15）；Haiku 花費 $7.32。結論的分類見下方「結論的分類」。下面的示範是 **synthetic policy，不是 LLM 結果**。
@@ -374,3 +374,7 @@ uv run python -m experiments.study3_report --agent haiku --sweep-run runs/study3
   （decision 036 事先揭露）。dev 審查判定不是缺陷、但寫進報告的 6 項候選疑慮（例如 epic-closeout H3 逐一讀取做不完）列在兩份結果頁的
   「已知限制」；eval 的 comment 稽核有 1 則疑似評分寬鬆（本機、成功的 episode），依登記不改變評分（decision 036「實作紀錄」）。
 - 其他已知限制見 [NEXT.md](NEXT.md)。
+
+## 授權
+
+原創程式碼以 BSD-3-Clause 授權，見 [LICENSE](LICENSE)。

@@ -4,7 +4,7 @@
 
 **本 Project 以 Mac 為主要開發環境。**
 
-2026-10-11 起，Core 的 LLM 改用台中 `gpu-server`（RTX 5070 Ti）上以 Ollama 執行的本機模型（decision 026）。
+2026-10-11 起，Core 的 LLM 改用遠端 `gpu-server`（RTX 5070 Ti）上以 Ollama 執行的本機模型（decision 026）。
 所以只有「模型推論」需要遠端；其他所有工作都留在 Mac。遠端不可用時，只把需要模型的步驟標記 blocked，其他工作繼續。
 
 ## Mac 上負責

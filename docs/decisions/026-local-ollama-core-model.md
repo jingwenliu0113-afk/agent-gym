@@ -1,4 +1,4 @@
-# 026 — Core 改用自行部署的本機模型（台中 gpu-server 的 Ollama）；付費 API 改為 Optional
+# 026 — Core 改用自行部署的本機模型（遠端 gpu-server 的 Ollama）；付費 API 改為 Optional
 
 日期：2026-10-11　狀態：採用（使用者 2026-10-11 指示）。本文件決定架構與流程；正式設定的凍結見 §5
 （凍結值待遠端可用、開發題測試之後另立 decision，並經使用者確認）。
@@ -8,10 +8,10 @@
 
 - 使用者 2026-10-11 指示：Core 改用免費、自行部署的 LLM，暫時不使用任何付費雲端 API。之後如果取得 Claude Max 方案的免費 API 額度，
   再考慮使用。
-- 正式模型預計使用 `Qwen3.5-9B Q4_K_M`，透過台中 `gpu-server` 的 Ollama 執行。incident-investigator 正在同一台機器部署相同的模型。
+- 正式模型預計使用 `Qwen3.5-9B Q4_K_M`，透過遠端 `gpu-server` 的 Ollama 執行。incident-investigator 正在同一台機器部署相同的模型。
 - 指示的限制：
   1. 不得自行重新安裝 Ollama，也不得重複下載模型。
-  2. 先完成 adapter、tool calling、JSON 格式驗證，以及其他不需要 GPU 的 Core 工作。adapter 要依目前架構選擇，優先支援台中 Ollama，
+  2. 先完成 adapter、tool calling、JSON 格式驗證，以及其他不需要 GPU 的 Core 工作。adapter 要依目前架構選擇，優先支援遠端 Ollama，
      並保留未來更換模型的彈性。
   3. 遠端服務可用後，先用少量 Issue Tracker 開發題測試，確認模型能正確呼叫工具。
   4. 正式模型、量化版本、prompt、tool schema、推論參數與預算必須先凍結。

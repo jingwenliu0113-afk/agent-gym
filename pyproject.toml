@@ -3,6 +3,8 @@ name = "agent-gym"
 version = "0.0.1"
 description = "Agent Gym + Replay: resettable, replayable stateful environment for agent recoverability research"
 requires-python = ">=3.12"
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
 dependencies = []
 
 [project.optional-dependencies]

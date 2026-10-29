@@ -7,7 +7,7 @@
 **Study 3 已完成（2026-10-29）**：兩個 agent 的分級（RQ2）都有效；RQ1 本機「無法判斷」（可判定的曲線只有 5 條，cliff 3 / 5）、Haiku「以驟降為主」
 （cliff 13 / 15，Wilson 95% CI [0.621, 0.963]）；RQ3 兩者都沒有「成功但不安全」。Haiku 總帳 $7.32 / 40。結果在 `docs/results/study3/`、
 `docs/results/study3-haiku/` 與 README，經過與解讀在 decision 036「實作紀錄」。依 036 §10 只有一輪；沒有進行中的研究，也沒有待使用者處理的事項。
-**2026-10-11 起 Core 的 LLM 改用自行部署的本機模型**（`qwen3.5:9b-q4_K_M`，台中 gpu-server 的 Ollama；decision 026）；付費 API 改為 Optional。
+**2026-10-11 起 Core 的 LLM 改用自行部署的本機模型**（`qwen3.5:9b-q4_K_M`，遠端 gpu-server 的 Ollama；decision 026）；付費 API 改為 Optional。
 **2026-10-15**：本 Project 在 GPU lock 內啟動自己的 Ollama server（與 incident-investigator 共用模型檔案、共用目錄只讀；decision 029），
 已在 gpu-server 實測：server 檢查、截斷自我測試、開發題測試（15 / 15 成功）全部通過，每次結束都確認 server 已停止、共用目錄沒有改變、
 lock 已釋放。**2026-10-16 使用者確認凍結**（decision 030 採用；config_id `sha256:9feb8eb7…a87`），並要求每次呼叫的 seed
@@ -249,7 +249,7 @@ Git：獨立 repo、分支 `main`，`origin` = private GitHub repo（github.com/
 
 ## 使用者決策（2026-10-08 / 10-09 / 10-11）
 
-- **（2026-10-11）Core 改用免費、自行部署的 LLM**（decision 026）：正式模型預計 `Qwen3.5-9B Q4_K_M`，透過台中 gpu-server 的 Ollama
+- **（2026-10-11）Core 改用免費、自行部署的 LLM**（decision 026）：正式模型預計 `Qwen3.5-9B Q4_K_M`，透過遠端 gpu-server 的 Ollama
   執行；暫時不使用任何付費雲端 API（之後若取得 Claude Max 方案的免費 API 額度會考慮）。不得自行重新安裝 Ollama 或重複下載模型；
   先完成不需要 GPU 的工作；遠端可用後先做少量開發題測試；正式模型、量化版本、prompt、tool schema、推論參數與預算必須先凍結；
   正式 GPU 實驗使用 `/tmp/ai-portfolio-gpu.lock`，被占用就改做其他工作；原本的付費 API 保留為 Optional，不再是 Core blocker。

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 在台中 gpu-server 的 GPU lock 內啟動 agent-gym 自己的 Ollama server、執行一個指令，結束時停止 server、釋放 lock
+# 在遠端 gpu-server 的 GPU lock 內啟動 agent-gym 自己的 Ollama server、執行一個指令，結束時停止 server、釋放 lock
 # （decision 026 §6、028 §4、029、031；MACHINE_POLICY）。
 #
 #   tools/with-gpu-lock [--lock-file PATH] [--local-port N] [--remote-port N] [--server-log PATH] -- <command> [args...]

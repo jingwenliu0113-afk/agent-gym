@@ -41,3 +41,10 @@
 - 任何會改變實驗設計的決策都必須留下 decision log。
 - 每次 session 結束前更新 `NEXT.md`。
 - 如果發現 SPEC 與程式現況不一致，先記錄差異，再處理，不要默默改規格。
+
+## 公開與授權
+
+- GitHub remote：`origin`，**Public**（使用者 2026-10-29 核准），https://github.com/jingwenliu0113-afk/agent-gym。
+- **授權：BSD-3-Clause**（原創程式碼，`LICENSE`、`pyproject.toml` 一致）。不得加入 GPL / AGPL 依賴；加入第三方內容時保留原授權並另外列出。
+- 本 repo 的 commit email 已設為 GitHub noreply（repo-local git config）；不得改寫 Git 歷史、不得 force push。
+- 不得 commit credential、`runs/`、實驗產物與大型檔案；也不得寫入遠端主機的帳號、IP、私有主機名稱或所在地點。

@@ -18,6 +18,16 @@
 | 測試 / 重現 | 工作目錄全部通過；**乾淨 clone**（沒有 `runs/`）：11,193 個測試收集，全部通過，6 個跳過（5 個需要原始 run 目錄、1 個 Linux 專用） |
 | 未登入存取 | repo 首頁、README、LICENSE、`experiments/`、Study 3 結果頁、raw README 與曲線圖都回傳 200；匿名 `git clone` 成功 |
 | 之後 | 作品集呈現（英文 README、`README.zh-TW.md`、輕量 GitHub Actions CI）依使用者決定在公開後進行，只改呈現，不改研究 |
+
+**作品集呈現（2026-10-30，decision 037；只改呈現，不改研究）**：
+
+| 項目 | 內容 |
+|---|---|
+| 英文 README | `README.md` 改為完整英文版：摘要（問題、方法、主要結果、範圍）→ synthetic 示範 → 各輪結果 → 架構 → 工程重點 → 快速開始 → 研究紀律、限制、狀態、授權。數字由 `tests/test_readme_claims.py` 對照已 commit 的 `summary.json` |
+| 繁體中文 README | 原內容原樣移到 `README.zh-TW.md`（只加語言連結、指令中的檔名改為 zh-TW）；程式產生的段落都留在這裡，逐 byte 不變 |
+| 封存 | `round1-seal.json` 不改：鍵 `README.md#results` 保留，`round1_seal` 改從 `README.zh-TW.md` 讀這個段落，sha256 相同（`round1_seal --check` OK）；`results_report` 拒絕兩份 README |
+| CI | GitHub Actions（ubuntu-24.04）：ruff、第一輪封存檢查、完整 pytest（測試檔輪流分到 6 個平行 job）。第一次以單一 job 執行在 45 分鐘時只跑到 73% 而被取消（沒有失敗）；分片後 2026-10-30 通過，最慢的分片約 15 分鐘，只跳過 5 個需要 `runs/` 的測試（Linux 專用的測試在 CI 上有執行並通過）。公開 repo 的 Actions 不計入額度 |
+| 測試 | 工作目錄全部通過；新增 `tests/test_readme_claims.py`、`tests/test_publication.py` 的雙語連結檢查 |
 **2026-10-11 起 Core 的 LLM 改用自行部署的本機模型**（`qwen3.5:9b-q4_K_M`，遠端 gpu-server 的 Ollama；decision 026）；付費 API 改為 Optional。
 **2026-10-15**：本 Project 在 GPU lock 內啟動自己的 Ollama server（與 incident-investigator 共用模型檔案、共用目錄只讀；decision 029），
 已在 gpu-server 實測：server 檢查、截斷自我測試、開發題測試（15 / 15 成功）全部通過，每次結束都確認 server 已停止、共用目錄沒有改變、

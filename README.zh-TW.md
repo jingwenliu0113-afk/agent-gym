@@ -331,7 +331,7 @@ uv run python -m experiments.study3_report --agent haiku --sweep-run runs/study3
 - Study 2 RQ1：事先登記的判定是「以驟降為主」（`mostly_cliff`）：可判定的失敗曲線中 cliff 4 / 4，Wilson 95% CI [0.510, 1.000]，
   4 條都是行為性 cliff。**證據很弱**：可判定的曲線只有 4 條，n = 4 時只有 4 / 4 能讓 CI 下限超過 0.5（4 / 5 時 CI 為 [0.376, 0.964]，
   就會是「無法判斷」）；另有 1 條無法判定。判定也取決於區間方法：同樣的 4 / 4 改用精確的 Clopper–Pearson 95% 區間是 [0.398, 1.000]
-  （下限 0.025^(1/4)），包含 0.5，依同一條規則就是「無法判斷」（decision 038；登記的判定不變）。這個判定只說明這 4 條曲線的形狀，
+  （下限 0.025^(1/4)），包含 0.5，依同一條規則就是「無法判斷」（事後的穩健性附註，不是事先登記的分析；decision 038；登記的判定不變）。這個判定只說明這 4 條曲線的形狀，
   不足以推廣到其他模型或題目。
 - Claude Haiku 5.5（decision 035，同一組 36 題與協定）：eval baseline 108 / 108 success、全部安全，沒有任何 forbidden action
   或 tool 錯誤；完全天花板，依事先登記的規則不跑 sweep。付費 API 的實際花費 $0.117（預算 70 美元）。

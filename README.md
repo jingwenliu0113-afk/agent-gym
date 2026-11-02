@@ -103,8 +103,8 @@ by `tests/test_readme_claims.py`.
   8 tasks have curves for both, all of them undecidable for the local model; the decidable curves behind 3/5 and
   13/15 share no task), so their cliff ratios are reported side by side and are not compared statistically. The
   Study 3 result pages keep a pre-registered sentence that states this too absolutely (the failures "came from
-  different tasks") and expected the local model's failures mainly at H1/H2, which did not hold;
-  [decision 038](docs/decisions/038-readme-caveats-and-compare-note-correction.md) records the correction.
+  different tasks") and expected the local model's failures mainly at H1/H2, which did not hold
+  (its failed sources are 16 / 19 / 18 at H1 / H2 / H3); [decision 038](docs/decisions/038-readme-caveats-and-compare-note-correction.md) records the correction.
 - Compute and cost: the local sweep used 26,642 of its 80,000-call cap; all paid Haiku calls in Study 3 cost
   **$7.32** (cap $40).
 
@@ -131,7 +131,8 @@ come from, or are computed from, the committed result files, and their derivatio
 4. **Interval method (local model, Study 2 RQ1).** The verdict uses the pre-registered Wilson interval, whose lower
    bound for 4/4 is 0.510. An exact Clopper–Pearson 95% interval for the same 4/4 is [0.398, 1.000] (lower bound
    0.025^(1/4), computed from the committed counts); it contains 0.5, so by the same three-way rule the result would be
-   undeterminable.
+   undeterminable. This is a post-hoc robustness check, not a pre-registered analysis; the registered Wilson
+   verdict stands.
 
 Full result pages (in Traditional Chinese): [round 1](docs/results/README.md), [Study 2](docs/results/study2/README.md),
 [Study 2, Haiku](docs/results/study2-haiku/README.md), [Study 3, local](docs/results/study3/README.md),

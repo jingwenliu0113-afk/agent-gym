@@ -77,6 +77,7 @@ def test_study2_interval_caveat() -> None:
     exact_low = 0.025 ** (1 / rq1["n"])
     assert exact_low < 0.5 and _ci(exact_low, 1.0) in PROSE  # 包含 0.5：同一條三分規則下是「無法判斷」
     assert f"0.025^(1/{rq1['n']})" in PROSE
+    assert "This is a post-hoc robustness check, not a pre-registered analysis" in PROSE
 
 
 def test_study3_local_caveats() -> None:
@@ -129,6 +130,10 @@ def test_study3_failed_sources_overlap() -> None:
     overlap = set(local["sources"]["failed"]) & set(haiku["sources"]["failed"])
     assert 0 < len(overlap) < min(local["sources"]["n_failed"], haiku["sources"]["n_failed"])
     assert f"({len(overlap)} of Haiku's {haiku['sources']['n_failed']} failed sources also failed for the local model;" in PROSE
+    # 「本機主要在 H1 / H2」不成立：本機失敗的 source 在三個級別大致平均
+    by_level = [local["sources"]["by_level"][h]["n_failed"] for h in ("H1", "H2", "H3")]
+    assert sum(by_level) == local["sources"]["n_failed"]
+    assert f"(its failed sources are {' / '.join(map(str, by_level))} at H1 / H2 / H3)" in PROSE
     classes = [{c["task_id"]: c["class"] for c in a["curves"]} for a in (local, haiku)]
     assert [len(c) for c in classes] == [len(local["curves"]), len(haiku["curves"])]  # 每題最多一條曲線
     both = classes[0].keys() & classes[1].keys()

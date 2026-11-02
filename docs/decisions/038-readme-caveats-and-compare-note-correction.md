@@ -6,7 +6,7 @@
 
 ## 背景
 
-1. 英文 `README.md`（decision 037）寫 Study 3「分級對兩個 agent 都有效」、Study 2「以驟降為主（4 / 4）」，但沒有附上下面的條件
+1. 英文 `README.md`（decision 037）寫 Study 3「分級對兩個 agent 都有效」、Haiku 的 Study 3 RQ1「以驟降為主（13 / 15）」與 Study 2「以驟降為主（4 / 4）」，但沒有附上下面的條件
    （只在 Haiku 的 RQ1 提到 epic-closeout H3 用完 turn，沒有用在分級）。條件 1–3 的數字取自已 commit 的結果檔，或由其中的計數與
    比例直接算出；條件 4 由結果檔的計數計算。英文版又寫「下面所有數字都由 `tests/test_readme_claims.py` 檢查」，但這個測試只以子字串
    比對主要的數字（18 個）。

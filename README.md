@@ -64,8 +64,9 @@ from code and checked by the tests: see the demo section of [README.zh-TW.md](RE
 
 ## Key results
 
-All numbers below come from the committed result files (`docs/results/*/summary.json`) and are checked by
-`tests/test_readme_claims.py`.
+All numbers below come from, or are computed from, the committed result files (`docs/results/*/summary.json`) and
+the Study 3 freeze record (`docs/decisions/036-freeze-record.json`). Key numbers are checked against the result files
+by `tests/test_readme_claims.py`.
 
 ### Round 1: the Core experiment (local model, 15 tasks; decisions 025, 030, 033)
 

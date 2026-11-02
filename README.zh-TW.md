@@ -16,7 +16,7 @@ Task → Agent actions → state changes → grader → replay from checkpoint
 > （`qwen3.5:9b-q4_K_M`，遠端 gpu-server 的 Ollama，decision 026）；付費 API 為 Optional。本 Project 在 GPU lock 內啟動自己的
 > Ollama server（與 incident-investigator 共用模型檔案，decision 029）。第一輪正式實驗（設定凍結，decision 030）已完成並封存：
 > Gate `gradual`、天花板效應、不進 Advanced。獨立的第二輪研究 Study 2（decision 034）也已完成。2026-10-22 使用者授權以
-> Claude Haiku 5.5 跑同一組 Study 2 題目的跨模型比較（decision 035，付費 API），2026-10-23 完成：108 / 108 成功（天花板，不跑 sweep），花費 $0.117。2026-10-23 使用者核准第三輪研究 Study 3（decision 036：更難的分級任務，本機模型與 Haiku 5.5 都跑，Haiku 硬上限 40 美元），2026-10-29 完成：兩個 agent 的分級都有效；RQ1 本機模型「無法判斷」（可判定的曲線只有 5 條）、Haiku「以驟降為主」（13 / 15）；Haiku 花費 $7.32。結論的分類見下方「結論的分類」。下面的示範是 **synthetic policy，不是 LLM 結果**。
+> Claude Haiku 5.5 跑同一組 Study 2 題目的跨模型比較（decision 035，付費 API），2026-10-23 完成：108 / 108 成功（天花板，不跑 sweep），花費 $0.117。2026-10-23 使用者核准第三輪研究 Study 3（decision 036：更難的分級任務，本機模型與 Haiku 5.5 都跑，Haiku 硬上限 40 美元），2026-10-29 完成：兩個 agent 的分級都有效（依事先登記的檢定；附條件見「結論的分類」與 decision 038）；RQ1 本機模型「無法判斷」（可判定的曲線只有 5 條）、Haiku「以驟降為主」（13 / 15）；Haiku 花費 $7.32。結論的分類見下方「結論的分類」。下面的示範是 **synthetic policy，不是 LLM 結果**。
 
 ## 示範：replay 能回答什麼（synthetic，keyless，可重現）
 
@@ -94,9 +94,9 @@ Task → Agent actions → state changes → grader → replay from checkpoint
 | 實驗腳本 | `experiments/` | baseline / sweep 的執行（dry-run、本機模型的呼叫次數上限與 GPU lock、Optional 的成本上限、manifest）、偵測力模擬、預先登記的分析、本機模型的檢查與開發題彙整（`local_probe`）、第一輪的報告與封存（`results_report`、`round1_seal`）；Study 2 的 dev 驗證與估算（`study2_dev`）、凍結紀錄（`study2_freeze`）、分析（`study2_analysis`）與報告（`study2_report`）；Study 3 的 context 檢查（`study3_context`）、統計與 sweep 計畫（`study3_stats`、`study3_plan`）、dev 審查與估算（`study3_dev`）、凍結紀錄（`study3_freeze`）、分析（`study3_analysis`）與報告（`study3_report`）；付費呼叫的總帳（`billing`） |
 | GPU lock 與 server | `tools/with-gpu-lock`、`agents/ollama_serve.py` | 在 gpu-server 的 GPU lock 內啟動本 Project 自己的 Ollama server（共用的模型檔案只讀）、確認通道接到這次的 server、結束時停止並比對快照（decision 029） |
 
-所有實驗設計與格式變更都記在 [docs/decisions/](docs/decisions/)（001–037），包含預先登記的統計協定（005）、baseline 設定（009）、
+所有實驗設計與格式變更都記在 [docs/decisions/](docs/decisions/)（001–038），包含預先登記的統計協定（005）、baseline 設定（009）、
 failure localization 協定（010 / 013）、偵測力模擬（011）、run 協定（012 / 025）、本機模型（026 – 028）、自己的 Ollama server（029 / 031）、
-設定凍結（030）、逐次呼叫紀錄（032）、結果報告（033）、第二輪研究 Study 2（034：已核准、凍結並完成；凍結紀錄 `034-freeze-record.json`）、Claude Haiku 5.5 的跨模型比較（035）、第三輪研究 Study 3（036：兩個 agent；凍結紀錄 `036-freeze-record.json`）、公開後的雙語 README 與 CI（037）、分析規則（016 / 017）、中斷後續跑與寫入的規則（018 – 020 / 023 / 024）與 dry-run 輸出的區分（021 / 022）。
+設定凍結（030）、逐次呼叫紀錄（032）、結果報告（033）、第二輪研究 Study 2（034：已核准、凍結並完成；凍結紀錄 `034-freeze-record.json`）、Claude Haiku 5.5 的跨模型比較（035）、第三輪研究 Study 3（036：兩個 agent；凍結紀錄 `036-freeze-record.json`）、公開後的雙語 README 與 CI（037）、README 判定的附條件與 Study 3 並列措辭的更正（038）、分析規則（016 / 017）、中斷後續跑與寫入的規則（018 – 020 / 023 / 024）與 dry-run 輸出的區分（021 / 022）。
 
 ## 怎麼跑
 
@@ -312,6 +312,14 @@ uv run python -m experiments.study3_report --agent haiku --sweep-run runs/study3
 
 <!-- study3-compare:end -->
 
+> **更正（decision 038）**：上面粗體的那句是 decision 036 事先寫定、由程式產生的措辭，依登記保留原文；它的前半說得太絕對，括號中的
+> 預期只有一半成立。兩者的失敗部分重疊，並非全部來自不同的題：Haiku 的 19 條失敗 source 中 13 條本機也失敗；兩個 agent 都有曲線的題
+> 8 題，這 8 條在本機都無法判定，所以 3 / 5 與 13 / 15 背後的可判定曲線沒有共同的題。本機失敗的 source 是 H1 16、H2 19、H3 18，
+> 不是主要在 H1 / H2；「Haiku 主要在 H3」成立（14 / 19）。「cliff 比例的差異不能歸因於 agent」與不合併、不做 agent 之間檢定的規則
+> 不變，理由是兩個 agent 的曲線來自部分重疊、但不相同的題，而且各自從自己的 trajectory 重跑。兩份結果頁
+> （[本機](docs/results/study3/README.md)、[Haiku](docs/results/study3-haiku/README.md)）的同一句也以
+> [decision 038](docs/decisions/038-readme-caveats-and-compare-note-correction.md) 為準。
+
 ## 結論的分類（2026-10-19 結案；2026-10-23 加入 Claude Haiku 5.5 的跨模型比較；2026-10-29 加入 Study 3）
 
 **已證實的結論**（事先登記的分析；只適用於各自的 agent 與各自的題目）
@@ -322,16 +330,25 @@ uv run python -m experiments.study3_report --agent haiku --sweep-run runs/study3
   未成功的 7 個 episode 分布在 5 題，依 source 規則 B 每題取一條，所以 sweep 有 5 條失敗的 source。
 - Study 2 RQ1：事先登記的判定是「以驟降為主」（`mostly_cliff`）：可判定的失敗曲線中 cliff 4 / 4，Wilson 95% CI [0.510, 1.000]，
   4 條都是行為性 cliff。**證據很弱**：可判定的曲線只有 4 條，n = 4 時只有 4 / 4 能讓 CI 下限超過 0.5（4 / 5 時 CI 為 [0.376, 0.964]，
-  就會是「無法判斷」）；另有 1 條無法判定。這個判定只說明這 4 條曲線的形狀，不足以推廣到其他模型或題目。
+  就會是「無法判斷」）；另有 1 條無法判定。判定也取決於區間方法：同樣的 4 / 4 改用精確的 Clopper–Pearson 95% 區間是 [0.398, 1.000]
+  （下限 0.025^(1/4)），包含 0.5，依同一條規則就是「無法判斷」（decision 038；登記的判定不變）。這個判定只說明這 4 條曲線的形狀，
+  不足以推廣到其他模型或題目。
 - Claude Haiku 5.5（decision 035，同一組 36 題與協定）：eval baseline 108 / 108 success、全部安全，沒有任何 forbidden action
   或 tool 錯誤；完全天花板，依事先登記的規則不跑 sweep。付費 API 的實際花費 $0.117（預算 70 美元）。
   跨模型比較只做描述（decision 035 §5）：同樣的題目，本機模型有 7 個 episode 未成功，Haiku 沒有；不做模型之間的假設檢定。
 - Study 3（decision 036，generator v3，eval 96 題 × R = 3，兩個 agent 各自分析）：
   - **分級（RQ2）對兩個 agent 都有效**：本機 success H1 0.573、H2 0.385、H3 0.260（H1 − H3 = 0.312，95% CI [0.115, 0.510]，置換檢定
     p = 0.0033）；Haiku H1 0.979、H2 0.948、H3 0.708（H1 − H3 = 0.271，95% CI [0.146, 0.406]，p = 0.00011）。「有效」只表示 H1 > H3。
+    - 附條件（decision 038）：本機 288 個 episode 中 67 個是 agent_error（H1 / H2 / H3 = 6 / 23 / 38，計為未成功）；事先登記的敏感度
+      分析排除它們之後，H1 − H3 從 0.312 降為 0.222，H2、H3 各 32 題中只剩 30、25 題還有 episode（只描述，不做檢定）。Haiku 在
+      epic-closeout H3 的 24 個 episode（8 題 × 3）全部以 max_turns 結束（§3 (c) 登記的限制），其中失敗的 12 個占 Haiku H3 28 個
+      失敗中的 12 個。本機也有 2 個 H2、12 個 H3 的 episode 以 max_turns 結束（H1 沒有）；上述敏感度分析只排除 agent_error，
+      所以仍包含它們。
   - **Haiku 的 RQ1：以驟降為主**（`mostly_cliff`）：可判定的失敗曲線中 cliff 13 / 15，Wilson 95% CI [0.621, 0.963]；行為性 12、機械性 1；
     排除機械性 cliff 之後的行為性比例 12 / 14（[0.601, 0.960]）也成立；034 的 max_turns 敏感度、agent_error 敏感度與第一輪的規則
     都是 13 / 15。19 條失敗的 source 全部 sweep；4 條無法判定的都是 epic-closeout H3（以 max_turns 結束，§3 (c) 登記的讀法限制）。
+    - 附條件（decision 038）：15 條可判定的曲線只來自 4 個題型中的 2 個（sync-repair 10、scoped-triage 5；cliff 8、5）。Wilson 區間把
+      15 條當成獨立，沒有針對題型調整。
   - **本機模型的 RQ1：無法判斷**：25 條曲線中只有 5 條可判定（cliff 3 / 5，Wilson 95% CI [0.231, 0.882]；逐步 2）；20 條無法判定，
     其中 16 條在每個 checkpoint 的 P(success | k) 都 ≤ 0.2（從 source 的任一 checkpoint 重跑也很少成功）。可判定的比例 0.2 遠低於
     凍結時的假設 0.8。
@@ -349,7 +366,8 @@ uv run python -m experiments.study3_report --agent haiku --sweep-run runs/study3
   跨模型比較也無法補強 Study 2 RQ1 只有 4 條曲線的弱點。
 - Study 3 本機模型的 RQ1 沒有結論（上述）；Study 3 的兩個 agent 只並列描述（RQ1-X），不合併、不做 agent 之間的檢定：兩者的曲線
   來自部分重疊、但不相同的題（Haiku 的 19 條失敗 source 中 13 條本機也失敗；兩個 agent 都有曲線的題 8 題），而且各自從自己的
-  trajectory 重跑，cliff 比例的差異不能歸因於 agent。
+  trajectory 重跑，cliff 比例的差異不能歸因於 agent。並列段落與兩份結果頁中事先寫定的「兩個 agent 的失敗來自不同的題…」與這些
+  數字不完全一致，更正見 decision 038。
 - Study 2、跨模型比較與 Study 3 都不做任何 Gate 判定，也不重新開啟 Core Gate；Advanced 維持關閉。
 
 **探索性發現**（看過結果之後整理；不是結論，只作為未來研究的假設）
@@ -375,6 +393,8 @@ uv run python -m experiments.study3_report --agent haiku --sweep-run runs/study3
   只部分重疊，所以 RQ1 只能各自解讀。題目參考了 Study 2 的失敗類型，並刻意包含會造成機械性 cliff 的不可撤回 comment
   （decision 036 事先揭露）。dev 審查判定不是缺陷、但寫進報告的 6 項候選疑慮（例如 epic-closeout H3 逐一讀取做不完）列在兩份結果頁的
   「已知限制」；eval 的 comment 稽核有 1 則疑似評分寬鬆（本機、成功的 episode），依登記不改變評分（decision 036「實作紀錄」）。
+- Study 2 與 Study 3 判定的附條件（agent_error、max_turns、題型集中、區間方法）見上面「結論的分類」與
+  [decision 038](docs/decisions/038-readme-caveats-and-compare-note-correction.md)。
 - 其他已知限制見 [NEXT.md](NEXT.md)。
 
 ## 授權

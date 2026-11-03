@@ -36,12 +36,16 @@ run. A sudden drop in that curve locates the step where the run became unrecover
   - **Round 1** (15 tasks): **45/45** episodes succeeded, all safe; **480 reruns** found no cliff. The Core Gate result
     is `gradual`, which here means a ceiling effect (nothing failed), not evidence that failures build up slowly.
   - **Study 2** (36 graded tasks): the local model failed 7 of 108 episodes. Its failure curves were mostly cliffs,
-    **4/4** decidable curves (Wilson 95% CI **[0.510, 1.000]**), which is weak evidence from only four curves.
-    Claude Haiku 5.5 solved **108/108** (ceiling, no sweep) for **$0.117**.
-  - **Study 3** (96 harder tasks, levels H1–H3): difficulty grading is valid for both agents. For Claude Haiku 5.5,
-    failures are **mostly cliffs: 13/15** decidable curves (Wilson 95% CI **[0.621, 0.963]**). For the local model the
-    question stays open: only 5 of 25 curves were decidable, cliffs **3/5** (CI **[0.231, 0.882]**). Neither agent
-    had a successful-but-unsafe episode. The paid runs cost **$7.32** of a $40 cap.
+    **4/4** decidable curves (Wilson 95% CI **[0.510, 1.000]**), which is weak evidence from only four curves; with an
+    exact (Clopper–Pearson) interval the same 4/4 would be undeterminable ([caveats](#caveats)). Claude Haiku 5.5
+    solved **108/108** (ceiling, no sweep) for **$0.117**.
+  - **Study 3** (96 harder tasks, levels H1–H3): difficulty grading is valid for both agents by the pre-registered
+    test, which only means H1 > H3; the gap includes agent-error episodes (local model) and turn-limit episodes
+    (both agents; for Haiku all on one task family), see [caveats](#caveats). For Claude Haiku 5.5, failures are
+    **mostly cliffs: 13/15** decidable curves (Wilson 95% CI **[0.621, 0.963]**), all from two of the four task
+    families. For the local model the question stays open: only 5 of 25 curves were decidable, cliffs **3/5**
+    (CI **[0.231, 0.882]**). Neither agent had a successful-but-unsafe episode. The paid runs cost **$7.32** of a
+    $40 cap.
 - **Scope.** One synthetic domain, two agents, task sets of 15 to 96 tasks. The results describe these agents on these
   tasks and are not claims about LLM agents in general.
 
@@ -64,8 +68,9 @@ from code and checked by the tests: see the demo section of [README.zh-TW.md](RE
 
 ## Key results
 
-All numbers below come from the committed result files (`docs/results/*/summary.json`) and are checked by
-`tests/test_readme_claims.py`.
+All numbers below come from, or are computed from, the committed result files (`docs/results/*/summary.json`) and
+the Study 3 freeze record (`docs/decisions/036-freeze-record.json`). Key numbers are checked against the result files
+by `tests/test_readme_claims.py`.
 
 ### Round 1: the Core experiment (local model, 15 tasks; decisions 025, 030, 033)
 
@@ -79,27 +84,55 @@ All numbers below come from the committed result files (`docs/results/*/summary.
 
 | | L1 / L2 / L3 success | Grading (L1 > L3) | RQ1: are failures mostly cliffs? |
 |---|---|---|---|
-| Local model | 0.972 / 0.917 / 0.917 | not valid (CI [−0.028, 0.167]) | mostly cliff, **4/4**, CI **[0.510, 1.000]**: weak evidence |
+| Local model | 0.972 / 0.917 / 0.917 | not valid (CI [−0.028, 0.167]) | mostly cliff, **4/4**, Wilson CI **[0.510, 1.000]**: weak evidence ([caveat 4](#caveats)) |
 | Claude Haiku 5.5 | 1.000 / 1.000 / 1.000 | not valid | not applicable: **108/108** succeeded (ceiling) |
 
 ### Study 3: harder graded tasks, both agents (96 tasks, levels H1–H3; decision 036)
 
 | | H1 / H2 / H3 success | Grading: H1 − H3 | RQ1: are failures mostly cliffs? | Safety |
 |---|---|---|---|---|
-| Local model | 0.573 / 0.385 / 0.260 | **0.312**, valid (permutation p = 0.0033) | **undeterminable**: 3/5, CI **[0.231, 0.882]** | 0 successful-but-unsafe |
-| Claude Haiku 5.5 | 0.979 / 0.948 / 0.708 | **0.271**, valid (p = 0.00011) | **mostly cliff**: 13/15, CI **[0.621, 0.963]** | 0 successful-but-unsafe |
+| Local model | 0.573 / 0.385 / 0.260 | **0.312**, valid (permutation p = 0.0033); 0.222 without agent errors; H2 and H3 also include turn-limit episodes ([caveats 1–2](#caveats)) | **undeterminable**: 3/5, CI **[0.231, 0.882]** | 0 successful-but-unsafe |
+| Claude Haiku 5.5 | 0.979 / 0.948 / 0.708 | **0.271**, valid (p = 0.00011); H3 includes turn-limit episodes ([caveat 2](#caveats)) | **mostly cliff**: 13/15, CI **[0.621, 0.963]**, two task families ([caveat 3](#caveats)) | 0 successful-but-unsafe |
 
 - Haiku: 12 of the 13 cliffs are behavioural (the remaining one is caused by an irreversible comment); the
   behavioural-only ratio, 12/14, is also mostly cliff. The 4 undecidable curves are all from one task family whose
   hardest level runs out of turns (a limitation registered before the evaluation).
 - Local model: 20 of its 25 curves were undecidable; in 16 of them the agent rarely succeeds from *any* checkpoint
   (P̂ ≤ 0.2 everywhere), so there is no drop to detect. The frozen plan assumed that 80% of curves would be decidable.
-- The two agents failed on partly different tasks, so their cliff ratios are reported side by side and are not
-  compared statistically.
+- The two agents failed on partly different tasks (13 of Haiku's 19 failed sources also failed for the local model;
+  8 tasks have curves for both, all of them undecidable for the local model; the decidable curves behind 3/5 and
+  13/15 share no task), so their cliff ratios are reported side by side and are not compared statistically. The
+  Study 3 result pages keep a pre-registered sentence that states this too absolutely (the failures "came from
+  different tasks") and expected the local model's failures mainly at H1/H2, which did not hold
+  (its failed sources are 16 / 19 / 18 at H1 / H2 / H3); [decision 038](docs/decisions/038-readme-caveats-and-compare-note-correction.md) records the correction.
 - Compute and cost: the local sweep used 26,642 of its 80,000-call cap; all paid Haiku calls in Study 3 cost
   **$7.32** (cap $40).
 
 ![Study 3, Claude Haiku 5.5: recoverability curves](docs/results/study3-haiku/recoverability.svg)
+
+### Caveats
+
+The verdicts above follow the pre-registered rules and are unchanged. Read them with the conditions below; the numbers
+come from, or are computed from, the committed result files, and their derivations are recorded in
+[decision 038](docs/decisions/038-readme-caveats-and-compare-note-correction.md).
+
+1. **Agent errors (local model, Study 3 grading).** 67 of its 288 evaluation episodes ended in `agent_error`
+   (6 / 23 / 38 at H1 / H2 / H3): the model's output could not become a valid turn, for example because it was
+   truncated, and such episodes count as unsuccessful. In the pre-registered sensitivity analysis that excludes them,
+   H1 − H3 falls from 0.312 to 0.222, and only 30 of the 32 H2 tasks and 25 of the 32 H3 tasks still have an episode
+   (reported only, not tested).
+2. **Turn limit (Study 3 grading; Haiku RQ1).** All 24 Haiku episodes on epic-closeout H3 (8 tasks × 3) ended at
+   the turn limit, the limitation registered before the evaluation. The 12 of them that failed are 12 of Haiku's 28 H3
+   failures, and their 4 sources are the 4 undecidable curves. The local model also ended 2 H2 and 12 H3 episodes at
+   the turn limit (none at H1); the sensitivity analysis in caveat 1 excludes only agent errors, so it keeps them.
+3. **Two task families (Haiku, Study 3 RQ1).** The 15 decidable curves come from two of the four task families
+   (sync-repair 10, scoped-triage 5; cliffs 8 and 5): epic-closeout's 4 curves are undecidable and verified-close had
+   no failed source. The Wilson interval treats the 15 curves as independent; it does not adjust for family.
+4. **Interval method (local model, Study 2 RQ1).** The verdict uses the pre-registered Wilson interval, whose lower
+   bound for 4/4 is 0.510. An exact Clopper–Pearson 95% interval for the same 4/4 is [0.398, 1.000] (lower bound
+   0.025^(1/4), computed from the committed counts); it contains 0.5, so by the same three-way rule the result would be
+   undeterminable. This is a post-hoc robustness check, not a pre-registered analysis; the registered Wilson
+   verdict stands.
 
 Full result pages (in Traditional Chinese): [round 1](docs/results/README.md), [Study 2](docs/results/study2/README.md),
 [Study 2, Haiku](docs/results/study2-haiku/README.md), [Study 3, local](docs/results/study3/README.md),
@@ -153,7 +186,7 @@ the run directories, which are not in the repository. The exact commands for eve
 
 ## Research discipline
 
-- Every design choice is a numbered decision log ([docs/decisions/](docs/decisions/), 001–037), including the
+- Every design choice is a numbered decision log ([docs/decisions/](docs/decisions/), 001–038), including the
   statistical protocol, the cliff criterion and its simulated detection power, the run protocol, and the rules for
   interrupted runs.
 - Metrics, task splits and models are frozen before each evaluation set is run, and each set is run once.
@@ -171,6 +204,8 @@ the run directories, which are not in the repository. The exact commands for eve
 - Study 3's tasks drew on Study 2's failure types and deliberately include irreversible comments, which can cause
   mechanical cliffs; this was disclosed before the evaluation, and the behavioural-only ratio is reported separately.
 - For the local model in Study 3, most curves were undecidable, so its RQ1 has no conclusion.
+- The Study 2 and Study 3 verdicts come with the conditions listed under [Caveats](#caveats): agent errors, a turn
+  limit, two task families and the interval method.
 - One evaluation episode was flagged as possibly graded too leniently (one comment contained both templates); by the
   pre-registered rule this was recorded without changing the grade.
 

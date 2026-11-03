@@ -28,6 +28,13 @@
 | 封存 | `round1-seal.json` 不改：鍵 `README.md#results` 保留，`round1_seal` 改從 `README.zh-TW.md` 讀這個段落，sha256 相同（`round1_seal --check` OK）；`results_report` 拒絕兩份 README |
 | CI | GitHub Actions（ubuntu-24.04）：ruff、第一輪封存檢查、完整 pytest（測試檔輪流分到 6 個平行 job）。第一次以單一 job 執行在 45 分鐘時只跑到 73% 而被取消（沒有失敗）；分片後 2026-10-30 通過，最慢的分片約 15 分鐘，只跳過 5 個需要 `runs/` 的測試（Linux 專用的測試在 CI 上有執行並通過）。公開 repo 的 Actions 不計入額度 |
 | 測試 | 工作目錄全部通過；新增 `tests/test_readme_claims.py`、`tests/test_publication.py` 的雙語連結檢查 |
+
+**README 判定的附條件（2026-11-02，decision 038；只改呈現，不改研究）**：英文 README 新增「Caveats」（本機的 agent_error、兩個 agent
+以 max_turns 結束的 episode、Haiku 的 13 / 15 只來自 2 個題型、Study 2 的 4 / 4 對區間方法不穩健），At a glance、結果表與 Limitations
+指向它；`README.zh-TW.md`「結論的分類」同步。Study 3 並列段落事先寫定的措辭（下方「Study 3 的實作紀錄」第 8 步）說得太絕對，括號中的
+預期只有一半成立；更正記在 decision 038，程式產生的段落、結果頁與 `COMPARE_NOTE` 都不變。英文 README 的主要數字（含附條件）由
+`tests/test_readme_claims.py` 對照 `summary.json`。
+
 **2026-10-11 起 Core 的 LLM 改用自行部署的本機模型**（`qwen3.5:9b-q4_K_M`，遠端 gpu-server 的 Ollama；decision 026）；付費 API 改為 Optional。
 **2026-10-15**：本 Project 在 GPU lock 內啟動自己的 Ollama server（與 incident-investigator 共用模型檔案、共用目錄只讀；decision 029），
 已在 gpu-server 實測：server 檢查、截斷自我測試、開發題測試（15 / 15 成功）全部通過，每次結束都確認 server 已停止、共用目錄沒有改變、
